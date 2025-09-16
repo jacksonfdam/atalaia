@@ -1,0 +1,16 @@
+{
+  "cronSchedule": "0 * * * *",
+  "slack": {
+    "webhookUrl": "${SLACK_WEBHOOK_URL}"
+  },
+  "feeds": {
+    "snyk": "https://security.snyk.io/vuln",
+    "enisa": "https://euvd.enisa.europa.eu/",
+    "cisaJson": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+    "cisaCatalog": "https://www.cisa.gov/known-exploited-vulnerabilities-catalog",
+    "vuldbLive": "https://vuldb.com/?live.updates",
+    "vuldbRss": "https://vuldb.com/?rss.recent",
+    "cveOrg": "https://www.cve.org/Downloads",
+    "cveDetails": "https://www.cvedetails.com/vulnerability-list/updated_since-last7days/"
+  }
+}
