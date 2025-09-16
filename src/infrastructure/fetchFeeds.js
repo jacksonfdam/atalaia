@@ -6,6 +6,112 @@ import config from "./config.js";
 
 const parser = new Parser();
 
+
+function cvssToSeverity(scoreString) {
+    const score = parseFloat(scoreString);
+    if (isNaN(score)) return 'Unknown';
+    if (score >= 9.0) return 'Critical';
+    if (score >= 7.0) return 'High';
+    if (score >= 4.0) return 'Medium';
+    if (score >= 0.1) return 'Low';
+    return 'Unknown';
+}
+
+async function fetchCveDetails() {
+    console.log('[fetchCveDetails] Fetching from cvedetails.com with optimized headers...');
+    const vulns = [];
+    let currentUrl = config.feeds?.cveDetails;
+
+    if (!currentUrl) {
+        console.error("[fetchCveDetails] Missing cvedetails.com URL in config");
+        return vulns;
+    }
+
+    // --- REPLICATE THE SUCCESSFUL CURL COMMAND ---
+    const cveDetailsHeaders = {
+        'Host': 'www.cvedetails.com',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'max-age=0',
+        'sec-ch-ua': '"Not=A?Brand";v="24", "Chromium";v="140"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"macOS"',
+        'DNT': '1',
+        'Upgrade-Insecure-Requests': '1',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-User': '?1',
+        'Sec-Fetch-Dest': 'document',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cookie': 'cvedconsent=1' // <-- The critical cookie
+    };
+
+    const maxPages = 5;
+    let pageCount = 0;
+
+    while (currentUrl && pageCount < maxPages) {
+        console.log(`[fetchCveDetails] Scraping page ${pageCount + 1}: ${currentUrl}`);
+        try {
+            const { data: html } = await axios.get(currentUrl, { headers: cveDetailsHeaders });
+            const $ = cheerio.load(html);
+
+            const rows = $('#searchresults .border-top[data-tsvfield="cveinfo"]');
+            console.log(`[fetchCveDetails] Found ${rows.length} vulnerability rows on this page.`);
+
+            // The parsing logic remains the same
+            rows.each((index, element) => {
+                const row = $(element);
+                const cveId = row.find('h3[data-tsvfield="cveId"] a').text().trim();
+                const linkHref = row.find('h3[data-tsvfield="cveId"] a').attr('href');
+                const link = linkHref ? new URL(linkHref, 'https://www.cvedetails.com').toString() : null;
+                const summary = row.find('.cvesummarylong').text().trim();
+                const cvssScore = row.find('div[data-tsvfield="maxCvssBaseScore"] .cvssbox').text().trim();
+                const publishedDate = row.find('div[data-tsvfield="publishDate"]').text().trim();
+                const isExploited = row.find('div:contains("Known exploited")').length > 0;
+
+                if (cveId && link) {
+                    vulns.push(new Vulnerability({
+                        cveId,
+                        title: `${cveId} - ${summary.substring(0, 60)}...`,
+                        description: summary,
+                        publishedDate,
+                        type: 'Unknown',
+                        severity: cvssToSeverity(cvssScore),
+                        source: 'CVE Details',
+                        link,
+                        exploited: isExploited
+                    }));
+                }
+            });
+
+            const nextLink = $('#pagingb a:contains("»")');
+            if (nextLink.length > 0) {
+                const nextPath = nextLink.attr('href');
+                currentUrl = new URL(nextPath, 'https://www.cvedetails.com').toString();
+            } else {
+                currentUrl = null;
+            }
+            pageCount++;
+
+        } catch (err) {
+            if (err.response) {
+                console.error(`[fetchCveDetails] Error scraping ${currentUrl}: Status ${err.response.status}`);
+            } else {
+                console.error(`[fetchCveDetails] Error scraping ${currentUrl}:`, err.message);
+            }
+            currentUrl = null;
+        }
+    }
+
+    if (pageCount >= maxPages) {
+        console.log(`[fetchCveDetails] Reached max page limit (${maxPages}). Stopping.`);
+    }
+
+    console.log(`[fetchCveDetails] Successfully parsed ${vulns.length} vulnerabilities.`);
+    return vulns;
+}
+
 /**
  * Fetch & normalize vulnerabilities from CISA JSON feed
  * https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
@@ -206,7 +312,8 @@ async function fetchFeeds() {
     const feedPromises = [
         fetchCisaJson(),
         fetchSnyk(),
-        fetchVuldbRss()
+        fetchVuldbRss(),
+        fetchCveDetails()
     ];
 
     const settledResults = await Promise.allSettled(feedPromises);
