@@ -2,3 +2,5 @@
 /node_modules/
 /.idea/
 /src/node_modules/
+vuln-cache.json
+npm-debug.log

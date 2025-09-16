@@ -1,7 +1,11 @@
+// src/application/monitorVulns.js
+
 import fetchFeeds from "../infrastructure/fetchFeeds.js";
 import notifySlack from "../infrastructure/notifySlack.js";
+import { loadCache, saveCache, has, add } from "../infrastructure/cache.js";
 
-const sentVulnsCache = new Set();
+// Load the cache once on application startup
+loadCache();
 
 async function monitorVulns() {
     try {
@@ -9,7 +13,7 @@ async function monitorVulns() {
 
         const allVulns = await fetchFeeds();
 
-        const newVulns = allVulns.filter(vuln => !sentVulnsCache.has(vuln.link));
+        const newVulns = allVulns.filter(vuln => !has(vuln));
 
         if (newVulns.length === 0) {
             console.log("[atalaia] No new vulnerabilities found.");
@@ -21,9 +25,11 @@ async function monitorVulns() {
         for (const vuln of newVulns) {
             const highlight = vuln.isCritical() || vuln.isExploited();
             // await notifySlack(vuln, highlight);
-
-            sentVulnsCache.add(vuln.link);
+            add(vuln);
         }
+
+        // Save the updated cache to disk after the cycle is complete
+        saveCache();
 
         console.log("[atalaia] Monitoring cycle completed.");
 

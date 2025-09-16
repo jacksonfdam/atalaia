@@ -1,15 +1,18 @@
-// src/infrastructure/fetchFeeds.js
 import axios from "axios";
 import * as cheerio from 'cheerio';
+import Parser from 'rss-parser';
 import Vulnerability from "../domain/Vulnerability.js";
 import config from "./config.js";
+
+const parser = new Parser();
 
 /**
  * Fetch & normalize vulnerabilities from CISA JSON feed
  * https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
  */
 async function fetchCisaJson() {
-    const url = config.feeds?.cisaJson; // optional chaining
+    console.log('[fetchCisaJson] Fetching CISA KEV feed...'); // <-- LOG ADDED
+    const url = config.feeds?.cisaJson;
     const vulns = [];
 
     if (!url) {
@@ -20,14 +23,17 @@ async function fetchCisaJson() {
     try {
         const { data } = await axios.get(url);
 
-        if (!data.vulnerabilities) return vulns;
+        if (!data.vulnerabilities || data.vulnerabilities.length === 0) {
+            console.log('[fetchCisaJson] No vulnerabilities found in the feed.');
+            return vulns;
+        }
+
+        console.log(`[fetchCisaJson] Found ${data.vulnerabilities.length} potential vulnerabilities in the feed.`);
 
         for (const item of data.vulnerabilities) {
             const vuln = new Vulnerability({
                 cveId: item.cveID || null,
-                title: item.vendorProject
-                    ? `${item.vendorProject} ${item.vulnerabilityName}`
-                    : item.vulnerabilityName,
+                title: item.vendorProject ? `${item.vendorProject} ${item.vulnerabilityName}` : item.vulnerabilityName,
                 description: item.shortDescription || "No description available",
                 publishedDate: item.dateAdded || new Date().toISOString(),
                 type: "Unknown",
@@ -36,11 +42,72 @@ async function fetchCisaJson() {
                 link: item.notes || url,
                 exploited: true
             });
-
             vulns.push(vuln);
         }
+
+        console.log(`[fetchCisaJson] Successfully parsed ${vulns.length} vulnerabilities.`);
+
     } catch (err) {
         console.error("[fetchCisaJson] error:", err.message);
+    }
+
+    return vulns;
+}
+
+/**
+ * Fetches and normalizes vulnerabilities from the VulDB RSS feed.
+ */
+async function fetchVuldbRss() {
+    console.log('[fetchVuldbRss] Fetching VulDB RSS feed...');
+    const url = config.feeds?.vuldbRss;
+    const vulns = [];
+
+    if (!url) {
+        console.error("[fetchVuldbRss] Missing VulDB RSS feed URL in config");
+        return vulns;
+    }
+
+    try {
+        const feed = await parser.parseURL(url);
+
+        if (!feed.items || feed.items.length === 0) {
+            console.log('[fetchVuldbRss] No items found in the RSS feed.');
+            return vulns;
+        }
+
+        console.log(`[fetchVuldbRss] Found ${feed.items.length} items in the feed.`);
+
+        for (const item of feed.items) {
+            // Extract CVE ID from the title using a regular expression
+            const cveMatch = item.title.match(/(CVE-\d{4,}-\d{4,})/);
+            const cveId = cveMatch ? cveMatch[0] : null;
+
+            // Attempt to determine severity from keywords in the title
+            let severity = 'Unknown';
+            const titleLower = item.title.toLowerCase();
+            if (titleLower.includes('critical')) severity = 'Critical';
+            else if (titleLower.includes('high')) severity = 'High';
+            else if (titleLower.includes('medium')) severity = 'Medium';
+            else if (titleLower.includes('low')) severity = 'Low';
+
+            const vuln = new Vulnerability({
+                cveId: cveId,
+                title: item.title,
+                description: item.contentSnippet || 'No description available.',
+                publishedDate: item.pubDate,
+                type: 'Unknown', // Not available in RSS feed
+                severity: severity,
+                source: 'VulDB RSS Feed',
+                link: item.link,
+                exploited: false // Not specified in RSS feed
+            });
+            vulns.push(vuln);
+        }
+
+        console.log(`[fetchVuldbRss] Successfully parsed ${vulns.length} vulnerabilities.`);
+
+    } catch (err) {
+        console.error("[fetchVuldbRss] error:", err.message);
     }
 
     return vulns;
@@ -134,15 +201,27 @@ async function fetchSnyk() {
  */
 async function fetchFeeds() {
     let results = [];
+    console.log("[fetchFeeds] Fetching all feeds...");
 
-    console.log("[fetchFeeds] Fetching feeds...");
+    const feedPromises = [
+        fetchCisaJson(),
+        fetchSnyk(),
+        fetchVuldbRss()
+    ];
 
-    //const cisaJson = await fetchCisaJson();
-    // results = results.concat(cisaJson);
+    const settledResults = await Promise.allSettled(feedPromises);
 
-    const snyk = await fetchSnyk();
-    results = results.concat(snyk);
+    settledResults.forEach(result => {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+            results = results.concat(result.value);
+        } else if (result.status === 'rejected') {
+            console.error("[fetchFeeds] A feed fetcher failed:", result.reason);
+        }
+    });
+
+    console.log(`[fetchFeeds] Total vulnerabilities fetched across all feeds: ${results.length}`);
     return results;
 }
+
 
 export default fetchFeeds;

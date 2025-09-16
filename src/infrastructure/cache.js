@@ -7,18 +7,18 @@ const CACHE_FILE = path.resolve('vuln-cache.json');
 let sentVulnsCache = new Set();
 
 /**
- * Gera uma chave única para a vulnerabilidade.
- * Prioriza o cveId, mas usa o link como fallback.
+ * Generates a unique key for the vulnerability.
+ * Prioritizes cveId, but uses the link as a fallback.
  * @param {Vulnerability} vuln
- * @returns {string} A chave única.
+ * @returns {string} The unique key.
  */
 function getCacheKey(vuln) {
     return vuln.cveId || vuln.link;
 }
 
 /**
- * Carrega o cache do arquivo JSON para a memória.
- * Deve ser chamado na inicialização do aplicativo.
+ * Loads the cache from the JSON file into memory.
+ * Should be called on application startup.
  */
 function loadCache() {
     try {
@@ -26,30 +26,30 @@ function loadCache() {
             const fileContent = fs.readFileSync(CACHE_FILE, 'utf-8');
             const cachedItems = JSON.parse(fileContent);
             sentVulnsCache = new Set(cachedItems);
-            console.log(`[Cache] Cache carregado com ${sentVulnsCache.size} itens.`);
+            console.log(`[Cache] Cache loaded with ${sentVulnsCache.size} items.`);
         } else {
-            console.log('[Cache] Nenhum arquivo de cache encontrado. Iniciando um novo.');
+            console.log('[Cache] No cache file found. Starting a new one.');
         }
     } catch (error) {
-        console.error('[Cache] Falha ao carregar o arquivo de cache:', error);
+        console.error('[Cache] Failed to load cache file:', error);
     }
 }
 
 /**
- * Salva o cache da memória para o arquivo JSON.
+ * Saves the in-memory cache to the JSON file.
  */
 function saveCache() {
     try {
         const cacheArray = Array.from(sentVulnsCache);
         fs.writeFileSync(CACHE_FILE, JSON.stringify(cacheArray, null, 2));
-        console.log(`[Cache] Cache salvo com ${sentVulnsCache.size} itens.`);
+        console.log(`[Cache] Cache saved with ${sentVulnsCache.size} items.`);
     } catch (error) {
-        console.error('[Cache] Falha ao salvar o arquivo de cache:', error);
+        console.error('[Cache] Failed to save cache file:', error);
     }
 }
 
 /**
- * Verifica se uma vulnerabilidade já está no cache.
+ * Checks if a vulnerability is already in the cache.
  * @param {Vulnerability} vuln
  * @returns {boolean}
  */
@@ -58,7 +58,7 @@ function has(vuln) {
 }
 
 /**
- * Adiciona uma vulnerabilidade ao cache.
+ * Adds a vulnerability to the cache.
  * @param {Vulnerability} vuln
  */
 function add(vuln) {
