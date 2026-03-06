@@ -3,8 +3,12 @@ import express from "express";
 import dotenv from "dotenv";
 import startScheduler from "../infrastructure/scheduler.js";
 import monitorVulns from "../application/monitorVulns.js";
+import { initializeDatabase } from "../infrastructure/cache/sqliteCache.js";
 
 dotenv.config();
+
+// Initialize Database (Migrations)
+initializeDatabase();
 
 const app = express();
 

@@ -2,11 +2,8 @@
 
 import fetchFeeds from "../infrastructure/fetchFeeds.js";
 import notifySlack from "../infrastructure/notifySlack.js";
-import { loadCache, saveCache, has, add } from "../infrastructure/cache.js";
+import { has, add } from "../infrastructure/cache/sqliteCache.js";
 import config from "../infrastructure/config.js";
-
-// Load the cache once on application startup
-loadCache();
 
 function filterByTechnology(vulns) {
     const { enabled, technologies } = config.filterSettings || {};
@@ -56,8 +53,6 @@ async function monitorVulns() {
             await notifySlack(vuln, highlight);
             add(vuln);
         }
-
-        saveCache();
 
         console.log("[atalaia] Monitoring cycle completed.");
 
