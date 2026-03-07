@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import Vulnerability from '../../domain/entities/Vulnerability.js';
 import config from '../config.js';
+import logger from '../logger.js';
 import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 
 const SEVERITY_MAP = { C: 'Critical', H: 'High', M: 'Medium', L: 'Low' };
@@ -13,7 +14,7 @@ const SEVERITY_MAP = { C: 'Critical', H: 'High', M: 'Medium', L: 'Low' };
 export async function fetch() {
     const baseUrl = config.feeds?.snyk;
     if (!baseUrl) {
-        console.log('[snykFeed] No Snyk feed URL configured, skipping');
+        logger.warn('No Snyk feed URL configured, skipping');
         return [];
     }
 
@@ -24,7 +25,7 @@ export async function fetch() {
         let pageCount = 0;
 
         while (currentUrl && pageCount < maxPages) {
-            console.log(`[snykFeed] Scraping page ${pageCount + 1}: ${currentUrl}`);
+            logger.info({ page: pageCount + 1, url: currentUrl }, 'Scraping Snyk page');
             const { data: html } = await axios.get(currentUrl, {
                 timeout: FEED_TIMEOUT_MS,
                 headers: { 'User-Agent': USER_AGENT },
@@ -32,7 +33,7 @@ export async function fetch() {
             const $ = cheerio.load(html);
 
             const rows = $('table.vulns-table__table tbody tr.table__row');
-            console.log(`[snykFeed] Found ${rows.length} vulnerability rows.`);
+            logger.info({ rows: rows.length }, 'Found Snyk vulnerability rows');
 
             rows.each((_index, element) => {
                 const row = $(element);
@@ -66,10 +67,10 @@ export async function fetch() {
         }
 
         if (pageCount >= maxPages) {
-            console.log(`[snykFeed] Reached max page limit (${maxPages}).`);
+            logger.warn({ maxPages }, 'Reached Snyk max page limit');
         }
 
-        console.log(`[snykFeed] Successfully parsed ${vulns.length} vulnerabilities.`);
+        logger.info({ count: vulns.length }, 'Successfully parsed Snyk vulnerabilities');
         return vulns;
     });
 }

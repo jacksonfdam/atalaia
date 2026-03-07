@@ -9,6 +9,7 @@ import { fetch as fetchNvd } from '../infrastructure/feeds/nvdFeed.js';
 import notifySlack from '../infrastructure/notifySlack.js';
 import { has, add } from '../infrastructure/cache/sqliteCache.js';
 import config from '../infrastructure/config.js';
+import logger from '../infrastructure/logger.js';
 
 const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
 
@@ -110,7 +111,7 @@ function filterByTechnology(vulns) {
         return vulns;
     }
 
-    console.log(`[atalaia] Filtering enabled. Applying filter for ${technologies.length} technologies.`);
+    logger.info({ technologies: technologies.length }, 'Filtering enabled, applying technology filter');
 
     return vulns.filter(vuln => {
         const searchableText = `${vuln.title} ${vuln.description} ${vuln.link}`.toLowerCase();
@@ -127,10 +128,10 @@ async function fetchAllFeeds() {
 
             try {
                 const vulns = await feed.fetch();
-                console.log(`[atalaia] Feed '${feed.name}' returned ${vulns.length} vulnerabilities.`);
+                logger.info({ feed: feed.name, count: vulns.length }, 'Feed returned vulnerabilities');
                 return { name: feed.name, vulns };
             } catch (error) {
-                console.error(`[atalaia] Feed '${feed.name}' failed: ${error.message}`);
+                logger.error({ feed: feed.name, err: error }, 'Feed failed');
                 return { name: feed.name, vulns: [] };
             }
         })
@@ -147,29 +148,29 @@ async function fetchAllFeeds() {
 
 async function monitorVulns() {
     try {
-        console.log('[atalaia] Starting vulnerability monitoring cycle...');
+        logger.info('Starting vulnerability monitoring cycle');
 
         const allVulns = await fetchAllFeeds();
-        console.log(`[atalaia] Fetched a total of ${allVulns.length} vulnerabilities from all sources.`);
+        logger.info({ total: allVulns.length }, 'Fetched vulnerabilities from all sources');
 
         // Merge duplicates from multiple feeds
         const mergedVulns = deduplicateAndMerge(allVulns);
-        console.log(`[atalaia] ${mergedVulns.length} unique vulnerabilities after merge.`);
+        logger.info({ unique: mergedVulns.length }, 'Unique vulnerabilities after merge');
 
         const relevantVulns = filterByTechnology(mergedVulns);
         if (config.filterSettings?.enabled) {
-            console.log(`[atalaia] ${relevantVulns.length} vulnerabilities remain after filtering.`);
+            logger.info({ remaining: relevantVulns.length }, 'Vulnerabilities after technology filter');
         }
 
         // Deduplicate against cache (already persisted vulns)
         const newVulns = relevantVulns.filter(vuln => vuln.cveId && !has(vuln.cveId));
 
         if (newVulns.length === 0) {
-            console.log('[atalaia] No new, relevant vulnerabilities found.');
+            logger.info('No new, relevant vulnerabilities found');
             return;
         }
 
-        console.log(`[atalaia] Found ${newVulns.length} new, relevant vulnerabilities to report.`);
+        logger.info({ count: newVulns.length }, 'New vulnerabilities to report');
 
         for (const vuln of newVulns) {
             const highlight = vuln.isCritical() || vuln.isExploited();
@@ -177,9 +178,9 @@ async function monitorVulns() {
             add(vuln);
         }
 
-        console.log('[atalaia] Monitoring cycle completed.');
+        logger.info('Monitoring cycle completed');
     } catch (error) {
-        console.error('[atalaia] Error in monitorVulns:', error);
+        logger.error({ err: error }, 'Error in monitorVulns');
     }
 }
 

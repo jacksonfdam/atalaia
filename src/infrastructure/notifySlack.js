@@ -1,5 +1,6 @@
 import axios from "axios";
 import config from "./config.js";
+import logger from "./logger.js";
 
 /**
  * Send vulnerability notification to Slack
@@ -8,7 +9,7 @@ import config from "./config.js";
  */
 async function notifySlack(vuln, highlight = false) {
     if (!config.slack.webhookUrl) {
-        console.error("[notifySlack] Missing Slack webhook URL");
+        logger.error("Missing Slack webhook URL");
         return;
     }
 
@@ -62,9 +63,9 @@ async function notifySlack(vuln, highlight = false) {
 
     try {
         await axios.post(config.slack.webhookUrl, message);
-        console.log(`[notifySlack] Sent alert for ${vuln.cveId || vuln.title}`);
+        logger.info({ cveId: vuln.cveId, title: vuln.title }, 'Sent Slack alert');
     } catch (err) {
-        console.error("[notifySlack] Failed to send Slack message:", err.message);
+        logger.error({ err }, 'Failed to send Slack message');
     }
 }
 

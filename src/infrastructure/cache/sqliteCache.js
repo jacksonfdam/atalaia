@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import logger from '../logger.js';
 
 const DB_PATH = process.env.DB_PATH || path.resolve('data/atalaia.db');
 
@@ -19,7 +20,7 @@ export function initializeDatabase() {
     const migration = fs.readFileSync(migrationPath, 'utf-8');
     db.exec(migration);
     
-    console.log('[Cache] SQLite database initialized and migrations applied.');
+    logger.info('SQLite database initialized and migrations applied');
 }
 
 export function getDb() {
@@ -63,9 +64,9 @@ export function add(vuln) {
             sourceUrl: vuln.link,
             affectedTechnologies: JSON.stringify(vuln.affectedTechnologies || [])
         });
-        console.log(`[Cache] Added/Updated ${vuln.cveId} in database.`);
+        logger.info({ cveId: vuln.cveId }, 'Added/Updated vulnerability in database');
     } catch (error) {
-        console.error(`[Cache] Failed to add ${vuln.cveId}:`, error);
+        logger.error({ cveId: vuln.cveId, err: error }, 'Failed to add vulnerability to database');
     }
 }
 

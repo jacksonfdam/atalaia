@@ -1,6 +1,7 @@
 // src/interface/index.js
 import express from "express";
 import dotenv from "dotenv";
+import logger from "../infrastructure/logger.js";
 import startScheduler from "../infrastructure/scheduler.js";
 import monitorVulns from "../application/monitorVulns.js";
 import { initializeDatabase } from "../infrastructure/cache/sqliteCache.js";
@@ -20,7 +21,7 @@ app.get("/health", (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`[atalaia] Server running at http://localhost:${PORT}`);
+    logger.info({ port: PORT }, 'Atalaia server running');
 
     // Run scheduler
     startScheduler();

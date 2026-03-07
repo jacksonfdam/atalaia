@@ -1,5 +1,6 @@
 import axios from 'axios';
 import Vulnerability from '../../domain/entities/Vulnerability.js';
+import logger from '../logger.js';
 import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 
 const NVD_API_URL = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
@@ -36,7 +37,7 @@ function extractCvss(metrics) {
  */
 export async function fetch() {
     return withRetry('nvdFeed', async () => {
-        console.log('[nvdFeed] Fetching NVD recent CVEs...');
+        logger.info('Fetching NVD recent CVEs');
 
         // Fetch CVEs published in the last 7 days
         const now = new Date();
@@ -55,11 +56,11 @@ export async function fetch() {
         });
 
         if (!data.vulnerabilities || data.vulnerabilities.length === 0) {
-            console.log('[nvdFeed] No vulnerabilities found.');
+            logger.info('No NVD vulnerabilities found');
             return [];
         }
 
-        console.log(`[nvdFeed] Found ${data.vulnerabilities.length} CVEs.`);
+        logger.info({ count: data.vulnerabilities.length }, 'Found NVD CVEs');
 
         const vulns = data.vulnerabilities.map(item => {
             const cve = item.cve;
@@ -83,7 +84,7 @@ export async function fetch() {
             });
         });
 
-        console.log(`[nvdFeed] Successfully parsed ${vulns.length} vulnerabilities.`);
+        logger.info({ count: vulns.length }, 'Successfully parsed NVD vulnerabilities');
         return vulns;
     });
 }

@@ -1,6 +1,7 @@
 import Parser from 'rss-parser';
 import Vulnerability from '../../domain/entities/Vulnerability.js';
 import config from '../config.js';
+import logger from '../logger.js';
 import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 
 const parser = new Parser({
@@ -15,20 +16,20 @@ const parser = new Parser({
 export async function fetch() {
     const url = config.feeds?.vuldbRss;
     if (!url) {
-        console.log('[vuldbFeed] No VulDB RSS feed URL configured, skipping');
+        logger.warn('No VulDB RSS feed URL configured, skipping');
         return [];
     }
 
     return withRetry('vuldbFeed', async () => {
-        console.log('[vuldbFeed] Fetching VulDB RSS feed...');
+        logger.info('Fetching VulDB RSS feed');
         const feed = await parser.parseURL(url);
 
         if (!feed.items || feed.items.length === 0) {
-            console.log('[vuldbFeed] No items found in the RSS feed.');
+            logger.info('No items found in VulDB RSS feed');
             return [];
         }
 
-        console.log(`[vuldbFeed] Found ${feed.items.length} items in the feed.`);
+        logger.info({ count: feed.items.length }, 'Found VulDB RSS items');
 
         const vulns = feed.items.map(item => {
             const cveMatch = item.title.match(/(CVE-\d{4,}-\d{4,})/);
@@ -54,7 +55,7 @@ export async function fetch() {
             });
         });
 
-        console.log(`[vuldbFeed] Successfully parsed ${vulns.length} vulnerabilities.`);
+        logger.info({ count: vulns.length }, 'Successfully parsed VulDB vulnerabilities');
         return vulns;
     });
 }

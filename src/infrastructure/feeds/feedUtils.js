@@ -1,6 +1,7 @@
 /**
  * Shared constants and helpers for all feed implementations.
  */
+import logger from '../logger.js';
 
 export const FEED_TIMEOUT_MS = parseInt(process.env.FEED_TIMEOUT_MS, 10) || 15000;
 export const USER_AGENT = 'Atalaia/1.0 (security-monitor; jacksonfdam@gmail.com)';
@@ -19,7 +20,7 @@ export async function withRetry(feedName, fn) {
             return await fn();
         } catch (error) {
             if (attempt < MAX_RETRIES) {
-                console.log(`[${feedName}] Attempt ${attempt + 1} failed, retrying in ${RETRY_DELAY_MS}ms...`);
+                logger.warn({ feed: feedName, attempt: attempt + 1, retryMs: RETRY_DELAY_MS }, 'Feed attempt failed, retrying');
                 await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
             } else {
                 throw error;

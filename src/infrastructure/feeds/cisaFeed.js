@@ -1,6 +1,7 @@
 import axios from 'axios';
 import Vulnerability from '../../domain/entities/Vulnerability.js';
 import config from '../config.js';
+import logger from '../logger.js';
 import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 
 /**
@@ -10,23 +11,23 @@ import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 export async function fetch() {
     const url = config.feeds?.cisaJson;
     if (!url) {
-        console.log('[cisaFeed] No CISA feed URL configured, skipping');
+        logger.warn('No CISA feed URL configured, skipping');
         return [];
     }
 
     return withRetry('cisaFeed', async () => {
-        console.log('[cisaFeed] Fetching CISA KEV feed...');
+        logger.info('Fetching CISA KEV feed');
         const { data } = await axios.get(url, {
             timeout: FEED_TIMEOUT_MS,
             headers: { 'User-Agent': USER_AGENT },
         });
 
         if (!data.vulnerabilities || data.vulnerabilities.length === 0) {
-            console.log('[cisaFeed] No vulnerabilities found in the feed.');
+            logger.info('No vulnerabilities found in CISA feed');
             return [];
         }
 
-        console.log(`[cisaFeed] Found ${data.vulnerabilities.length} potential vulnerabilities.`);
+        logger.info({ count: data.vulnerabilities.length }, 'Found potential CISA vulnerabilities');
 
         const vulns = data.vulnerabilities.map(item => new Vulnerability({
             cveId: item.cveID || null,
@@ -42,7 +43,7 @@ export async function fetch() {
             exploited: true,
         }));
 
-        console.log(`[cisaFeed] Successfully parsed ${vulns.length} vulnerabilities.`);
+        logger.info({ count: vulns.length }, 'Successfully parsed CISA vulnerabilities');
         return vulns;
     });
 }

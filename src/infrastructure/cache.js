@@ -2,6 +2,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import logger from './logger.js';
 
 const CACHE_FILE = path.resolve('vuln-cache.json');
 let sentVulnsCache = new Set();
@@ -26,12 +27,12 @@ function loadCache() {
             const fileContent = fs.readFileSync(CACHE_FILE, 'utf-8');
             const cachedItems = JSON.parse(fileContent);
             sentVulnsCache = new Set(cachedItems);
-            console.log(`[Cache] Cache loaded with ${sentVulnsCache.size} items.`);
+            logger.info({ size: sentVulnsCache.size }, 'Cache loaded');
         } else {
-            console.log('[Cache] No cache file found. Starting a new one.');
+            logger.info('No cache file found, starting fresh');
         }
     } catch (error) {
-        console.error('[Cache] Failed to load cache file:', error);
+        logger.error({ err: error }, 'Failed to load cache file');
     }
 }
 
@@ -42,9 +43,9 @@ function saveCache() {
     try {
         const cacheArray = Array.from(sentVulnsCache);
         fs.writeFileSync(CACHE_FILE, JSON.stringify(cacheArray, null, 2));
-        console.log(`[Cache] Cache saved with ${sentVulnsCache.size} items.`);
+        logger.info({ size: sentVulnsCache.size }, 'Cache saved');
     } catch (error) {
-        console.error('[Cache] Failed to save cache file:', error);
+        logger.error({ err: error }, 'Failed to save cache file');
     }
 }
 

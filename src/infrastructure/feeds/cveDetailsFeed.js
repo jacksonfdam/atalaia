@@ -2,6 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import Vulnerability from '../../domain/entities/Vulnerability.js';
 import config from '../config.js';
+import logger from '../logger.js';
 import { FEED_TIMEOUT_MS, withRetry } from './feedUtils.js';
 
 function cvssToSeverity(scoreString) {
@@ -41,7 +42,7 @@ const CVE_DETAILS_HEADERS = {
 export async function fetch() {
     let currentUrl = config.feeds?.cveDetails;
     if (!currentUrl) {
-        console.log('[cveDetailsFeed] No CVE Details URL configured, skipping');
+        logger.warn('No CVE Details URL configured, skipping');
         return [];
     }
 
@@ -51,7 +52,7 @@ export async function fetch() {
         let pageCount = 0;
 
         while (currentUrl && pageCount < maxPages) {
-            console.log(`[cveDetailsFeed] Scraping page ${pageCount + 1}: ${currentUrl}`);
+            logger.info({ page: pageCount + 1, url: currentUrl }, 'Scraping CVE Details page');
             const { data: html } = await axios.get(currentUrl, {
                 headers: CVE_DETAILS_HEADERS,
                 timeout: FEED_TIMEOUT_MS,
@@ -59,7 +60,7 @@ export async function fetch() {
             const $ = cheerio.load(html);
 
             const rows = $('#searchresults .border-top[data-tsvfield="cveinfo"]');
-            console.log(`[cveDetailsFeed] Found ${rows.length} vulnerability rows.`);
+            logger.info({ rows: rows.length }, 'Found CVE Details vulnerability rows');
 
             rows.each((_index, element) => {
                 const row = $(element);
@@ -98,10 +99,10 @@ export async function fetch() {
         }
 
         if (pageCount >= maxPages) {
-            console.log(`[cveDetailsFeed] Reached max page limit (${maxPages}).`);
+            logger.warn({ maxPages }, 'Reached CVE Details max page limit');
         }
 
-        console.log(`[cveDetailsFeed] Successfully parsed ${vulns.length} vulnerabilities.`);
+        logger.info({ count: vulns.length }, 'Successfully parsed CVE Details vulnerabilities');
         return vulns;
     });
 }
