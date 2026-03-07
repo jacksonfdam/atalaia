@@ -62,3 +62,47 @@ The project is mid-migration per `rules.md`. Key planned changes:
 - Scraper functions return `Vulnerability[]`; each handles its own errors internally
 - Config values support `${ENV_VAR}` substitution pattern
 - Docker uses multi-stage build with `node:20-alpine`
+
+## Workflow Orchestration
+
+### Planning
+- Enter plan mode for any non-trivial task (3+ steps or architectural decisions)
+- For sideways issues: **STOP and ask** before continuing
+- Use plan mode for verification steps, not just implementation
+- Write detailed specs upfront to reduce ambiguity
+
+### Execution Strategy
+- Use subagents liberally to keep main context clean
+- Offload research, exploration, and parallel analysis to subagents
+- One focused task per subagent for better results
+
+### Task Management
+- Mark tasks in `tasks/todo.md` with checkable items as you progress
+- Update status in real-time; mark complete only when **fully verified**
+- Never mark a task complete without proving it works
+- Track high-level progress via review sections
+
+### Verification Before Done
+- Diff behavior between main branch and your changes when relevant
+- Ask yourself: "Would a staff engineer approve this?"
+- Run tests, check logs, demonstrate correctness
+- Only mark complete after verification, not during implementation
+
+### Demand Elegance
+- Pause on non-trivial changes; ask "Is there a more elegant way?"
+- For fixes that feel hacky: implement the elegant solution instead
+- Keep solutions simple and obvious over complex and clever
+- Skip this for trivial changes; don't over-engineer
+
+### Autonomous Bug Fixing
+- Point at logs, errors, failing tests → just fix them
+- Zero context-switching; resolve blockers inline
+- Go fix failing CI tests without being told how
+
+## Core Principles
+
+**Simplicity First** — Make every change as simple as possible. Impact minimal code.
+
+**No Laziness** — Find root causes; no temporary fixes. Senior developer standards.
+
+**Minimal Impact** — Changes should only touch what's necessary. Avoid gratuitous refactoring.
