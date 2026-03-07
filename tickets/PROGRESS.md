@@ -11,9 +11,9 @@ This file tracks the overall progress of the Atalaia migration from rules.md imp
 
 | Status | Count |
 |--------|-------|
-| ✅ Completed | 3 |
+| ✅ Completed | 4 |
 | 🚀 In Progress | 0 |
-| 📋 To Do | 13 |
+| 📋 To Do | 12 |
 | 🔒 Blocked | 0 |
 | **Total** | **16** |
 
@@ -26,7 +26,7 @@ Phase 1: Foundation (Tickets 1-5)
 ├─ ✅ #1: SQLite Migration (DONE)
 ├─ ✅ #2: Domain Restructure (VERIFIED)
 ├─ ✅ #3: Split Feed Pipeline (VERIFIED)
-├─ 📋 #4: Source Priority & Merge (TODO)
+├─ ✅ #4: Source Priority & Merge (VERIFIED)
 └─ 📋 #5: Pino Logging (TODO)
 
 Phase 2: API & Status (Tickets 6-9)
