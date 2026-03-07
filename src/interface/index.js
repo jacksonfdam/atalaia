@@ -5,6 +5,8 @@ import logger from "../infrastructure/logger.js";
 import startScheduler from "../infrastructure/scheduler.js";
 import monitorVulns from "../application/monitorVulns.js";
 import { initializeDatabase } from "../infrastructure/cache/sqliteCache.js";
+import * as cache from "../infrastructure/cache/sqliteCache.js";
+import { createApiRoutes } from "./http/apiRoutes.js";
 
 dotenv.config();
 
@@ -12,11 +14,15 @@ dotenv.config();
 initializeDatabase();
 
 const app = express();
+app.use(express.json());
 
 // Healthcheck endpoint
 app.get("/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+// REST API v1
+app.use("/api/v1", createApiRoutes(cache));
 
 // Start server
 const PORT = process.env.PORT || 3000;

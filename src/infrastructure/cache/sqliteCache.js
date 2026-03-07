@@ -70,7 +70,52 @@ export function add(vuln) {
     }
 }
 
+export function get(cveId) {
+    const stmt = getDb().prepare('SELECT * FROM vulnerabilities WHERE cve_id = ?');
+    const row = stmt.get(cveId);
+    if (!row) return null;
+    row.affectedTechnologies = row.affected_technologies ? JSON.parse(row.affected_technologies) : [];
+    return row;
+}
+
+export function update(cveId, updates) {
+    const fields = [];
+    const values = {};
+    values.cveId = cveId;
+
+    if (updates.status !== undefined) {
+        fields.push('status = @status');
+        values.status = updates.status;
+    }
+    if (updates.statusChangedBy !== undefined) {
+        fields.push('status_changed_by = @statusChangedBy');
+        values.statusChangedBy = updates.statusChangedBy;
+    }
+    if (updates.statusChangedAt !== undefined) {
+        fields.push('status_changed_at = @statusChangedAt');
+        values.statusChangedAt = updates.statusChangedAt;
+    }
+    if (updates.resolvedAt !== undefined) {
+        fields.push('resolved_at = @resolvedAt');
+        values.resolvedAt = updates.resolvedAt;
+    }
+    if (updates.clientExplanation !== undefined) {
+        fields.push('client_explanation = @clientExplanation');
+        values.clientExplanation = updates.clientExplanation;
+    }
+
+    if (fields.length === 0) return;
+
+    const sql = `UPDATE vulnerabilities SET ${fields.join(', ')} WHERE cve_id = @cveId`;
+    const stmt = getDb().prepare(sql);
+    stmt.run(values);
+    logger.info({ cveId, updates: Object.keys(updates) }, 'Updated vulnerability in database');
+}
+
 export function getAll() {
-     const stmt = getDb().prepare('SELECT * FROM vulnerabilities');
-     return stmt.all();
+    const stmt = getDb().prepare('SELECT * FROM vulnerabilities');
+    return stmt.all().map(row => {
+        row.affectedTechnologies = row.affected_technologies ? JSON.parse(row.affected_technologies) : [];
+        return row;
+    });
 }
