@@ -1,5 +1,6 @@
 // src/interface/index.js
 import express from "express";
+import cors from "cors";
 import dotenv from "dotenv";
 import logger from "../infrastructure/logger.js";
 import startScheduler from "../infrastructure/scheduler.js";
@@ -15,6 +16,21 @@ dotenv.config();
 initializeDatabase();
 
 const app = express();
+
+// Security headers
+app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("X-XSS-Protection", "1; mode=block");
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    next();
+});
+
+// CORS
+const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000").split(",");
+app.use(cors({ origin: allowedOrigins, credentials: true }));
 
 // Capture raw body for Slack signature verification, then parse JSON/urlencoded
 app.use(express.json({
