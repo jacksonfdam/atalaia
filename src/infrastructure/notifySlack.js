@@ -24,41 +24,76 @@ async function notifySlack(vuln, highlight = false) {
     const sevKey = vuln.severity.toLowerCase();
     const severityIcon = severityIcons[sevKey] || "❓";
 
-    // Slack formatting
+    // Block Kit message with action buttons
+    const blocks = [
+        {
+            type: "header",
+            text: {
+                type: "plain_text",
+                text: highlight ? "NEW VULNERABILITY" : "Vulnerability Detected",
+            },
+        },
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: `*<${vuln.link}|${vuln.title || "Security Vulnerability"}>*`,
+            },
+        },
+        {
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*CVE ID:*\n${vuln.cveId || "N/A"}` },
+                { type: "mrkdwn", text: `*Severity:*\n${severityIcon} ${vuln.severity}` },
+                { type: "mrkdwn", text: `*Source:*\n${vuln.source}` },
+                { type: "mrkdwn", text: `*Published:*\n${vuln.publishedDate}` },
+            ],
+        },
+        {
+            type: "section",
+            text: {
+                type: "mrkdwn",
+                text: vuln.description
+                    ? vuln.description.substring(0, 300) + (vuln.description.length > 300 ? "..." : "")
+                    : "_No description_",
+            },
+        },
+    ];
+
+    // Add exploit warning if applicable
+    if (vuln.exploited) {
+        blocks.push({
+            type: "context",
+            elements: [{ type: "mrkdwn", text: "Known Exploited Vulnerability" }],
+        });
+    }
+
+    // Add action buttons for CVEs that can be tracked
+    if (vuln.cveId) {
+        blocks.push({
+            type: "actions",
+            elements: [
+                {
+                    type: "button",
+                    text: { type: "plain_text", text: "Acknowledge" },
+                    action_id: "ack_vuln",
+                    value: vuln.cveId,
+                    style: "primary",
+                },
+                {
+                    type: "button",
+                    text: { type: "plain_text", text: "Resolve" },
+                    action_id: "resolve_vuln",
+                    value: vuln.cveId,
+                    style: "danger",
+                },
+            ],
+        });
+    }
+
     const message = {
-        text: `${highlight ? "@channel 🚨 NEW VULNERABILITY 🚨" : "New vulnerability detected"}`,
-        attachments: [
-            {
-                color: vuln.isCritical() ? "danger" : "warning",
-                title: vuln.title || "Security Vulnerability",
-                title_link: vuln.link,
-                fields: [
-                    {
-                        title: "CVE ID",
-                        value: vuln.cveId || "N/A",
-                        short: true
-                    },
-                    {
-                        title: "Severity",
-                        value: `${severityIcon} ${vuln.severity}`,
-                        short: true
-                    },
-                    {
-                        title: "Source",
-                        value: vuln.source,
-                        short: true
-                    },
-                    {
-                        title: "Published",
-                        value: vuln.publishedDate,
-                        short: true
-                    }
-                ],
-                text: vuln.description || "",
-                footer: vuln.exploited ? "🔥 Known Exploited Vulnerability" : "Security Feed",
-                ts: Math.floor(Date.now() / 1000)
-            }
-        ]
+        text: `${highlight ? "@channel " : ""}${vuln.cveId || vuln.title}`,
+        blocks,
     };
 
     try {

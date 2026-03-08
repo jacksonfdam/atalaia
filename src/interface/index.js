@@ -7,6 +7,7 @@ import monitorVulns from "../application/monitorVulns.js";
 import { initializeDatabase } from "../infrastructure/cache/sqliteCache.js";
 import * as cache from "../infrastructure/cache/sqliteCache.js";
 import { createApiRoutes } from "./http/apiRoutes.js";
+import { requireSlackSignature, createSlackActionHandler } from "./slack/slackActions.js";
 
 dotenv.config();
 
@@ -14,12 +15,23 @@ dotenv.config();
 initializeDatabase();
 
 const app = express();
-app.use(express.json());
+
+// Capture raw body for Slack signature verification, then parse JSON/urlencoded
+app.use(express.json({
+    verify: (req, _res, buf) => { req.rawBody = buf.toString(); },
+}));
+app.use(express.urlencoded({
+    extended: true,
+    verify: (req, _res, buf) => { req.rawBody = buf.toString(); },
+}));
 
 // Healthcheck endpoint
 app.get("/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
+
+// Slack interactive actions endpoint (before API routes to avoid API key middleware)
+app.post("/api/v1/slack/actions", requireSlackSignature, createSlackActionHandler(cache));
 
 // REST API v1
 app.use("/api/v1", createApiRoutes(cache));
