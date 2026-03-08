@@ -6,10 +6,14 @@ import { fetch as fetchSnyk } from '../infrastructure/feeds/snykFeed.js';
 import { fetch as fetchVuldb } from '../infrastructure/feeds/vuldbFeed.js';
 import { fetch as fetchCveDetails } from '../infrastructure/feeds/cveDetailsFeed.js';
 import { fetch as fetchNvd } from '../infrastructure/feeds/nvdFeed.js';
+import { readFileSync } from 'fs';
+import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
 import { has, add } from '../infrastructure/cache/sqliteCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
+
+const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
 
 const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
 
@@ -104,18 +108,35 @@ function deduplicateAndMerge(vulns) {
     return [...merged, ...noCveId];
 }
 
-function filterByTechnology(vulns) {
-    const { enabled, technologies } = config.filterSettings || {};
+function loadTechFilters() {
+    try {
+        const data = readFileSync(TECH_CONFIG_PATH, 'utf-8');
+        return JSON.parse(data);
+    } catch {
+        return null;
+    }
+}
 
-    if (!enabled || !technologies || technologies.length === 0) {
-        return vulns;
+function filterByTechnology(vulns) {
+    // Try technologies.json first, fall back to config.json filterSettings
+    const techConfig = loadTechFilters();
+    const filters = techConfig?.filters;
+
+    if (!filters || filters.length === 0) {
+        const { enabled, technologies } = config.filterSettings || {};
+        if (!enabled || !technologies || technologies.length === 0) return vulns;
+        logger.info({ count: technologies.length }, 'Filtering from config.json filterSettings');
+        return vulns.filter(vuln => {
+            const text = `${vuln.title} ${vuln.description} ${vuln.link}`.toLowerCase();
+            return technologies.some(tech => text.includes(tech));
+        });
     }
 
-    logger.info({ technologies: technologies.length }, 'Filtering enabled, applying technology filter');
+    logger.info({ count: filters.length }, 'Filtering from config/technologies.json');
 
     return vulns.filter(vuln => {
         const searchableText = `${vuln.title} ${vuln.description} ${vuln.link}`.toLowerCase();
-        return technologies.some(tech => searchableText.includes(tech));
+        return filters.some(tech => searchableText.includes(tech.toLowerCase()));
     });
 }
 

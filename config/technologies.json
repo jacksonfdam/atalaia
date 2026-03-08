@@ -1,0 +1,25 @@
+{
+  "filters": [
+    "react",
+    "react-native",
+    "next.js",
+    "node.js",
+    "typescript",
+    "swift",
+    "kotlin",
+    "flutter",
+    "dart",
+    "postgresql",
+    "redis",
+    "docker",
+    "kubernetes",
+    "nginx",
+    "aws",
+    "gcp",
+    "firebase",
+    "graphql",
+    "express",
+    "fastify"
+  ],
+  "matchMode": "any"
+}
