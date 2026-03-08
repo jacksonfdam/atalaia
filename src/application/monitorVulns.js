@@ -12,8 +12,10 @@ import notifySlack from '../infrastructure/notifySlack.js';
 import { has, add } from '../infrastructure/cache/sqliteCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
+import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
 
 const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
+const llm = createLLMAdapter();
 
 const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
 
@@ -194,6 +196,25 @@ async function monitorVulns() {
         logger.info({ count: newVulns.length }, 'New vulnerabilities to report');
 
         for (const vuln of newVulns) {
+            // Generate LLM explanation (non-blocking fallback)
+            try {
+                const prompt = renderPrompt('explainCve.txt', {
+                    cveId: vuln.cveId,
+                    title: vuln.title,
+                    description: vuln.description,
+                    severity: vuln.severity,
+                    cvssScore: vuln.cvssScore,
+                    exploited: vuln.exploited,
+                    technologies: (vuln.affectedTechnologies || []).join(', '),
+                });
+                const explanation = await llm.complete(prompt);
+                if (explanation) {
+                    vuln.clientExplanation = explanation;
+                }
+            } catch (err) {
+                logger.warn({ cveId: vuln.cveId, err }, 'LLM explanation failed, using raw description');
+            }
+
             const highlight = vuln.isCritical() || vuln.isExploited();
             await notifySlack(vuln, highlight);
             add(vuln);
