@@ -15,13 +15,13 @@
 
 ## Tickets by Phase
 
-### Phase 1: Foundation (1 Complete, 4 Todo)
+### Phase 1: Foundation (4 Complete, 1 Todo)
 | # | Ticket | Status | Duration | Depends On |
 |---|--------|--------|----------|-----------|
 | ✅ 1 | SQLite Migration | DONE | — | — |
-| 📋 2 | [Domain Restructure](./02-domain-restructure.md) | TODO | 2 days | #1 |
-| 📋 3 | [Split Feed Pipeline](./03-split-feed-pipeline.md) | TODO | 2 days | #2 |
-| 📋 4 | [Source Priority & Merge](./04-source-priority-merge.md) | TODO | 1 day | #2,#3 |
+| ✅ 2 | [Domain Restructure](./02-domain-restructure.md) | VERIFIED | 2 days | #1 |
+| ✅ 3 | [Split Feed Pipeline](./03-split-feed-pipeline.md) | VERIFIED | 2 days | #2 |
+| ✅ 4 | [Source Priority & Merge](./04-source-priority-merge.md) | VERIFIED | 1 day | #2,#3 |
 | 📋 5 | [Pino Logging](./05-pino-logging.md) | TODO | 1 day | #3,#4 |
 
 ### Phase 2: API & Status (0 Complete, 4 Todo)
