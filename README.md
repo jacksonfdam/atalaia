@@ -1,100 +1,154 @@
-# Atalaia 🛡️👁️
+# Atalaia
 
-Atalaia is a real-time security vulnerability monitoring service that fetches data from multiple feeds and sends formatted alerts directly to a Slack channel. It helps security and engineering teams stay ahead of emerging threats.
+Real-time security vulnerability monitoring service. Fetches CVEs from multiple feeds, filters by technology stack, sends Slack alerts with interactive buttons, and provides a REST API for vulnerability management.
 
-## ✨ Features
+## Features
 
-- **Real-time Monitoring**: Runs on a configurable schedule to check for new vulnerabilities.
-- **Multi-Source Aggregation**: Pulls data from trusted feeds like CISA, Snyk, VulDB, and more.
-- **Data Normalization**: Standardizes vulnerabilities into a clean, consistent format.
-- **Smart Slack Alerts**: Delivers well-formatted messages with severity indicators.
-- **Urgent Notifications**: Automatically tags `@channel` for Critical or Known Exploited vulnerabilities.
-- **Containerized**: Ready to deploy with Docker.
+- **Multi-source feeds** — CISA, Snyk, VulDB, CVE Details, NVD
+- **Technology filtering** — Only alert on vulns matching your stack
+- **Slack notifications** — Block Kit messages with Acknowledge/Resolve buttons
+- **Status lifecycle** — OPEN / ACKNOWLEDGED / RESOLVED tracking
+- **LLM explanations** — Plain-English CVE summaries via OpenAI or Ollama
+- **Weekly email reports** — Grouped by severity, sent via SMTP
+- **REST API** — Query, filter, and manage vulnerabilities programmatically
+- **SQLite persistence** — WAL mode for concurrent reads
 
-## 🛠️ Tech Stack
+## Quick Start (Docker Compose)
 
-- **Backend**: Node.js, Express
-- **Scheduling**: `node-cron`
-- **HTTP Requests**: `axios`
-- **Architecture**: Clean Architecture
-- **Deployment**: Docker
+```bash
+cp .env.example .env
+# Edit .env with your Slack webhook URL and API key
+docker compose up -d
+curl http://localhost:3000/health
+```
 
-## 🚀 Getting Started
+## Local Development
 
-### Prerequisites
+```bash
+npm install
+cp .env.example .env
+# Edit .env
+npm run dev    # Hot-reload with nodemon
+```
 
-- Node.js (v18 or later)
-- npm
-- Docker (for containerized deployment)
-- A Slack Webhook URL
+## Architecture
 
-### Installation & Setup
+Clean Architecture with four layers:
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd atalaia
-    ```
+```
+src/
+  domain/           # Pure business logic (zero external imports)
+    entities/       #   Vulnerability class
+    enums/          #   Status, Severity enums
+    ports/          #   Interface contracts
+  application/      # Use cases
+    monitorVulns.js #   Main monitoring orchestrator
+    acknowledgeVuln.js
+    resolveVuln.js
+    queryByTech.js
+    generateWeeklyReport.js
+  infrastructure/   # External integrations
+    feeds/          #   Individual feed scrapers
+    cache/          #   SQLite persistence (better-sqlite3)
+    notifiers/      #   Email notifier
+    llm/            #   LLM adapter (OpenAI, Ollama)
+    notifySlack.js  #   Slack webhook + Block Kit
+    scheduler.js    #   Cron jobs
+    config.js       #   Configuration loader
+    logger.js       #   Pino structured logging
+  interface/        # Entry points
+    index.js        #   Express server (composition root)
+    http/           #   REST API routes
+    slack/          #   Slack action handler
+```
 
-2.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
+## API Reference
 
-3.  **Create the environment file:**
-    Create a `.env` file in the project root and add your Slack Webhook URL:
-    ```ini
-    # .env
-    SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
-    PORT=3000
-    # Optional: Override the default cron schedule ('0 * * * *' -> every hour)
-    # CRON_SCHEDULE="*/5 * * * *" # Every 5 minutes
-    ```
+All endpoints under `/api/v1` require `X-API-Key` header (except where noted).
 
-4.  **Configure feeds:**
-    Review and adjust the feed URLs in `config.json` as needed.
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/health` | No | Health check |
+| GET | `/api/v1/vulnerabilities` | Yes | List vulns (query: `status`, `severity`, `source`) |
+| PATCH | `/api/v1/vulnerabilities/:cveId/status` | Yes | Update status (`{ status, changedBy }`) |
+| GET | `/api/v1/stats` | Yes | Vulnerability counts by status/severity/source |
+| POST | `/api/v1/query` | Yes | Query by technology (`{ technologies: [...] }`) |
+| GET | `/api/v1/technologies` | Yes | View active technology filters |
+| POST | `/api/v1/technologies` | Yes | Update filters (`{ technologies: [...] }`) |
 
-### Running the Application
+### Examples
 
--   **Development Mode (with hot-reload):**
-    ```bash
-    npm run dev
-    ```
+```bash
+# List all CRITICAL vulnerabilities
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:3000/api/v1/vulnerabilities?severity=CRITICAL"
 
--   **Production Mode:**
-    ```bash
-    npm run start
-    ```
+# Acknowledge a vulnerability
+curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"status":"ACKNOWLEDGED","changedBy":"security-team"}' \
+  http://localhost:3000/api/v1/vulnerabilities/CVE-2024-0001/status
 
-The service will start, run an initial check, and then follow the schedule defined in `config.json` or `.env`.
+# Query by technology
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"technologies":["react","node.js"]}' \
+  http://localhost:3000/api/v1/query
+```
 
-### Running with Docker
+## Configuration
 
-1.  **Build the Docker image:**
-    ```bash
-    docker build -t atalaia .
-    ```
+### Environment Variables
 
-2.  **Run the Docker container:**
-    You must pass the `.env` file to the container so it can access the Slack Webhook URL.
-    ```bash
-    docker run --env-file .env -p 3000:3000 --name atalaia-app -d atalaia
-    ```
-    - `-p 3000:3000`: Maps the container's port 3000 to your local machine's port 3000.
-    - `-d`: Runs the container in detached mode (in the background).
+See `.env.example` for all options. Key variables:
 
-## 🌐 API Endpoints
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SLACK_WEBHOOK_URL` | Yes | Slack incoming webhook |
+| `API_KEY` | Yes | API authentication key |
+| `DB_PATH` | No | SQLite path (default: `data/atalaia.db`) |
+| `CRON_SCHEDULE` | No | Monitoring interval (default: `0 * * * *`) |
+| `LLM_PROVIDER` | No | `openai` or `ollama` (empty = disabled) |
 
--   **Health Check:**
-    -   `GET /health`
-    -   Returns a simple JSON response to confirm the service is running.
-    -   `{"status":"ok","timestamp":"..."}`
+### Technology Filters
 
-## 📂 Project Structure
+Edit `config/technologies.json` or use the API:
 
-The project follows **Clean Architecture** principles to separate concerns:
+```bash
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"technologies":["react","docker","kubernetes"]}' \
+  http://localhost:3000/api/v1/technologies
+```
 
--   `src/domain`: Core business entities (e.g., `Vulnerability`).
--   `src/application`: Use cases that orchestrate the business logic.
--   `src/infrastructure`: External concerns like APIs, databases, schedulers (Slack, Cron, Axios).
--   `src/interface`: Entry points to the application (Express server).
+### Adding an LLM Provider
+
+Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` in `.env`, or use `LLM_PROVIDER=ollama` with a local Ollama instance. Leave `LLM_PROVIDER` empty to disable explanations.
+
+## Testing
+
+```bash
+npm test              # Run all tests
+npm run test:coverage # With coverage report
+```
+
+## Docker
+
+```bash
+docker compose up -d           # Start
+docker compose logs -f         # View logs
+docker compose down            # Stop
+curl http://localhost:3000/health  # Verify
+```
+
+Data persists in `./data/` via volume mount.
+
+## Tech Stack
+
+- **Runtime**: Node.js 20 (ES Modules)
+- **Framework**: Express
+- **Database**: SQLite (better-sqlite3, WAL mode)
+- **Logging**: Pino
+- **Scheduling**: node-cron
+- **Notifications**: Slack (Block Kit), Email (nodemailer)
+- **LLM**: OpenAI API, Ollama
+- **Scraping**: axios, cheerio, rss-parser
+- **Testing**: Jest, supertest
+- **Deployment**: Docker (multi-stage Alpine build)

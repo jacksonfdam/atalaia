@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS vulnerabilities (
     created_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE INDEX idx_vulns_cve ON vulnerabilities(cve_id);
-CREATE INDEX idx_vulns_status ON vulnerabilities(status);
-CREATE INDEX idx_vulns_severity ON vulnerabilities(severity);
-CREATE INDEX idx_vulns_tech ON vulnerabilities(affected_technologies);
+CREATE INDEX IF NOT EXISTS idx_vulns_cve ON vulnerabilities(cve_id);
+CREATE INDEX IF NOT EXISTS idx_vulns_status ON vulnerabilities(status);
+CREATE INDEX IF NOT EXISTS idx_vulns_severity ON vulnerabilities(severity);
+CREATE INDEX IF NOT EXISTS idx_vulns_tech ON vulnerabilities(affected_technologies);

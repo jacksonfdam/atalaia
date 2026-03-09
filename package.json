@@ -6,7 +6,15 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/interface/index.js",
-    "start": "node src/interface/index.js"
+    "start": "node src/interface/index.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest",
+    "test:watch": "node --experimental-vm-modules node_modules/.bin/jest --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/.bin/jest --coverage"
+  },
+  "jest": {
+    "transform": {},
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"]
   },
   "dependencies": {
     "axios": "^1.12.2",

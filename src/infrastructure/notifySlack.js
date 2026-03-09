@@ -1,70 +1,106 @@
 import axios from "axios";
 import config from "./config.js";
+import logger from "./logger.js";
 
 /**
- * Send vulnerability notification to Slack
+ * Send vulnerability notification to Slack using Block Kit.
  * @param {Vulnerability} vuln
  * @param {boolean} highlight  -> @channel if Critical or Exploited
  */
 async function notifySlack(vuln, highlight = false) {
     if (!config.slack.webhookUrl) {
-        console.error("[notifySlack] Missing Slack webhook URL");
+        logger.error("Missing Slack webhook URL");
         return;
     }
 
-    // Emoji for severity levels
-    const severityIcons = {
-        low: "🟢",
-        medium: "🟡",
-        high: "🟠",
-        critical: "🔴🚨"
-    };
+    // Header based on severity / exploit status
+    const header = vuln.exploited
+        ? "🚨 EXPLOITED VULNERABILITY"
+        : vuln.severity?.toUpperCase() === "CRITICAL"
+            ? "🔴 CRITICAL VULNERABILITY"
+            : "⚠️ New Vulnerability";
 
-    const sevKey = vuln.severity.toLowerCase();
-    const severityIcon = severityIcons[sevKey] || "❓";
+    // CVE field — clickable link when source URL available
+    const cveDisplay = vuln.link && vuln.cveId
+        ? `<${vuln.link}|${vuln.cveId}>`
+        : vuln.cveId || "N/A";
 
-    // Slack formatting
+    const technologies = (vuln.affectedTechnologies || []).join(", ") || "N/A";
+
+    // Block Kit message
+    const blocks = [
+        {
+            type: "header",
+            text: { type: "plain_text", text: header, emoji: true },
+        },
+        {
+            type: "section",
+            fields: [
+                { type: "mrkdwn", text: `*CVE:*\n${cveDisplay}` },
+                { type: "mrkdwn", text: `*Severity:*\n${vuln.severity} (${vuln.cvssScore || "N/A"})` },
+                { type: "mrkdwn", text: `*Technologies:*\n${technologies}` },
+                { type: "mrkdwn", text: `*Source:*\n${vuln.source}` },
+            ],
+        },
+    ];
+
+    // Client explanation from LLM, fallback to truncated description
+    const explanation = vuln.clientExplanation
+        || (vuln.description
+            ? vuln.description.substring(0, 300) + (vuln.description.length > 300 ? "..." : "")
+            : "_No description available_");
+
+    blocks.push({
+        type: "section",
+        text: {
+            type: "mrkdwn",
+            text: `*What this means:*\n${explanation}`,
+        },
+    });
+
+    // Exploit warning context
+    if (vuln.exploited) {
+        blocks.push({
+            type: "context",
+            elements: [{ type: "mrkdwn", text: "⚠️ Known Exploited Vulnerability — immediate action recommended" }],
+        });
+    }
+
+    // Action buttons for CVEs that can be tracked
+    if (vuln.cveId) {
+        blocks.push({
+            type: "actions",
+            elements: [
+                {
+                    type: "button",
+                    text: { type: "plain_text", text: "✅ Acknowledge", emoji: true },
+                    action_id: "ack_vuln",
+                    value: vuln.cveId,
+                    style: "primary",
+                },
+                {
+                    type: "button",
+                    text: { type: "plain_text", text: "🔒 Resolve", emoji: true },
+                    action_id: "resolve_vuln",
+                    value: vuln.cveId,
+                    style: "danger",
+                },
+            ],
+        });
+    }
+
+    // @channel in text fallback for critical/exploited vulns
+    const channelTag = highlight ? "@channel " : "";
     const message = {
-        text: `${highlight ? "@channel 🚨 NEW VULNERABILITY 🚨" : "New vulnerability detected"}`,
-        attachments: [
-            {
-                color: vuln.isCritical() ? "danger" : "warning",
-                title: vuln.title || "Security Vulnerability",
-                title_link: vuln.link,
-                fields: [
-                    {
-                        title: "CVE ID",
-                        value: vuln.cveId || "N/A",
-                        short: true
-                    },
-                    {
-                        title: "Severity",
-                        value: `${severityIcon} ${vuln.severity}`,
-                        short: true
-                    },
-                    {
-                        title: "Source",
-                        value: vuln.source,
-                        short: true
-                    },
-                    {
-                        title: "Published",
-                        value: vuln.publishedDate,
-                        short: true
-                    }
-                ],
-                text: vuln.description || "",
-                footer: vuln.exploited ? "🔥 Known Exploited Vulnerability" : "Security Feed",
-                ts: Math.floor(Date.now() / 1000)
-            }
-        ]
+        text: `${channelTag}${header} — ${vuln.cveId || vuln.title}`,
+        blocks,
     };
 
     try {
         await axios.post(config.slack.webhookUrl, message);
-        console.log(`[notifySlack] Sent alert for ${vuln.cveId || vuln.title}`);
+        logger.info({ cveId: vuln.cveId, title: vuln.title }, 'Sent Slack alert');
     } catch (err) {
-        console.error("[notifySlack] Failed to send Slack message:", err.message);
+        logger.error({ err }, 'Failed to send Slack message');
     }
 }
 
