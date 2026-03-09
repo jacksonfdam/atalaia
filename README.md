@@ -19,6 +19,7 @@ Real-time security vulnerability monitoring service. Fetches CVEs from multiple 
 cp .env.example .env
 # Edit .env with your Slack webhook URL and API key
 docker compose up -d
+# Server runs on http://localhost:3000 (or custom PORT env var)
 curl http://localhost:3000/health
 ```
 
@@ -27,8 +28,28 @@ curl http://localhost:3000/health
 ```bash
 npm install
 cp .env.example .env
-# Edit .env
+# Edit .env (configure HOST and PORT)
 npm run dev    # Hot-reload with nodemon
+```
+
+**Access the server:**
+- Locally: `http://localhost:3000`
+- Other local IP: `http://192.168.1.100:3000` (set `HOST=0.0.0.0` in `.env`)
+- Via ngrok: `https://your-ngrok-domain.ngrok.io` (set `HOST=0.0.0.0` in `.env`)
+
+**Environment Examples:**
+```bash
+# Local development only
+HOST=localhost
+PORT=3000
+
+# Accept external connections (Docker, ngrok, local IP)
+HOST=0.0.0.0
+PORT=3000
+
+# Specific local IP (useful for LAN access)
+HOST=192.168.1.100
+PORT=3000
 ```
 
 ## Architecture
@@ -64,34 +85,73 @@ src/
 
 ## API Reference
 
-All endpoints under `/api/v1` require `X-API-Key` header (except where noted).
+### Base URL
+```
+http://localhost:3000  (or http://localhost:PORT if PORT env var is set)
+```
+
+### Authentication
+All endpoints under `/api/v1` require `X-API-Key` header with a valid API key. The `/health` endpoint does not require authentication. The `/api/v1/slack/actions` endpoint requires Slack request signature verification instead.
+
+### Endpoints
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/health` | No | Health check |
-| GET | `/api/v1/vulnerabilities` | Yes | List vulns (query: `status`, `severity`, `source`) |
-| PATCH | `/api/v1/vulnerabilities/:cveId/status` | Yes | Update status (`{ status, changedBy }`) |
-| GET | `/api/v1/stats` | Yes | Vulnerability counts by status/severity/source |
-| POST | `/api/v1/query` | Yes | Query by technology (`{ technologies: [...] }`) |
-| GET | `/api/v1/technologies` | Yes | View active technology filters |
-| POST | `/api/v1/technologies` | Yes | Update filters (`{ technologies: [...] }`) |
+| **GET** | `/health` | None | Health check - returns `{"status":"ok","timestamp":"..."}` |
+| **GET** | `/api/v1/vulnerabilities` | API Key | List vulnerabilities with optional filters |
+| **PATCH** | `/api/v1/vulnerabilities/:cveId/status` | API Key | Update vulnerability status to ACKNOWLEDGED or RESOLVED |
+| **GET** | `/api/v1/stats` | API Key | Get vulnerability statistics (counts by status/severity/source) |
+| **POST** | `/api/v1/query` | API Key | Query vulnerabilities by technology stack |
+| **GET** | `/api/v1/technologies` | API Key | View active technology filters |
+| **POST** | `/api/v1/technologies` | API Key | Update technology filters |
+| **POST** | `/api/v1/slack/actions` | Slack Sig | Slack interactive action handler (acknowledge/resolve buttons) |
 
 ### Examples
 
 ```bash
-# List all CRITICAL vulnerabilities
+# Health check (no auth required)
+curl http://localhost:3000/health
+# Response: {"status":"ok","timestamp":"2026-03-09T..."}
+
+# List all vulnerabilities
+curl -H "X-API-Key: your-api-key-here" \
+  "http://localhost:3000/api/v1/vulnerabilities"
+
+# List only CRITICAL vulnerabilities
 curl -H "X-API-Key: $API_KEY" \
   "http://localhost:3000/api/v1/vulnerabilities?severity=CRITICAL"
+
+# List vulnerabilities by status
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:3000/api/v1/vulnerabilities?status=OPEN"
+
+# Get vulnerability statistics
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:3000/api/v1/stats"
 
 # Acknowledge a vulnerability
 curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
   -d '{"status":"ACKNOWLEDGED","changedBy":"security-team"}' \
   http://localhost:3000/api/v1/vulnerabilities/CVE-2024-0001/status
 
-# Query by technology
+# Resolve a vulnerability
+curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"status":"RESOLVED","changedBy":"security-team"}' \
+  http://localhost:3000/api/v1/vulnerabilities/CVE-2024-0001/status
+
+# Query vulnerabilities by technology
 curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"technologies":["react","node.js"]}' \
+  -d '{"technologies":["react","node.js","docker"]}' \
   http://localhost:3000/api/v1/query
+
+# View active technology filters
+curl -H "X-API-Key: $API_KEY" \
+  "http://localhost:3000/api/v1/technologies"
+
+# Update technology filters
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"technologies":["react","node.js","kubernetes"]}' \
+  http://localhost:3000/api/v1/technologies
 ```
 
 ## Configuration
@@ -100,13 +160,28 @@ curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 
 See `.env.example` for all options. Key variables:
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SLACK_WEBHOOK_URL` | Yes | Slack incoming webhook |
-| `API_KEY` | Yes | API authentication key |
-| `DB_PATH` | No | SQLite path (default: `data/atalaia.db`) |
-| `CRON_SCHEDULE` | No | Monitoring interval (default: `0 * * * *`) |
-| `LLM_PROVIDER` | No | `openai` or `ollama` (empty = disabled) |
+| Variable | Required | Type | Default | Description |
+|----------|----------|------|---------|-------------|
+| `HOST` | No | string | `0.0.0.0` | Hostname/IP to bind to (`0.0.0.0` = all interfaces, `localhost` = local only) |
+| `PORT` | No | number | `3000` | HTTP server port |
+| `SLACK_WEBHOOK_URL` | Yes | string | — | Slack incoming webhook URL for notifications |
+| `API_KEY` | Yes | string | — | API authentication key (used in `X-API-Key` header) |
+| `SLACK_SIGNING_SECRET` | No | string | — | Secret for Slack request signature verification (for interactive buttons) |
+| `EMAIL_SERVICE` | No | enum | `smtp` | Email service: `smtp` \| `mailtrap` \| `sendgrid` |
+| `SMTP_HOST` | No | string | — | SMTP server host (if using smtp) |
+| `SMTP_PORT` | No | number | — | SMTP server port (if using smtp) |
+| `SMTP_USER` | No | string | — | SMTP username (if using smtp) |
+| `SMTP_PASS` | No | string | — | SMTP password (if using smtp) |
+| `SENDGRID_API_KEY` | No | string | — | SendGrid API key (if using sendgrid) |
+| `DB_PATH` | No | string | `data/atalaia.db` | SQLite database file path |
+| `NODE_ENV` | No | enum | `development` | Environment: `development` \| `production` |
+| `CRON_SCHEDULE` | No | cron | `*/30 * * * *` | Feed monitoring interval (cron format) |
+| `WEEKLY_REPORT_CRON` | No | cron | `0 9 * * 1` | Weekly report schedule (default: Monday 9 AM) |
+| `LLM_PROVIDER` | No | enum | (empty) | LLM provider: `openai` \| `ollama` (empty = disabled) |
+| `OPENAI_API_KEY` | No | string | — | OpenAI API key (if using openai) |
+| `OLLAMA_BASE_URL` | No | string | `http://localhost:11434` | Ollama API endpoint |
+| `LOG_LEVEL` | No | enum | `info` | Pino log level: `debug` \| `info` \| `warn` \| `error` |
+| `CORS_ORIGINS` | No | string | `http://localhost:3000` | Comma-separated CORS allowed origins |
 
 ### Technology Filters
 
@@ -131,14 +206,34 @@ npm run test:coverage # With coverage report
 
 ## Docker
 
+### Quick Commands
+
 ```bash
-docker compose up -d           # Start
-docker compose logs -f         # View logs
-docker compose down            # Stop
-curl http://localhost:3000/health  # Verify
+docker compose up -d           # Start service in background
+docker compose logs -f         # View logs (live)
+docker compose down            # Stop service
+curl http://localhost:3000/health  # Verify health
 ```
 
-Data persists in `./data/` via volume mount.
+### Port Configuration
+
+- **Default port:** 3000 (mapped in `docker-compose.yml` as `3000:3000`)
+- **Custom port:** Update `.env` with `PORT=8000` and restart container
+- **Docker port mapping:** Edit `docker-compose.yml` ports section if needed
+
+### Volumes
+
+- Database persists in `./data/atalaia.db` (mounted at `/app/data`)
+- Logs are printed to stdout (view with `docker compose logs`)
+
+### Health Checks
+
+The container includes automatic health checks:
+- **Endpoint:** `GET /health`
+- **Interval:** Every 30 seconds
+- **Timeout:** 5 seconds per check
+- **Retries:** 3 failures before unhealthy
+- **Startup wait:** 10 seconds before first check
 
 ## Tech Stack
 

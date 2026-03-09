@@ -53,9 +53,11 @@ app.post("/api/v1/slack/actions", requireSlackSignature, createSlackActionHandle
 app.use("/api/v1", createApiRoutes(cache));
 
 // Start server
+const HOST = process.env.HOST || '0.0.0.0';
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    logger.info({ port: PORT }, 'Atalaia server running');
+
+app.listen(PORT, HOST, () => {
+    logger.info({ host: HOST, port: PORT }, 'Atalaia server running');
 
     // Run scheduler
     startScheduler();
