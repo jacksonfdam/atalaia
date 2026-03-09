@@ -1,47 +1,68 @@
-# Project Prompt: Atalaia 🛡️👁️
+# Project Summary: Atalaia
 
-You are an expert software engineer tasked with maintaining and extending **Atalaia**, a real-time security vulnerability monitoring service.
-
-## Project Overview
-Atalaia is a Node.js application that fetches security vulnerability data from multiple sources (CISA, Snyk, VulDB, CVE Details), normalizes them, and sends formatted alerts to a Slack channel. It uses a **Clean Architecture** to maintain a clear separation of concerns.
+## Overview
+Atalaia is a Node.js service that monitors security vulnerabilities from multiple feeds (CISA, Snyk, VulDB, CVE Details, NVD), filters by technology stack, and sends alerts to Slack. It includes a REST API for vulnerability management, LLM-powered explanations, and weekly email reports.
 
 ## Technical Stack
-- **Runtime**: Node.js (ES Modules)
-- **Framework**: Express.js (for health checks)
-- **Scheduling**: `node-cron`
-- **Scraping/HTTP**: `axios`, `cheerio`, `rss-parser`
-- **Containerization**: Docker
+- **Runtime**: Node.js 20 (ES Modules)
+- **Framework**: Express.js
+- **Database**: SQLite via better-sqlite3 (WAL mode)
+- **Logging**: Pino (JSON in production, pretty-print in dev)
+- **Scheduling**: node-cron
+- **Notifications**: Slack (Block Kit + interactive buttons), Email (nodemailer)
+- **LLM**: OpenAI API, Ollama (provider-agnostic adapter)
+- **Scraping**: axios, cheerio, rss-parser
+- **Testing**: Jest (ES modules), supertest
+- **Deployment**: Docker (multi-stage Alpine build), Docker Compose
 
-## Architecture & Directory Structure
-- **`src/domain/`**: Contains core business entities.
-  - `Vulnerability.js`: Defines the `Vulnerability` class with properties like `cveId`, `severity`, `exploited`, etc.
-- **`src/application/`**: Contains use cases.
-  - `monitorVulns.js`: The main orchestration logic. It fetches feeds, filters by technology (if configured), checks against a local cache to avoid duplicates, and triggers Slack notifications.
-- **`src/infrastructure/`**: Handles external integrations.
-  - `fetchFeeds.js`: Implements scrapers and parsers for various vulnerability sources.
-  - `cache.js`: Manages a local JSON cache to keep track of reported vulnerabilities.
-  - `config.js`: Centralized configuration management.
-  - `notifySlack.js`: Handles Slack Webhook interactions.
-  - `scheduler.js`: Manages the cron job for periodic monitoring.
-- **`src/interface/`**: Application entry points.
-  - `index.js`: Initializes the Express server, starts the scheduler, and triggers the first monitoring cycle.
+## Architecture
+Clean Architecture with four layers:
 
-## Key Features
-- **Multi-Source Aggregation**: Pulls from diverse feeds using different techniques (JSON API, RSS, Web Scraping).
-- **Normalization**: All external data is mapped to a consistent `Vulnerability` entity.
-- **Filtering**: Supports filtering vulnerabilities based on specific technology keywords (e.g., "nginx", "react").
-- **Smart Alerting**: Automatically highlights Critical or Known Exploited vulnerabilities and can tag `@channel` in Slack.
-- **Deduplication**: Uses a persistent cache to ensure each vulnerability is reported only once.
+- **Domain** (`src/domain/`) — Pure business logic, zero external imports
+  - `entities/Vulnerability.js` — Core entity with `isCritical()`, `isExploited()`, `updateStatus()`
+  - `enums/Status.js` — OPEN / ACKNOWLEDGED / RESOLVED with validated transitions
+  - `enums/Severity.js` — CRITICAL / HIGH / MEDIUM / LOW / UNKNOWN with normalization
+  - `ports/` — Interface contracts (CachePort, FeedPort, LLMPort, NotifierPort)
 
-## How to Run
-1. Install dependencies: `npm install`
-2. Configure `.env`: Add `SLACK_WEBHOOK_URL`.
-3. Start the service: `npm run dev` or `npm start`.
-4. Health check: `GET /health`.
+- **Application** (`src/application/`) — Use cases
+  - `monitorVulns.js` — Fetch feeds, filter by tech, deduplicate, generate LLM explanations, notify Slack
+  - `acknowledgeVuln.js` / `resolveVuln.js` — Status transition use cases
+  - `queryByTech.js` — Technology-based vulnerability lookup
+  - `generateWeeklyReport.js` — Weekly report grouped by severity
 
-## Instructions for the Agent
-When working on this project:
-1. **Respect Clean Architecture**: Keep business logic in `application` and `domain`, and implementation details in `infrastructure`.
-2. **Follow Existing Patterns**: Use the `Vulnerability` entity for all data normalization.
-3. **Verify Scrapers**: If adding a new feed, ensure it handles pagination and respects the source's `User-Agent` requirements.
-4. **Test Changes**: Ensure that the monitoring cycle completes without errors and that filtering/caching works as expected.
+- **Infrastructure** (`src/infrastructure/`) — External integrations
+  - `cache/sqliteCache.js` — SQLite persistence with has/add/get/update/getAll
+  - `feeds/` — Individual scrapers (CISA, Snyk, VulDB, CVE Details, NVD)
+  - `llm/` — LLM adapter factory (OpenAI, Ollama, NoOp)
+  - `notifySlack.js` — Slack Block Kit messages with action buttons
+  - `notifiers/emailNotifier.js` — Weekly email via nodemailer
+  - `scheduler.js` — Monitoring + weekly report cron jobs
+  - `logger.js` — Pino structured logging
+  - `config.js` — Configuration with `${ENV_VAR}` substitution
+
+- **Interface** (`src/interface/`) — Entry points
+  - `index.js` — Express server, composition root
+  - `http/apiRoutes.js` — REST API (CRUD, query, stats, technologies)
+  - `slack/slackActions.js` — Slack interactive message handler with HMAC verification
+
+## Features
+- Multi-source vulnerability aggregation with `Promise.allSettled`
+- Technology-based filtering (configurable via API or `config/technologies.json`)
+- Vulnerability status lifecycle with audit trail
+- Slack Block Kit notifications with emoji headers and interactive buttons
+- LLM-generated plain-English explanations (optional)
+- Weekly email reports for OPEN/ACKNOWLEDGED vulnerabilities
+- REST API with API key authentication
+- Security headers (HSTS, nosniff, DENY frame, CORS)
+- SQLite with WAL mode for concurrent access
+- Structured JSON logging with Pino
+- 54 unit and integration tests
+
+## Running
+```bash
+npm install && cp .env.example .env
+npm run dev          # Development
+npm start            # Production
+npm test             # Run tests
+docker compose up -d # Docker
+```
