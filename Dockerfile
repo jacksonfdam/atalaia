@@ -1,22 +1,29 @@
-# Stage 1: Builder - Instala as dependências
+# Stage 1: Builder - Install production dependencies
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --only=production
+RUN npm ci --only=production
 
-# Stage 2: Production - Cria a imagem final
+# Stage 2: Production image
 FROM node:20-alpine
 WORKDIR /app
 
-# Copia as dependências instaladas do estágio 'builder'
+# Copy dependencies from builder
 COPY --from=builder /app/node_modules ./node_modules
 
-# Copia o código da aplicação e a configuração
+# Copy application code
 COPY src ./src
+COPY db ./db
 COPY config.json ./config.json
+COPY config ./config
 
-# Expõe a porta que o Express usa
+# Create data directory for SQLite database
+RUN mkdir -p /app/data
+
 EXPOSE 3000
 
-# Define o comando para iniciar a aplicação
+# Health check against /health endpoint
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
+  CMD wget -qO- http://localhost:3000/health || exit 1
+
 CMD ["node", "src/interface/index.js"]

@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
+import pino from "pino";
 
 dotenv.config();
 
@@ -10,7 +11,8 @@ try {
     const file = fs.readFileSync(configPath, "utf-8");
     rawConfig = JSON.parse(file || "{}");
 } catch (err) {
-    console.error("[config] Failed to load config.json:", err.message);
+    const configLogger = pino({ level: process.env.LOG_LEVEL || 'info' });
+    configLogger.error({ err }, 'Failed to load config.json');
     rawConfig = {};
 }
 
