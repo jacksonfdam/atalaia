@@ -4,6 +4,7 @@ import path from 'path';
 import { requireApiKey } from '../../middleware/auth.js';
 import { acknowledgeVuln } from '../../application/acknowledgeVuln.js';
 import { resolveVuln } from '../../application/resolveVuln.js';
+import { queryByTech } from '../../application/queryByTech.js';
 import logger from '../../infrastructure/logger.js';
 
 const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
@@ -112,6 +113,23 @@ export function createApiRoutes(cache) {
         }
 
         res.json(stats);
+    });
+
+    // POST /api/v1/query — query vulns by technology
+    router.post('/query', (req, res) => {
+        const { technologies } = req.body;
+
+        if (!Array.isArray(technologies)) {
+            return res.status(400).json({ error: 'technologies must be an array' });
+        }
+
+        if (technologies.length === 0) {
+            return res.status(400).json({ error: 'At least one technology required' });
+        }
+
+        logger.info({ techs: technologies }, 'Vulnerability query');
+        const results = queryByTech(technologies, cache);
+        res.json({ count: results.length, vulnerabilities: results });
     });
 
     return router;
