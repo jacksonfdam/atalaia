@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import logger from '../logger.js';
+import { formatReportHtmlProfessional, formatReportHtmlMinimal } from './emailTemplates.js';
 
 /**
  * Send the weekly vulnerability report via email.
@@ -30,23 +31,34 @@ export async function sendWeeklyEmail(report) {
         ...(user && pass ? { auth: { user, pass } } : {}),
     });
 
-    const html = formatReportHtml(report);
+    // Select template based on environment variable (default: professional)
+    const templateType = (process.env.EMAIL_TEMPLATE || 'professional').toLowerCase();
+    const html = templateType === 'minimal'
+        ? formatReportHtmlMinimal(report)
+        : formatReportHtmlProfessional(report);
+
     const to = recipients.split(',').map(e => e.trim()).join(',');
+    const stats = `CRITICAL:${(report.vulnerabilities.CRITICAL || []).length}, HIGH:${(report.vulnerabilities.HIGH || []).length}, MEDIUM:${(report.vulnerabilities.MEDIUM || []).length}, LOW:${(report.vulnerabilities.LOW || []).length}`;
 
     try {
         await transporter.sendMail({
             from,
             to,
-            subject: `Atalaia Weekly Vulnerability Report — ${new Date().toLocaleDateString()}`,
+            subject: `Atalaia Weekly Vulnerability Report — ${report.totalCount} issues [${stats}]`,
             html,
         });
-        logger.info({ count: report.totalCount, to }, 'Weekly email sent');
+        logger.info({ count: report.totalCount, template: templateType, to }, 'Weekly email sent');
     } catch (err) {
         logger.error({ err }, 'Failed to send weekly email');
     }
 }
 
-function formatReportHtml(report) {
+/**
+ * Format a vulnerability report as HTML email content.
+ * @param {object} report - Report object from generateWeeklyReport()
+ * @returns {string} HTML content for email body
+ */
+export function formatReportHtml(report) {
     let html = `
 <h2>Weekly Vulnerability Report</h2>
 <p>Generated: ${report.generatedAt}</p>

@@ -6,6 +6,7 @@ import { fetch as fetchSnyk } from '../infrastructure/feeds/snykFeed.js';
 import { fetch as fetchVuldb } from '../infrastructure/feeds/vuldbFeed.js';
 import { fetch as fetchCveDetails } from '../infrastructure/feeds/cveDetailsFeed.js';
 import { fetch as fetchNvd } from '../infrastructure/feeds/nvdFeed.js';
+import { fetch as fetchOpenCVE } from '../infrastructure/feeds/opencveFeed.js';
 import { readFileSync } from 'fs';
 import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
@@ -24,11 +25,12 @@ const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
  * When the same CVE appears in multiple feeds, the highest-priority source wins
  * for severity, description, and source fields.
  */
-const SOURCE_PRIORITY = ['nvd', 'cisa', 'snyk', 'vuldb', 'cvedetails'];
+const SOURCE_PRIORITY = ['nvd', 'cisa', 'opencve', 'snyk', 'vuldb', 'cvedetails'];
 
 const feeds = [
     { name: 'nvd', fetch: fetchNvd },
     { name: 'cisa', fetch: fetchCisa },
+    { name: 'opencve', fetch: fetchOpenCVE },
     { name: 'snyk', fetch: fetchSnyk },
     { name: 'vuldb', fetch: fetchVuldb },
     { name: 'cvedetails', fetch: fetchCveDetails },
