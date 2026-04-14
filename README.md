@@ -1,249 +1,186 @@
 # Atalaia
 
-Real-time security vulnerability monitoring service. Fetches CVEs from multiple feeds, filters by technology stack, sends Slack alerts with interactive buttons, and provides a REST API for vulnerability management.
+**Proactive vulnerability intelligence for engineering teams.**
 
-## Features
+Atalaia is an automated security monitoring service that aggregates CVE data from multiple authoritative sources, filters it against your technology stack, and delivers actionable alerts — so your team can respond to threats before they become incidents.
 
-- **Multi-source feeds** — CISA, Snyk, VulDB, CVE Details, NVD
-- **Technology filtering** — Only alert on vulns matching your stack
-- **Slack notifications** — Block Kit messages with Acknowledge/Resolve buttons
-- **Status lifecycle** — OPEN / ACKNOWLEDGED / RESOLVED tracking
-- **LLM explanations** — Plain-English CVE summaries via OpenAI or Ollama
-- **Weekly email reports** — Grouped by severity, sent via SMTP
-- **REST API** — Query, filter, and manage vulnerabilities programmatically
-- **SQLite persistence** — WAL mode for concurrent reads
+Built for teams that ship fast and need security to keep up.
 
-## Quick Start (Docker Compose)
+---
+
+## Why Atalaia?
+
+Most vulnerability scanners are reactive — they tell you what's wrong *after* the fact. Atalaia continuously monitors public feeds and notifies your team the moment a relevant CVE is published, with severity context, exploit status, and one-click triage.
+
+- **6 intelligence sources** in a single pipeline — CISA KEV, NVD, Snyk, VulDB, CVE Details, OpenCVE
+- **Stack-aware filtering** — only see vulnerabilities that affect *your* technologies
+- **Slack-native workflow** — Block Kit alerts with Acknowledge/Resolve buttons, no context-switching
+- **Weekly executive reports** — severity-grouped HTML emails for stakeholders
+- **Zero-config deduplication** — same CVE from multiple sources? Merged automatically with source priority
+- **LLM-powered summaries** — plain-English explanations via OpenAI or local Ollama
+
+---
+
+## Quick Start
 
 ```bash
-cp .env.example .env
-# Edit .env with your Slack webhook URL and API key
+# Clone and configure
+git clone https://github.com/jacksonfdam/atalaia.git
+cd atalaia
+cp .env.example .env    # Add your Slack webhook URL and API key
+
+# Run with Docker
 docker compose up -d
-# Server runs on http://localhost:3000 (or custom PORT env var)
-curl http://localhost:3000/health
-```
 
-## Local Development
-
-```bash
+# Or run locally
 npm install
-cp .env.example .env
-# Edit .env (configure HOST and PORT)
-npm run dev    # Hot-reload with nodemon
+npm run dev
 ```
 
-**Access the server:**
-- Locally: `http://localhost:3000`
-- Other local IP: `http://192.168.1.100:3000` (set `HOST=0.0.0.0` in `.env`)
-- Via ngrok: `https://your-ngrok-domain.ngrok.io` (set `HOST=0.0.0.0` in `.env`)
-
-**Environment Examples:**
+Verify it's running:
 ```bash
-# Local development only
-HOST=localhost
-PORT=3000
-
-# Accept external connections (Docker, ngrok, local IP)
-HOST=0.0.0.0
-PORT=3000
-
-# Specific local IP (useful for LAN access)
-HOST=192.168.1.100
-PORT=3000
-```
-
-## Architecture
-
-Clean Architecture with four layers:
-
-```
-src/
-  domain/           # Pure business logic (zero external imports)
-    entities/       #   Vulnerability class
-    enums/          #   Status, Severity enums
-    ports/          #   Interface contracts
-  application/      # Use cases
-    monitorVulns.js #   Main monitoring orchestrator
-    acknowledgeVuln.js
-    resolveVuln.js
-    queryByTech.js
-    generateWeeklyReport.js
-  infrastructure/   # External integrations
-    feeds/          #   Individual feed scrapers
-    cache/          #   SQLite persistence (better-sqlite3)
-    notifiers/      #   Email notifier
-    llm/            #   LLM adapter (OpenAI, Ollama)
-    notifySlack.js  #   Slack webhook + Block Kit
-    scheduler.js    #   Cron jobs
-    config.js       #   Configuration loader
-    logger.js       #   Pino structured logging
-  interface/        # Entry points
-    index.js        #   Express server (composition root)
-    http/           #   REST API routes
-    slack/          #   Slack action handler
-```
-
-## API Reference
-
-### Base URL
-```
-http://localhost:3000  (or http://localhost:PORT if PORT env var is set)
-```
-
-### Authentication
-All endpoints under `/api/v1` require `X-API-Key` header with a valid API key. The `/health` endpoint does not require authentication. The `/api/v1/slack/actions` endpoint requires Slack request signature verification instead.
-
-### Endpoints
-
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| **GET** | `/health` | None | Health check - returns `{"status":"ok","timestamp":"..."}` |
-| **GET** | `/api/v1/vulnerabilities` | API Key | List vulnerabilities with optional filters |
-| **PATCH** | `/api/v1/vulnerabilities/:cveId/status` | API Key | Update vulnerability status to ACKNOWLEDGED or RESOLVED |
-| **GET** | `/api/v1/stats` | API Key | Get vulnerability statistics (counts by status/severity/source) |
-| **POST** | `/api/v1/query` | API Key | Query vulnerabilities by technology stack |
-| **GET** | `/api/v1/technologies` | API Key | View active technology filters |
-| **POST** | `/api/v1/technologies` | API Key | Update technology filters |
-| **POST** | `/api/v1/slack/actions` | Slack Sig | Slack interactive action handler (acknowledge/resolve buttons) |
-
-### Examples
-
-```bash
-# Health check (no auth required)
 curl http://localhost:3000/health
-# Response: {"status":"ok","timestamp":"2026-03-09T..."}
-
-# List all vulnerabilities
-curl -H "X-API-Key: your-api-key-here" \
-  "http://localhost:3000/api/v1/vulnerabilities"
-
-# List only CRITICAL vulnerabilities
-curl -H "X-API-Key: $API_KEY" \
-  "http://localhost:3000/api/v1/vulnerabilities?severity=CRITICAL"
-
-# List vulnerabilities by status
-curl -H "X-API-Key: $API_KEY" \
-  "http://localhost:3000/api/v1/vulnerabilities?status=OPEN"
-
-# Get vulnerability statistics
-curl -H "X-API-Key: $API_KEY" \
-  "http://localhost:3000/api/v1/stats"
-
-# Acknowledge a vulnerability
-curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"status":"ACKNOWLEDGED","changedBy":"security-team"}' \
-  http://localhost:3000/api/v1/vulnerabilities/CVE-2024-0001/status
-
-# Resolve a vulnerability
-curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"status":"RESOLVED","changedBy":"security-team"}' \
-  http://localhost:3000/api/v1/vulnerabilities/CVE-2024-0001/status
-
-# Query vulnerabilities by technology
-curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"technologies":["react","node.js","docker"]}' \
-  http://localhost:3000/api/v1/query
-
-# View active technology filters
-curl -H "X-API-Key: $API_KEY" \
-  "http://localhost:3000/api/v1/technologies"
-
-# Update technology filters
-curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"technologies":["react","node.js","kubernetes"]}' \
-  http://localhost:3000/api/v1/technologies
+# → {"status":"ok","timestamp":"..."}
 ```
+
+---
+
+## How It Works
+
+```
+┌─────────────┐     ┌──────────────┐     ┌───────────┐     ┌───────────┐
+│  CVE Feeds  │────▶│  Filter by   │────▶│ Deduplicate│────▶│  Notify   │
+│  (6 sources)│     │  Tech Stack  │     │  & Merge   │     │  Slack +  │
+│             │     │              │     │  (SQLite)  │     │  Email    │
+└─────────────┘     └──────────────┘     └───────────┘     └───────────┘
+     CISA KEV            config/              Source           Block Kit
+     NVD                 technologies.json    priority         buttons
+     Snyk                                    ranking          + weekly
+     VulDB                                                    reports
+     CVE Details
+     OpenCVE
+```
+
+1. **Scheduler** triggers monitoring on a configurable cron interval (default: every 30 min)
+2. **Feed aggregator** fetches all sources concurrently — one feed failure never blocks others
+3. **Tech filter** matches CVEs against your stack (case-insensitive, configurable at runtime)
+4. **Deduplication** checks SQLite cache; merges multi-source CVEs using priority ranking
+5. **Notification** sends Slack alerts with interactive buttons + optional LLM explanation
+6. **Weekly digest** emails a severity-grouped report to stakeholders
+
+---
 
 ## Configuration
 
-### Environment Variables
+All configuration is done through environment variables. See [`.env.example`](.env.example) for the full list.
 
-See `.env.example` for all options. Key variables:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SLACK_WEBHOOK_URL` | Yes | Slack incoming webhook for alerts |
+| `API_KEY` | Yes | Authentication key for the REST API |
+| `PORT` | No | Server port (default: `3000`) |
+| `CRON_SCHEDULE` | No | Monitoring interval (default: `*/30 * * * *`) |
+| `LLM_PROVIDER` | No | `openai` or `ollama` for CVE summaries |
+| `EMAIL_TEMPLATE` | No | `professional` or `minimal` for weekly reports |
 
-| Variable | Required | Type | Default | Description |
-|----------|----------|------|---------|-------------|
-| `HOST` | No | string | `0.0.0.0` | Hostname/IP to bind to (`0.0.0.0` = all interfaces, `localhost` = local only) |
-| `PORT` | No | number | `3000` | HTTP server port |
-| `SLACK_WEBHOOK_URL` | Yes | string | — | Slack incoming webhook URL for notifications |
-| `API_KEY` | Yes | string | — | API authentication key (used in `X-API-Key` header) |
-| `SLACK_SIGNING_SECRET` | No | string | — | Secret for Slack request signature verification (for interactive buttons) |
-| `EMAIL_SERVICE` | No | enum | `smtp` | Email service: `smtp` \| `mailtrap` \| `sendgrid` |
-| `SMTP_HOST` | No | string | — | SMTP server host (if using smtp) |
-| `SMTP_PORT` | No | number | — | SMTP server port (if using smtp) |
-| `SMTP_USER` | No | string | — | SMTP username (if using smtp) |
-| `SMTP_PASS` | No | string | — | SMTP password (if using smtp) |
-| `SENDGRID_API_KEY` | No | string | — | SendGrid API key (if using sendgrid) |
-| `DB_PATH` | No | string | `data/atalaia.db` | SQLite database file path |
-| `NODE_ENV` | No | enum | `development` | Environment: `development` \| `production` |
-| `CRON_SCHEDULE` | No | cron | `*/30 * * * *` | Feed monitoring interval (cron format) |
-| `WEEKLY_REPORT_CRON` | No | cron | `0 9 * * 1` | Weekly report schedule (default: Monday 9 AM) |
-| `LLM_PROVIDER` | No | enum | (empty) | LLM provider: `openai` \| `ollama` (empty = disabled) |
-| `OPENAI_API_KEY` | No | string | — | OpenAI API key (if using openai) |
-| `OLLAMA_BASE_URL` | No | string | `http://localhost:11434` | Ollama API endpoint |
-| `LOG_LEVEL` | No | enum | `info` | Pino log level: `debug` \| `info` \| `warn` \| `error` |
-| `CORS_ORIGINS` | No | string | `http://localhost:3000` | Comma-separated CORS allowed origins |
+Full documentation: [GitHub Wiki](https://github.com/jacksonfdam/atalaia/wiki)
 
-### Technology Filters
+---
 
-Edit `config/technologies.json` or use the API:
+## REST API
+
+Atalaia exposes a REST API for programmatic access to vulnerability data.
 
 ```bash
-curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"technologies":["react","docker","kubernetes"]}' \
-  http://localhost:3000/api/v1/technologies
+# List all vulnerabilities
+curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/vulnerabilities
+
+# Filter by severity
+curl -H "X-API-Key: $API_KEY" "http://localhost:3000/api/v1/vulnerabilities?severity=CRITICAL"
+
+# Get statistics
+curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/stats
+
+# Acknowledge a CVE
+curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"status":"ACKNOWLEDGED","changedBy":"security-team"}' \
+  http://localhost:3000/api/v1/vulnerabilities/CVE-2024-0001/status
 ```
 
-### Adding an LLM Provider
+Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)
 
-Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` in `.env`, or use `LLM_PROVIDER=ollama` with a local Ollama instance. Leave `LLM_PROVIDER` empty to disable explanations.
+---
 
-## Testing
+## Architecture
 
-```bash
-npm test              # Run all tests
-npm run test:coverage # With coverage report
+Clean Architecture with strict layer boundaries — domain logic has zero external dependencies.
+
+```
+src/
+├── domain/           # Pure business logic
+├── application/      # Use cases and orchestration
+├── infrastructure/   # External integrations (feeds, DB, Slack, email, LLM)
+└── interface/        # HTTP server, REST API, Slack action handler
 ```
 
-## Docker
+Full architecture guide: [Wiki — Architecture](https://github.com/jacksonfdam/atalaia/wiki/Architecture)
 
-### Quick Commands
-
-```bash
-docker compose up -d           # Start service in background
-docker compose logs -f         # View logs (live)
-docker compose down            # Stop service
-curl http://localhost:3000/health  # Verify health
-```
-
-### Port Configuration
-
-- **Default port:** 3000 (mapped in `docker-compose.yml` as `3000:3000`)
-- **Custom port:** Update `.env` with `PORT=8000` and restart container
-- **Docker port mapping:** Edit `docker-compose.yml` ports section if needed
-
-### Volumes
-
-- Database persists in `./data/atalaia.db` (mounted at `/app/data`)
-- Logs are printed to stdout (view with `docker compose logs`)
-
-### Health Checks
-
-The container includes automatic health checks:
-- **Endpoint:** `GET /health`
-- **Interval:** Every 30 seconds
-- **Timeout:** 5 seconds per check
-- **Retries:** 3 failures before unhealthy
-- **Startup wait:** 10 seconds before first check
+---
 
 ## Tech Stack
 
-- **Runtime**: Node.js 20 (ES Modules)
-- **Framework**: Express
-- **Database**: SQLite (better-sqlite3, WAL mode)
-- **Logging**: Pino
-- **Scheduling**: node-cron
-- **Notifications**: Slack (Block Kit), Email (nodemailer)
-- **LLM**: OpenAI API, Ollama
-- **Scraping**: axios, cheerio, rss-parser
-- **Testing**: Jest, supertest
-- **Deployment**: Docker (multi-stage Alpine build)
+| Layer | Technology |
+|-------|-----------|
+| Runtime | Node.js 20 (ES Modules) |
+| Framework | Express |
+| Database | SQLite (better-sqlite3, WAL mode) |
+| Logging | Pino |
+| Notifications | Slack Block Kit, nodemailer |
+| Intelligence | OpenAI API, Ollama |
+| Scraping | axios, cheerio, rss-parser |
+| Testing | Jest, supertest |
+| Deployment | Docker (multi-stage Alpine) |
+
+---
+
+## Development
+
+```bash
+npm run dev              # Hot-reload with nodemon
+npm test                 # Run test suite
+npm run test:coverage    # With coverage report
+docker compose up -d     # Full Docker environment
+```
+
+---
+
+## Documentation
+
+All detailed documentation lives in the [GitHub Wiki](https://github.com/jacksonfdam/atalaia/wiki):
+
+- [Home](https://github.com/jacksonfdam/atalaia/wiki) — Overview and getting started
+- [Architecture](https://github.com/jacksonfdam/atalaia/wiki/Architecture) — Clean Architecture layers and data flow
+- [API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference) — Full REST API documentation
+- [Configuration](https://github.com/jacksonfdam/atalaia/wiki/Configuration) — Environment variables and feed setup
+- [Deployment](https://github.com/jacksonfdam/atalaia/wiki/Deployment) — Docker, production checklist, troubleshooting
+- [Compliance](https://github.com/jacksonfdam/atalaia/wiki/ISO-27001-Compliance) — ISO 27001 alignment strategy
+
+---
+
+## Roadmap
+
+Track progress on the [Project Board](https://github.com/jacksonfdam/atalaia) and [Issues](https://github.com/jacksonfdam/atalaia/issues).
+
+---
+
+## Credits
+
+**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Security Engineer at [jacksonfdam](https://github.com/jacksonfdam)
+
+Built from the ground up starting September 2025. From initial concept through architecture design, feed integration, Slack workflows, email reporting, and LLM-powered intelligence — a solo effort to give engineering teams the vulnerability visibility they deserve.
+
+---
+
+## License
+
+Proprietary — jacksonfdam AB. All rights reserved.

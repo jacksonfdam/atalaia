@@ -27,13 +27,17 @@ const CVE_DETAILS_HEADERS = {
     'Upgrade-Insecure-Requests': '1',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-    'Sec-Fetch-Site': 'none',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Referer': 'https://www.cvedetails.com/',
+    'Sec-Fetch-Site': 'same-origin',
     'Sec-Fetch-Mode': 'navigate',
     'Sec-Fetch-User': '?1',
     'Sec-Fetch-Dest': 'document',
     'Accept-Language': 'en-US,en;q=0.9',
     'Cookie': 'cvedconsent=1',
 };
+
+const PAGE_DELAY_MS = 3000;
 
 /**
  * Scrape vulnerabilities from CVE Details website.
@@ -92,6 +96,8 @@ export async function fetch() {
             if (nextLink.length > 0) {
                 const nextPath = nextLink.attr('href');
                 currentUrl = new URL(nextPath, 'https://www.cvedetails.com').toString();
+                // Delay between pages to avoid bot detection
+                await new Promise(resolve => setTimeout(resolve, PAGE_DELAY_MS));
             } else {
                 currentUrl = null;
             }

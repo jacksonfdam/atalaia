@@ -97,7 +97,7 @@ async function notifySlack(vuln, highlight = false) {
     };
 
     try {
-        await axios.post(config.slack.webhookUrl, message);
+        await axios.post(config.slack.webhookUrl, message, { timeout: 10000 });
         logger.info({ cveId: vuln.cveId, title: vuln.title }, 'Sent Slack alert');
     } catch (err) {
         logger.error({ err }, 'Failed to send Slack message');
