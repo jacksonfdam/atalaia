@@ -4,3 +4,5 @@
 /src/node_modules/
 vuln-cache.json
 npm-debug.log
+.claude/*
+.claude/settings.local.json

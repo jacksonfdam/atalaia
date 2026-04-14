@@ -61,7 +61,7 @@ The project is mid-migration per `rules.md`. Key planned changes:
 - Vulnerability identity is `cve_id` (unique key in SQLite)
 - Scraper functions return `Vulnerability[]`; each handles its own errors internally
 - Config values support `${ENV_VAR}` substitution pattern
-- Docker uses multi-stage build with `node:20-alpine`
+- Docker uses multi-stage build with `node:24-alpine`
 
 ## Workflow Orchestration
 

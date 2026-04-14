@@ -131,7 +131,7 @@ Full architecture guide: [Wiki — Architecture](https://github.com/jacksonfdam/
 
 | Layer | Technology |
 |-------|-----------|
-| Runtime | Node.js 20 (ES Modules) |
+| Runtime | Node.js 24 LTS (ES Modules) |
 | Framework | Express |
 | Database | SQLite (better-sqlite3, WAL mode) |
 | Logging | Pino |
@@ -139,7 +139,7 @@ Full architecture guide: [Wiki — Architecture](https://github.com/jacksonfdam/
 | Intelligence | OpenAI API, Ollama |
 | Scraping | axios, cheerio, rss-parser |
 | Testing | Jest, supertest |
-| Deployment | Docker (multi-stage Alpine) |
+| Deployment | Docker (multi-stage `node:24-alpine`) |
 
 ---
 
@@ -175,12 +175,13 @@ Track progress on the [Project Board](https://github.com/jacksonfdam/atalaia) an
 
 ## Credits
 
-**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Security Engineer at [jacksonfdam](https://github.com/jacksonfdam)
+**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Mobile and Security Engineer at [jacksonfdam](https://github.com/jacksonfdam)
 
-Built from the ground up starting September 2025. From initial concept through architecture design, feed integration, Slack workflows, email reporting, and LLM-powered intelligence — a solo effort to give engineering teams the vulnerability visibility they deserve.
+Built from the ground up starting September 2025. 
+From initial concept through architecture design, feed integration, Slack workflows, email reporting, and LLM-powered intelligence, a solo effort to give engineering teams the vulnerability visibility they deserve.
 
 ---
 
 ## License
 
-Proprietary — jacksonfdam AB. All rights reserved.
+MIT — see LICENSE.
