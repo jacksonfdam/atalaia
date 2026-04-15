@@ -1,9 +1,16 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import logger from '../logger.js';
 
-const DB_PATH = process.env.DB_PATH || path.resolve('data/atalaia.db');
+// Resolve project root from this file's location so paths work regardless of cwd
+// (e.g., when the CLI is invoked globally from another directory).
+const __filename = fileURLToPath(import.meta.url);
+const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..', '..');
+
+const DB_PATH = process.env.DB_PATH || path.join(PROJECT_ROOT, 'data/atalaia.db');
+const MIGRATION_PATH = path.join(PROJECT_ROOT, 'db/migrations/001_initial.sql');
 
 let db;
 
@@ -16,8 +23,7 @@ export function initializeDatabase() {
     db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
 
-    const migrationPath = path.resolve('db/migrations/001_initial.sql');
-    const migration = fs.readFileSync(migrationPath, 'utf-8');
+    const migration = fs.readFileSync(MIGRATION_PATH, 'utf-8');
     db.exec(migration);
     
     logger.info('SQLite database initialized and migrations applied');
