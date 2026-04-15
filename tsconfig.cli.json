@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": "src/cli",
+    "outDir": "dist/cli",
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "sourceMap": false,
+    "allowJs": false,
+    "noEmitOnError": false,
+    "paths": {
+      "#app/*": ["../*"]
+    }
+  },
+  "include": ["src/cli/**/*.ts", "src/cli/**/*.tsx"],
+  "exclude": ["node_modules", "dist"]
+}
