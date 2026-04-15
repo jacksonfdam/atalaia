@@ -4,7 +4,12 @@ import Vulnerability from '../domain/entities/Vulnerability.js';
 import { fetch as fetchCisa } from '../infrastructure/feeds/cisaFeed.js';
 import { fetch as fetchSnyk } from '../infrastructure/feeds/snykFeed.js';
 import { fetch as fetchVuldb } from '../infrastructure/feeds/vuldbFeed.js';
-import { fetch as fetchCveDetails } from '../infrastructure/feeds/cveDetailsFeed.js';
+// CVE Details scraper is kept in infrastructure/feeds/cveDetailsFeed.js but
+// disabled by default: cvedetails.com returns 403 to browser-shaped scraper
+// requests (likely TLS-fingerprinting or JS-challenge bot protection) and its
+// data is largely redundant with NVD / CISA / OpenCVE, which all rank higher
+// in SOURCE_PRIORITY. To re-enable, add back its import + feeds-array entry
+// below and set config.feeds.cveDetails in config.json.
 import { fetch as fetchNvd } from '../infrastructure/feeds/nvdFeed.js';
 import { fetch as fetchOpenCVE } from '../infrastructure/feeds/opencveFeed.js';
 import { readFileSync } from 'fs';
@@ -33,7 +38,7 @@ const feeds = [
     { name: 'opencve', fetch: fetchOpenCVE },
     { name: 'snyk', fetch: fetchSnyk },
     { name: 'vuldb', fetch: fetchVuldb },
-    { name: 'cvedetails', fetch: fetchCveDetails },
+    // { name: 'cvedetails', fetch: fetchCveDetails },  // disabled: see note above
 ];
 
 function delay(ms) {

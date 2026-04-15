@@ -6,8 +6,7 @@
   "feeds": {
     "cisaJson": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
     "snyk": "https://security.snyk.io/vuln",
-    "vuldbRss": "https://vuldb.com/?rss.recent",
-    "cveDetails": "https://www.cvedetails.com/vulnerability-list/updated_since-last7days/"
+    "vuldbRss": "https://vuldb.com/?rss.recent"
   },
   "filterSettings": {
     "enabled": true,
