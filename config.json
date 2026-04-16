@@ -8,6 +8,16 @@
     "snyk": "https://security.snyk.io/vuln",
     "vuldbRss": "https://vuldb.com/?rss.recent"
   },
+  "opencve": {
+    "apiUrl": "${OPENCVE_API_URL}",
+    "token": "${OPENCVE_API_TOKEN}"
+  },
+  "providers": [],
+  "repositories": {
+    "autoScan": false,
+    "scanCron": "0 3 * * *",
+    "autoFilterFromDeps": true
+  },
   "filterSettings": {
     "enabled": true,
     "technologies": [

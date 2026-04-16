@@ -1,204 +1,201 @@
 import axios from 'axios';
 import Vulnerability from '../../domain/entities/Vulnerability.js';
 import logger from '../logger.js';
+import config from '../config.js';
 import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 
+const DEFAULT_API_URL = 'https://app.opencve.io/api';
+const MAX_PAGES = 10; // Safety limit to avoid infinite pagination
+
 /**
- * Fetch vulnerabilities from OpenCVE Knowledge Base (GitHub repository).
- * OpenCVE provides a comprehensive KB with CVE data from multiple sources.
- *
- * Data source: https://github.com/opencve/opencve-kb
- * Structure: Individual JSON files per CVE in yearly directories
+ * Fetch vulnerabilities from OpenCVE REST API.
+ * Requires OPENCVE_API_URL and OPENCVE_API_TOKEN environment variables.
  *
  * @returns {Promise<Vulnerability[]>}
  */
 export async function fetch() {
+    const apiUrl = config.opencve?.apiUrl || process.env.OPENCVE_API_URL || DEFAULT_API_URL;
+    const token = config.opencve?.token || process.env.OPENCVE_API_TOKEN;
+
+    if (!token) {
+        logger.warn('OpenCVE API token not configured, skipping feed');
+        return [];
+    }
+
     return withRetry('opencve', async () => {
-        logger.info('Fetching OpenCVE vulnerabilities');
+        logger.info('Fetching OpenCVE vulnerabilities via REST API');
 
-        // Fetch recent CVEs from 2025 (or 2024 if 2026 not available yet)
-        const vulns = await fetchCVEsFromYear(2025);
+        const vulns = [];
+        let page = 1;
+        let hasNext = true;
 
-        if (!vulns || vulns.length === 0) {
-            logger.info('No vulnerabilities found in OpenCVE');
-            return [];
+        while (hasNext && page <= MAX_PAGES) {
+            const result = await fetchPage(apiUrl, token, page);
+            if (!result) break;
+
+            for (const cve of result.results) {
+                const vuln = mapCveToVulnerability(cve);
+                if (vuln) vulns.push(vuln);
+            }
+
+            hasNext = result.next !== null;
+            page++;
         }
 
-        logger.info({ count: vulns.length }, 'Successfully parsed OpenCVE vulnerabilities');
+        logger.info({ count: vulns.length }, 'Successfully fetched OpenCVE vulnerabilities');
         return vulns;
     });
 }
 
 /**
- * Fetch CVE list from GitHub API for a given year.
- * @param {number} year - Year to fetch (e.g., 2025)
- * @returns {Promise<Vulnerability[]>}
+ * Fetch a single page of CVEs from the OpenCVE API.
+ * @param {string} apiUrl
+ * @param {string} token
+ * @param {number} page
+ * @returns {Promise<{ count: number, next: string|null, previous: string|null, results: object[] } | null>}
  */
-async function fetchCVEsFromYear(year) {
-    const baseUrl = `https://api.github.com/repos/opencve/opencve-kb/contents/${year}`;
-
+async function fetchPage(apiUrl, token, page) {
     try {
-        // Fetch directory listing from GitHub
-        const response = await axios.get(baseUrl, {
+        const response = await axios.get(`${apiUrl}/cve`, {
             timeout: FEED_TIMEOUT_MS,
             headers: {
                 'User-Agent': USER_AGENT,
-                // GitHub API may require Accept header
-                'Accept': 'application/vnd.github.v3+json',
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'application/json',
             },
             params: {
-                per_page: 100, // Fetch up to 100 files per page
+                page,
             },
         });
 
-        if (!Array.isArray(response.data)) {
-            logger.warn({ year }, 'Invalid response format from OpenCVE KB');
-            return [];
-        }
-
-        // Filter to JSON files matching CVE pattern (CVE-YYYY-XXXXX.json)
-        const cveFiles = response.data.filter(
-            (item) => item.type === 'file' && item.name.match(/^CVE-\d{4}-\d{4,}\.json$/)
-        );
-
-        if (cveFiles.length === 0) {
-            logger.info({ year }, 'No CVE files found for year');
-            return [];
-        }
-
-        logger.info({ year, count: cveFiles.length }, 'Found CVE files');
-
-        // Fetch individual CVE JSON files (limit to prevent rate limiting)
-        const vulns = [];
-        const maxCVEs = 50; // Limit to recent 50 CVEs to avoid rate limits and long processing
-
-        for (let i = 0; i < Math.min(cveFiles.length, maxCVEs); i++) {
-            const cveFile = cveFiles[i];
-            try {
-                const cveData = await fetchCVEData(year, cveFile.name);
-                if (cveData) {
-                    vulns.push(cveData);
-                }
-            } catch (error) {
-                logger.warn(
-                    { cve: cveFile.name, err: error.message },
-                    'Failed to fetch individual CVE'
-                );
-                // Continue with next CVE on error
-            }
-
-            // Small delay to respect GitHub API rate limits (no auth)
-            if (i < Math.min(cveFiles.length, maxCVEs) - 1) {
-                await sleep(100);
-            }
-        }
-
-        logger.info({ parsed: vulns.length, total: cveFiles.length }, 'Processed OpenCVE files');
-        return vulns;
+        return response.data;
     } catch (error) {
-        logger.error({ year, err: error }, 'Failed to fetch OpenCVE directory');
-        return [];
+        if (error.response?.status === 401) {
+            logger.error('OpenCVE API authentication failed — check OPENCVE_API_TOKEN');
+            return null;
+        }
+        if (error.response?.status === 404) {
+            logger.warn({ page }, 'OpenCVE API returned 404');
+            return null;
+        }
+        logger.error({ page, err: error.message, status: error.response?.status }, 'OpenCVE API request failed');
+        throw error;
     }
 }
 
 /**
- * Fetch a single CVE JSON file from GitHub raw content.
- * @param {number} year
- * @param {string} fileName - CVE-YYYY-XXXXX.json
- * @returns {Promise<Vulnerability|null>}
+ * Map an OpenCVE API CVE object to a Vulnerability entity.
+ * @param {object} cve - CVE from OpenCVE API response
+ * @returns {Vulnerability|null}
  */
-async function fetchCVEData(year, fileName) {
-    const rawUrl = `https://raw.githubusercontent.com/opencve/opencve-kb/main/${year}/${fileName}`;
+function mapCveToVulnerability(cve) {
+    try {
+        const cveId = cve.cve_id || cve.id;
+        if (!cveId) return null;
 
-    const { data } = await axios.get(rawUrl, {
-        timeout: FEED_TIMEOUT_MS,
-        headers: { 'User-Agent': USER_AGENT },
-    });
+        // Extract description
+        const description = cve.description || cve.title || 'No description available';
+        const title = cve.title || cveId;
 
-    if (!data || !data.cve) {
+        // Extract CVSS score — try multiple sources
+        const cvssScore = extractCvssScore(cve);
+        const severity = determineSeverity(cvssScore, cve);
+
+        // Extract vendor/product info for affectedTechnologies
+        const affectedTechnologies = extractAffectedTechnologies(cve);
+
+        // Extract published date
+        const publishedDate = cve.created_at || cve.updated_at || new Date().toISOString();
+
+        // Build link
+        const link = `https://www.opencve.io/cve/${cveId}`;
+
+        return new Vulnerability({
+            cveId,
+            title: `${cveId} - ${title}`,
+            description,
+            publishedDate,
+            severity,
+            cvssScore,
+            source: 'opencve',
+            link,
+            exploited: cve.kev === true,
+            type: 'Unknown',
+            affectedTechnologies,
+        });
+    } catch (error) {
+        logger.warn({ cve: cve?.cve_id, err: error.message }, 'Failed to map OpenCVE CVE');
         return null;
     }
-
-    // Extract data from MITRE/NVD sources (prefer MITRE, fallback to NVD)
-    const cveId = data.cve;
-    const mitreData = data.mitre || {};
-    const nvdData = data.nvd || {};
-    const epssScore = data.epss?.score || null;
-
-    // Get best available description
-    const description = mitreData.description || nvdData.description || 'No description available';
-
-    // Get best available CVSS score (prefer v3.1 > v3.0 > v2.0)
-    let cvssScore = null;
-    let cvssVector = null;
-
-    if (mitreData.metrics?.cvssV3_1?.score) {
-        cvssScore = mitreData.metrics.cvssV3_1.score;
-        cvssVector = mitreData.metrics.cvssV3_1.vector;
-    } else if (mitreData.metrics?.cvssV3_0?.score) {
-        cvssScore = mitreData.metrics.cvssV3_0.score;
-        cvssVector = mitreData.metrics.cvssV3_0.vector;
-    } else if (mitreData.metrics?.cvssV2_0?.score) {
-        cvssScore = mitreData.metrics.cvssV2_0.score;
-        cvssVector = mitreData.metrics.cvssV2_0.vector;
-    } else if (nvdData.metrics?.cvssV3_1?.score) {
-        cvssScore = nvdData.metrics.cvssV3_1.score;
-        cvssVector = nvdData.metrics.cvssV3_1.vector;
-    }
-
-    // Determine severity from CVSS score
-    const severity = determineSeverity(cvssScore);
-
-    // Get published date (creation date)
-    const publishedDate =
-        mitreData.created || nvdData.created || new Date().toISOString();
-
-    // Get title
-    const title = mitreData.title || nvdData.title || cveId;
-
-    // Get source URL (link to reference)
-    const references = mitreData.references || nvdData.references || [];
-    const link = references.length > 0 ? references[0] : `https://nvd.nist.gov/vuln/detail/${cveId}`;
-
-    // Create Vulnerability entity
-    return new Vulnerability({
-        cveId,
-        title: `${cveId} - ${title}`,
-        description,
-        publishedDate,
-        severity,
-        cvssScore,
-        source: 'opencve',
-        link,
-        exploited: false, // OpenCVE KB doesn't track exploitation status
-        type: 'Unknown',
-        affectedTechnologies: [], // OpenCVE doesn't provide tech info in this format
-    });
 }
 
 /**
- * Determine severity from CVSS score (v3.1 scale).
- * @param {number|null} cvssScore
- * @returns {string} One of: CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN
+ * Extract the best available CVSS score from the CVE data.
+ * @param {object} cve
+ * @returns {number|null}
  */
-function determineSeverity(cvssScore) {
-    if (cvssScore === null || cvssScore === undefined) {
-        return 'UNKNOWN';
+function extractCvssScore(cve) {
+    // Try metrics object (detailed view)
+    if (cve.metrics) {
+        if (cve.metrics.cvssV3_1?.score) return cve.metrics.cvssV3_1.score;
+        if (cve.metrics.cvssV3_0?.score) return cve.metrics.cvssV3_0.score;
+        if (cve.metrics.cvssV2_0?.score) return cve.metrics.cvssV2_0.score;
     }
 
-    // CVSS v3.1 severity ratings
+    // Try flat cvss field
+    if (typeof cve.cvss === 'number') return cve.cvss;
+    if (cve.cvss?.score) return cve.cvss.score;
+
+    return null;
+}
+
+/**
+ * Determine severity from CVSS score or API-provided severity.
+ * @param {number|null} cvssScore
+ * @param {object} cve
+ * @returns {string}
+ */
+function determineSeverity(cvssScore, cve) {
+    // Use API-provided severity if available
+    if (cve.severity) {
+        const upper = String(cve.severity).toUpperCase();
+        if (['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(upper)) return upper;
+    }
+
+    // Fall back to CVSS-based severity
+    if (cvssScore === null || cvssScore === undefined) return 'UNKNOWN';
     if (cvssScore >= 9.0) return 'CRITICAL';
     if (cvssScore >= 7.0) return 'HIGH';
     if (cvssScore >= 4.0) return 'MEDIUM';
     if (cvssScore >= 0.1) return 'LOW';
-
     return 'UNKNOWN';
 }
 
 /**
- * Simple sleep utility for rate limiting.
- * @param {number} ms
+ * Extract affected technologies from vendor/product data.
+ * @param {object} cve
+ * @returns {string[]}
  */
-function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+function extractAffectedTechnologies(cve) {
+    const techs = new Set();
+
+    // Extract from vendors object (OpenCVE format: { "vendor": ["product1", "product2"] })
+    if (cve.vendors && typeof cve.vendors === 'object') {
+        for (const [vendor, products] of Object.entries(cve.vendors)) {
+            techs.add(vendor);
+            if (Array.isArray(products)) {
+                products.forEach(p => techs.add(p));
+            }
+        }
+    }
+
+    // Extract from products array if present
+    if (Array.isArray(cve.products)) {
+        cve.products.forEach(p => {
+            if (typeof p === 'string') techs.add(p);
+            if (p?.name) techs.add(p.name);
+        });
+    }
+
+    return [...techs];
 }
