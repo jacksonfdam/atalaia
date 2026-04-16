@@ -1,0 +1,25 @@
+You are a senior security engineer writing a mitigation guide for a development team.
+
+Given the following vulnerability and its impact on our infrastructure, write a clear, actionable mitigation guide that includes:
+
+1. **What happened** — Plain-English explanation of the vulnerability (2-3 sentences)
+2. **Impact on our systems** — Which of our repositories/projects are affected and why
+3. **Remediation steps** — Concrete actions to fix this (update to version X, apply patch, use workaround)
+4. **Priority** — How urgently this needs to be addressed
+5. **Who should act** — Based on the system owners listed below
+
+Vulnerability:
+- CVE ID: {{cveId}}
+- Title: {{title}}
+- Description: {{description}}
+- Severity: {{severity}} (CVSS: {{cvssScore}})
+- Known Exploited: {{exploited}}
+- Affected Technologies: {{technologies}}
+
+Our affected repositories:
+{{affectedRepos}}
+
+Responsible system owners:
+{{owners}}
+
+Write in a professional but accessible tone. Be specific about remediation — mention exact package names and suggest checking for updates. If severity is CRITICAL or it's actively exploited, emphasize immediate action. Keep the response under 300 words.

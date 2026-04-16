@@ -19,6 +19,8 @@ import { has, add } from '../infrastructure/cache/sqliteCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
 import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
+import { correlateVulnerability } from './correlateVulnerability.js';
+import { getAllUniqueDependencies, listRepositories } from '../infrastructure/cache/repositoryStore.js';
 
 const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
 const llm = createLLMAdapter();
@@ -126,12 +128,51 @@ function loadTechFilters() {
     }
 }
 
+/**
+ * Build a dynamic technology filter from scanned repository dependencies.
+ * Returns null if no repos are configured or autoFilterFromDeps is disabled.
+ * @returns {string[] | null}
+ */
+function loadDynamicTechFilters() {
+    if (!config.repositories?.autoFilterFromDeps) return null;
+
+    try {
+        const repos = listRepositories();
+        if (repos.length === 0) return null;
+
+        const deps = getAllUniqueDependencies();
+        if (deps.length === 0) return null;
+
+        const filters = new Set();
+        for (const dep of deps) {
+            filters.add(dep.name.toLowerCase());
+            if (dep.opencve_vendor) filters.add(dep.opencve_vendor.toLowerCase());
+            if (dep.opencve_product) filters.add(dep.opencve_product.toLowerCase());
+        }
+
+        return [...filters];
+    } catch {
+        return null;
+    }
+}
+
 function filterByTechnology(vulns) {
-    // Try technologies.json first, fall back to config.json filterSettings
+    // Priority 1: Dynamic filter from scanned repos
+    const dynamicFilters = loadDynamicTechFilters();
+    if (dynamicFilters && dynamicFilters.length > 0) {
+        logger.info({ count: dynamicFilters.length }, 'Filtering from scanned repository dependencies');
+        return vulns.filter(vuln => {
+            const text = `${vuln.title} ${vuln.description} ${vuln.link}`.toLowerCase();
+            return dynamicFilters.some(tech => text.includes(tech));
+        });
+    }
+
+    // Priority 2: Static technologies.json
     const techConfig = loadTechFilters();
     const filters = techConfig?.filters;
 
     if (!filters || filters.length === 0) {
+        // Priority 3: config.json filterSettings
         const { enabled, technologies } = config.filterSettings || {};
         if (!enabled || !technologies || technologies.length === 0) return vulns;
         logger.info({ count: technologies.length }, 'Filtering from config.json filterSettings');
@@ -222,8 +263,16 @@ async function monitorVulns() {
                 logger.warn({ cveId: vuln.cveId, err }, 'LLM explanation failed, using raw description');
             }
 
+            // Correlate with repositories and owners
+            let correlation = { affectedRepositories: [], owners: [] };
+            try {
+                correlation = correlateVulnerability(vuln);
+            } catch (err) {
+                logger.warn({ cveId: vuln.cveId, err }, 'Vulnerability correlation failed');
+            }
+
             const highlight = vuln.isCritical() || vuln.isExploited();
-            await notifySlack(vuln, highlight);
+            await notifySlack(vuln, highlight, correlation);
             add(vuln);
         }
 
