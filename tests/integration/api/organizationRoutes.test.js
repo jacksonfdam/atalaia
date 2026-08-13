@@ -584,3 +584,109 @@ describe('vulnerability relevance', () => {
         expect(res.body.total).toBe(0);
     });
 });
+
+describe('LLM settings', () => {
+    const LLM_ENV = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'OLLAMA_URL', 'OLLAMA_MODEL'];
+
+    beforeEach(() => {
+        getDb().exec('DELETE FROM llm_config;');
+        for (const key of LLM_ENV) delete process.env[key];
+    });
+
+    test('offers local and hosted providers, and says which is which', async () => {
+        const res = await request(app).get('/api/v1/settings/llm').set(KEY);
+
+        expect(res.body.providers.map(p => p.id)).toEqual([
+            'ollama',
+            'lmstudio',
+            'openai',
+            'anthropic',
+            'openrouter',
+            'groq',
+            'custom',
+        ]);
+        expect(res.body.providers.find(p => p.id === 'ollama')).toMatchObject({
+            kind: 'local',
+            requiresKey: false,
+        });
+        expect(res.body.providers.find(p => p.id === 'anthropic')).toMatchObject({
+            kind: 'hosted',
+            requiresKey: true,
+        });
+    });
+
+    test('stores a hosted provider and fills in its defaults', async () => {
+        const res = await request(app)
+            .put('/api/v1/settings/llm')
+            .set(KEY)
+            .send({ provider: 'openai', apiKey: 'sk-test-ABCD1234', enabled: true });
+
+        expect(res.body.config).toMatchObject({
+            provider: 'openai',
+            model: 'gpt-4o-mini',
+            baseUrl: 'https://api.openai.com/v1',
+            hasApiKey: true,
+            apiKeyHint: '••••1234',
+        });
+        expect(res.body.status).toMatchObject({ ready: true, kind: 'hosted', source: 'database' });
+    });
+
+    test('never returns the key, and never stores it in the clear', async () => {
+        await request(app)
+            .put('/api/v1/settings/llm')
+            .set(KEY)
+            .send({ provider: 'openai', apiKey: 'sk-test-ABCD1234', enabled: true });
+
+        const res = await request(app).get('/api/v1/settings/llm').set(KEY);
+        expect(JSON.stringify(res.body)).not.toContain('sk-test-ABCD1234');
+
+        const row = getDb().prepare('SELECT api_key_cipher FROM llm_config').get();
+        expect(row.api_key_cipher).not.toContain('sk-test');
+    });
+
+    test('drops the key when the provider changes', async () => {
+        await request(app)
+            .put('/api/v1/settings/llm')
+            .set(KEY)
+            .send({ provider: 'openai', apiKey: 'sk-test-ABCD1234', enabled: true });
+
+        const res = await request(app).put('/api/v1/settings/llm').set(KEY).send({ provider: 'groq' });
+        expect(res.body.config.hasApiKey).toBe(false);
+    });
+
+    test('a local provider is ready with no key at all', async () => {
+        const res = await request(app)
+            .put('/api/v1/settings/llm')
+            .set(KEY)
+            .send({ provider: 'ollama', enabled: true });
+
+        expect(res.body.status).toMatchObject({ ready: true, kind: 'local' });
+    });
+
+    test('is not ready while explanations are switched off', async () => {
+        const res = await request(app)
+            .put('/api/v1/settings/llm')
+            .set(KEY)
+            .send({ provider: 'ollama', enabled: false });
+
+        expect(res.body.status.ready).toBe(false);
+        expect(res.body.status.reason).toContain('switched off');
+    });
+
+    test('rejects an unknown provider and a payload with none', async () => {
+        expect((await request(app).put('/api/v1/settings/llm').set(KEY).send({ provider: 'pigeon' })).status).toBe(400);
+        expect((await request(app).put('/api/v1/settings/llm').set(KEY).send({})).status).toBe(400);
+    });
+
+    test('refuses to write while LLM_PROVIDER is set', async () => {
+        process.env.LLM_PROVIDER = 'openai';
+
+        const res = await request(app)
+            .put('/api/v1/settings/llm')
+            .set(KEY)
+            .send({ provider: 'ollama', enabled: true });
+
+        expect(res.status).toBe(409);
+        expect(res.body.error).toMatch(/LLM_PROVIDER/);
+    });
+});

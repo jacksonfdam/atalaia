@@ -259,12 +259,12 @@ describe('settings', () => {
         const res = await request(app)
             .put('/api/v1/settings')
             .set(KEY)
-            .send({ settings: { 'llm.provider': 'ollama', 'api.key': 'stolen' } });
+            .send({ settings: { 'repositories.scanCron': '0 4 * * *', 'api.key': 'stolen' } });
 
         expect(res.status).toBe(400);
         // The valid key must not have been applied either.
         const after = await request(app).get('/api/v1/settings').set(KEY);
-        expect(after.body.settings.find(s => s.key === 'llm.provider').value).toBe('');
+        expect(after.body.settings.find(s => s.key === 'repositories.scanCron').value).toBe('0 3 * * *');
     });
 
     test('persists a writable setting and reports its source', async () => {
@@ -281,17 +281,17 @@ describe('settings', () => {
     });
 
     test('refuses to write a setting pinned by an environment variable', async () => {
-        process.env.LLM_PROVIDER = 'openai';
+        process.env.REPO_SCAN_CRON = '0 5 * * *';
 
         const res = await request(app)
             .put('/api/v1/settings')
             .set(KEY)
-            .send({ settings: { 'llm.provider': 'ollama' } });
+            .send({ settings: { 'repositories.scanCron': '0 4 * * *' } });
 
         expect(res.status).toBe(409);
-        expect(res.body.locked).toEqual(['llm.provider']);
+        expect(res.body.locked).toEqual(['repositories.scanCron']);
 
-        delete process.env.LLM_PROVIDER;
+        delete process.env.REPO_SCAN_CRON;
     });
 
     test('rejects a non-object payload', async () => {
