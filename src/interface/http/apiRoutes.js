@@ -33,7 +33,7 @@ export function createApiRoutes(cache) {
     router.use('/organizations', createOrganizationRoutes());
     router.use('/repositories', createRepositoryRoutes());
     router.use('/owners', createOwnerRoutes());
-    router.use('/settings', createSettingsRoutes());
+    router.use('/settings', createSettingsRoutes(cache));
     router.use('/scan', createScanRoutes());
     router.use('/reports', createReportRoutes(cache));
 
