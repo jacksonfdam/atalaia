@@ -1,0 +1,95 @@
+/*
+ * Atalaia Console design tokens.
+ *
+ * Two sources, merged deliberately:
+ *
+ *  - The window chrome, hard shadows and neon palette come from the reference
+ *    design in design/style.css (a Win95-brutalist card feed).
+ *  - The severity scale and brand accents come from design/atalaia.pen, so the
+ *    console reads as the same product as the deck.
+ *
+ * One rule overrides the reference: accent colour encodes severity, it never
+ * rotates by card position. In a security tool colour has to mean something.
+ */
+
+:root {
+  /* Desktop */
+  --desktop: #181a20;
+  --desktop-deep: #0a0a0a;
+  --grid-a: rgba(255, 0, 119, 0.12);
+  --grid-b: rgba(0, 231, 255, 0.08);
+
+  /* Window chrome */
+  --win-face: #c0c0c0;
+  --win-face-light: #d4d0c8;
+  --win-hi: #ffffff;
+  --win-mid: #808080;
+  --win-dark: #404040;
+  --win-black: #000000;
+  --title-active: #000080;
+  --title-inactive: #4a4a6a;
+
+  /* Paper surfaces inside windows */
+  --paper: #f4f0e6;
+  --paper-cool: #dfe7dc;
+  --paper-warn: #fff4d6;
+
+  /* Neon accents */
+  --pink: #ff0077;
+  --cyan: #00e7ff;
+  --lime: #ccff00;
+  --orange: #ff8a00;
+  --violet: #7a00ff;
+  --green: #00ff85;
+
+  /* Brand — design/atalaia.pen */
+  --accent-primary: #a855f7;
+  --accent-secondary: #ec4899;
+  --accent-tertiary: #06b6d4;
+  --fg-primary: #ffffff;
+  --fg-secondary: #a1a1aa;
+  --border-subtle: #1a1a1a;
+
+  /* Severity — design/atalaia.pen. These drive every accent in the console. */
+  --severity-critical: #dc3545;
+  --severity-high: #fd7e14;
+  --severity-medium: #ffc107;
+  --severity-low: #17a2b8;
+  --severity-unknown: #808080;
+
+  /* Status */
+  --status-open: var(--pink);
+  --status-acknowledged: var(--cyan);
+  --status-resolved: var(--green);
+
+  /* Feed health */
+  --health-ok: var(--green);
+  --health-empty: var(--orange);
+  --health-error: var(--severity-critical);
+  --health-disabled: var(--win-mid);
+
+  /* Metrics */
+  --gap: clamp(0.75rem, 1.1vw, 1.1rem);
+  --outer-pad: 0.45rem;
+  --title-h: 1.45rem;
+  --shadow: 6px;
+
+  --font-ui: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Geneva, Inter, system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Cascadia Mono", Consolas, monospace;
+  --font-display: Inter, system-ui, sans-serif;
+}
+
+/* The beveled frame that every window, button and field is built from. */
+.bevel-out {
+  border-top: 2px solid var(--win-hi);
+  border-left: 2px solid var(--win-hi);
+  border-right: 2px solid var(--win-dark);
+  border-bottom: 2px solid var(--win-dark);
+}
+
+.bevel-in {
+  border-top: 2px solid var(--win-dark);
+  border-left: 2px solid var(--win-dark);
+  border-right: 2px solid var(--win-hi);
+  border-bottom: 2px solid var(--win-hi);
+}
