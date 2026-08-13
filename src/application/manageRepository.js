@@ -4,8 +4,10 @@ import {
     softDeleteRepository as storeSoftDelete,
     getRepository as storeGet,
     getRepositoryByUrl as storeGetByUrl,
+    getAnyRepositoryByUrl as storeGetAnyByUrl,
     listRepositories as storeList,
     updateRepository as storeUpdate,
+    restoreRepository as storeRestore,
 } from '../infrastructure/cache/repositoryStore.js';
 
 /**
@@ -100,13 +102,30 @@ export function getRepoByUrl(url) {
 }
 
 /**
- * Restore a soft-deleted repository.
- * @param {number} id
- * @returns {boolean}
+ * Restore a soft-deleted repository, together with its dependencies.
+ * @param {number|string} idOrUrl
+ * @returns {object|null}
  */
-export function restoreRepo(id) {
+export function restoreRepo(idOrUrl) {
+    const repo = typeof idOrUrl === 'number' ? storeGet(idOrUrl) : storeGetAnyByUrl(idOrUrl);
+    if (!repo) return null;
+
+    return storeRestore(repo.id);
+}
+
+/**
+ * Turn scanning and correlation on or off for a repository, without losing what
+ * has already been collected about it.
+ *
+ * @param {number} id
+ * @param {boolean} enabled
+ * @returns {object|null}
+ */
+export function setRepoEnabled(id, enabled) {
     const repo = storeGet(id);
-    if (!repo) return false;
-    storeUpdate(id, {}); // triggers updated_at; deleted_at cleared by addRepository on conflict
-    return true;
+    if (!repo) return null;
+
+    storeUpdate(id, { enabled });
+    logger.info({ id, enabled }, 'Repository enablement changed');
+    return storeGet(id);
 }

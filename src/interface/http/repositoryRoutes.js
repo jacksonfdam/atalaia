@@ -1,18 +1,22 @@
 import express from 'express';
-import { addRepo, removeRepo, listRepos, getRepo, getRepoByUrl } from '../../application/manageRepository.js';
+import {
+    addRepo,
+    removeRepo,
+    listRepos,
+    getRepo,
+    getRepoByUrl,
+    restoreRepo,
+    setRepoEnabled,
+} from '../../application/manageRepository.js';
 import { scanRepository } from '../../application/scanRepository.js';
 import { scanAllRepositories } from '../../application/scanAllRepositories.js';
+import { providerForOrg } from '../../application/manageOrganization.js';
+import {
+    getRepositoryTechnologies,
+    refreshRepositoryLanguages,
+} from '../../application/repositoryTechnologies.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
-import { GitHubProvider } from '../../infrastructure/providers/githubProvider.js';
-import config from '../../infrastructure/config.js';
 import logger from '../../infrastructure/logger.js';
-
-/** Build the provider client a repository's org_key points at. */
-function providerFor(repo) {
-    const providerConfig = (config.providers || []).find(p => p.key === repo.org_key);
-    const token = providerConfig?.token || process.env.GITHUB_TOKEN || '';
-    return new GitHubProvider(token, repo.org_key || 'default');
-}
 
 function resolveRepo(idOrUrl) {
     return /^\d+$/.test(idOrUrl) ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
@@ -65,6 +69,47 @@ export function createRepositoryRoutes() {
         res.json(repository);
     });
 
+    // PATCH /repositories/:idOrUrl — enable/disable, rename, change branch
+    router.patch('/:idOrUrl', (req, res) => {
+        const repository = resolveRepo(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+
+        const { enabled } = req.body ?? {};
+        if (typeof enabled !== 'boolean') {
+            return res.status(400).json({ error: 'enabled must be a boolean' });
+        }
+
+        res.json(setRepoEnabled(repository.id, enabled));
+    });
+
+    // POST /repositories/:idOrUrl/restore — undo a soft delete
+    router.post('/:idOrUrl/restore', (req, res) => {
+        const { idOrUrl } = req.params;
+        const restored = restoreRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
+        if (!restored) return res.status(404).json({ error: 'Repository not found' });
+        res.json(restored);
+    });
+
+    // GET /repositories/:idOrUrl/technologies
+    router.get('/:idOrUrl/technologies', (req, res) => {
+        const repository = resolveRepo(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+        res.json(getRepositoryTechnologies(repository.id));
+    });
+
+    // POST /repositories/:idOrUrl/technologies — re-read languages from the provider
+    router.post('/:idOrUrl/technologies', async (req, res) => {
+        const repository = resolveRepo(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+
+        try {
+            res.json(await refreshRepositoryLanguages(repository.id));
+        } catch (error) {
+            logger.error({ repo: repository.name, err: error }, 'Language refresh failed');
+            res.status(500).json({ error: error.message });
+        }
+    });
+
     // DELETE /repositories/:idOrUrl — soft delete
     router.delete('/:idOrUrl', (req, res) => {
         const { idOrUrl } = req.params;
@@ -93,7 +138,7 @@ export function createRepositoryRoutes() {
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         try {
-            const result = await scanRepository(repository.id, providerFor(repository), {
+            const result = await scanRepository(repository.id, providerForOrg(repository.org_key), {
                 skipVendorLookup: req.body?.skipVendorLookup === true,
             });
             res.json(result);
