@@ -390,6 +390,42 @@ export interface FleetScanState {
   } | null;
 }
 
+export interface LlmProvider {
+  id: string;
+  label: string;
+  kind: 'local' | 'hosted';
+  api: 'openai' | 'anthropic' | 'ollama';
+  baseUrl: string;
+  defaultModel: string;
+  requiresKey: boolean;
+  docsUrl: string;
+  note: string | null;
+}
+
+export interface LlmPayload {
+  providers: LlmProvider[];
+  config: {
+    provider: string;
+    model: string | null;
+    baseUrl: string | null;
+    hasApiKey: boolean;
+    apiKeyHint: string | null;
+    enabled: boolean;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  };
+  envLocked: boolean;
+  envVars: string[];
+  status: {
+    ready: boolean;
+    reason: string | null;
+    source: 'env' | 'database' | 'config' | 'none';
+    provider: string | null;
+    model: string | null;
+    kind: 'local' | 'hosted' | null;
+  };
+}
+
 export interface ScanState {
   running: boolean;
   startedAt: string | null;

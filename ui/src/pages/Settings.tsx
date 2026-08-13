@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
 import { EmailSettings } from './EmailSettings';
+import { LlmSettings } from './LlmSettings';
 import type { SettingsPayload } from '../types';
 
 export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
@@ -113,6 +114,7 @@ export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
       </Window>
 
       <EmailSettings onAuthLost={onAuthLost} />
+      <LlmSettings onAuthLost={onAuthLost} />
 
       <Window title="CREDENTIALS.SYS" accent="var(--severity-high)">
         <Body cool>
