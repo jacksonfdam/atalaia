@@ -20,7 +20,7 @@ describe('acknowledgeVuln', () => {
             status: 'ACKNOWLEDGED',
             statusChangedBy: 'tester',
         }));
-        expect(result.status).toBe('ACKNOWLEDGED');
+        expect(result.vuln.status).toBe('ACKNOWLEDGED');
     });
 
     test('throws for non-existent CVE', async () => {

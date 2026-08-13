@@ -6,12 +6,20 @@
  */
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import generateWeeklyReport from '../src/application/generateWeeklyReport.js';
-import { sendWeeklyEmail, formatReportHtml } from '../src/infrastructure/notifiers/emailNotifier.js';
-import nodemailer from 'nodemailer';
 
-// Mock nodemailer
-jest.mock('nodemailer');
+// Mock nodemailer. Under ESM this must happen before the modules that import it
+// are loaded, so the imports below are dynamic.
+const createTransport = jest.fn();
+jest.unstable_mockModule('nodemailer', () => ({
+  default: { createTransport },
+  createTransport,
+}));
+
+const nodemailer = (await import('nodemailer')).default;
+const { generateWeeklyReport } = await import('../src/application/generateWeeklyReport.js');
+const { sendWeeklyEmail, formatReportHtml } = await import(
+  '../src/infrastructure/notifiers/emailNotifier.js'
+);
 
 describe('Email Functionality', () => {
   beforeEach(() => {
