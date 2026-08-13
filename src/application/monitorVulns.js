@@ -24,7 +24,22 @@ const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
  * When the same CVE appears in multiple feeds, the highest-priority source wins
  * for severity, description, and source fields.
  */
-const SOURCE_PRIORITY = ['nvd', 'cisa', 'opencve', 'snyk', 'vuldb', 'cvedetails'];
+const SOURCE_PRIORITY = [
+    'nvd',
+    'cisa',
+    'mitre',
+    'opencve',
+    'ghsa',
+    'euvd',
+    'redhat',
+    'ubuntu',
+    'snyk',
+    'vuldb',
+    'zdi',
+    'certeu',
+    'certfr',
+    'cvedetails',
+];
 
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
