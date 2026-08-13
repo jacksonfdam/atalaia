@@ -119,6 +119,25 @@ describe('DELETE /api/v1/organizations/:key', () => {
     });
 });
 
+describe('selective import', () => {
+    test('rejects a selection that is not an array of strings', async () => {
+        await request(app).post('/api/v1/organizations').set(KEY).send({ login: 'acme' });
+
+        const res = await request(app)
+            .post('/api/v1/organizations/acme/import')
+            .set(KEY)
+            .send({ repositories: [{ name: 'acme/api' }] });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/array of names or URLs/);
+    });
+
+    test('404s when listing repositories of an unknown organization', async () => {
+        const res = await request(app).get('/api/v1/organizations/ghost/repositories').set(KEY);
+        expect(res.status).toBe(404);
+    });
+});
+
 describe('repository management', () => {
     let repoId;
 
