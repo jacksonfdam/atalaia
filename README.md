@@ -359,6 +359,23 @@ reads their language breakdown and reads manifest files. Every request in the
 provider goes through one GET helper; nothing is ever written back — no issues,
 no commits, no status checks.
 
+**One repository at a time.** Clicking a repository's name opens its own page — exposure,
+dependencies and technologies as tabs, each panel loading independently so nothing blocks the rest.
+The ↗ next to the name leaves for GitHub. Table headers sort: click one to sort by it, click it
+again to flip the direction.
+
+**Are we behind?** The Dependencies tab shows the declared version next to the **latest published
+one**, asked of each ecosystem's own registry — npm, PyPI, crates.io, RubyGems, Packagist, NuGet,
+the Go module proxy, Maven Central, and GitHub releases for actions. The lookups run detached, a
+few at a time, and each row is written the moment its own answer arrives, so the table fills in
+while you watch and an interrupted check keeps everything it already resolved. Answers are cached
+for a day; **Re-check all** ignores the cache. Docker, Terraform and Helm are listed as not
+checkable — their versions depend on which registry the artifact came from.
+
+The comparison is textual on purpose: manifests declare ranges (`^4.17.0`), tags (`v3`) and
+digests, and resolving those properly needs a resolver per ecosystem. A range that happens to allow
+the latest version still shows as behind — a nudge to look beats a false all-clear.
+
 **Finding one among many.** `GET /api/v1/repositories` takes `search`, `org`, `language`,
 `enabled`, `archived` and `exposure` (`affected` / `exploited` / `clean`), sorts by `name`,
 `exposure`, `last_scanned_at`, `primary_language`, `org_key` or `updated_at` in either direction,
@@ -434,7 +451,8 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `POST` | `/api/v1/repositories` | List (filtered, sorted, paginated) / add a monitored repository. |
 | `GET` `PATCH` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / enable-disable / soft-delete. |
 | `POST` | `/api/v1/repositories/:idOrUrl/restore` | Undo a soft delete. |
-| `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies. |
+| `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies, with the latest published version of each. |
+| `GET` `POST` | `/api/v1/repositories/:idOrUrl/versions` | Progress of the freshness check / start one (202, runs detached). |
 | `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
 | `POST` | `/api/v1/repositories/:idOrUrl/scan` | Scan one repository. |
