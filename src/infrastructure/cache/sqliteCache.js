@@ -10,17 +10,25 @@ import { runMigrations } from './migrationRunner.js';
 const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..', '..');
 
-const DB_PATH = process.env.DB_PATH || path.join(PROJECT_ROOT, 'data/atalaia.db');
+/**
+ * Resolved when the connection is opened, not when this module is imported:
+ * the CLI sets DB_PATH from `--db` after its own imports have run, and reading
+ * it at import time would silently pin every command to the default database.
+ */
+function resolveDbPath() {
+    return process.env.DB_PATH || path.join(PROJECT_ROOT, 'data/atalaia.db');
+}
 
 let db;
 
 export function initializeDatabase() {
-    const dbDir = path.dirname(DB_PATH);
+    const dbPath = resolveDbPath();
+    const dbDir = path.dirname(dbPath);
     if (!fs.existsSync(dbDir)) {
         fs.mkdirSync(dbDir, { recursive: true });
     }
 
-    db = new Database(DB_PATH);
+    db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
 
     runMigrations(db);
