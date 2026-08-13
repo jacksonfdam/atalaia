@@ -68,12 +68,15 @@ export function formatReportHtmlProfessional(report) {
                     ${report.totalCount}
                 </div>
                 <p style="margin: 0; font-size: 14px; color: ${UTILITY_COLORS.textMuted};">
-                    Open/Acknowledged Vulnerabilities
+                    New in the last ${report.windowDays ?? 7} days
+                </p>
+                <p style="margin: 6px 0 0 0; font-size: 13px; color: ${UTILITY_COLORS.textMuted};">
+                    ${report.openTotal ?? report.totalCount} open or acknowledged in total
                 </p>
             </div>
 
             <!-- Severity breakdown boxes -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-top: 20px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr; gap: 10px; margin-top: 20px;">
                 <div style="background-color: #FFEBEE; padding: 15px; border-radius: 8px; border-left: 4px solid ${SEVERITY_COLORS.CRITICAL};">
                     <div style="font-size: 24px; font-weight: 700; color: ${SEVERITY_COLORS.CRITICAL};">
                         ${stats.critical}
@@ -97,6 +100,12 @@ export function formatReportHtmlProfessional(report) {
                         ${stats.low}
                     </div>
                     <div style="font-size: 12px; color: ${UTILITY_COLORS.textMuted}; margin-top: 4px;">LOW</div>
+                </div>
+                <div style="background-color: #F1F3F5; padding: 15px; border-radius: 8px; border-left: 4px solid ${SEVERITY_COLORS.UNKNOWN};">
+                    <div style="font-size: 24px; font-weight: 700; color: ${SEVERITY_COLORS.UNKNOWN};">
+                        ${stats.unknown}
+                    </div>
+                    <div style="font-size: 12px; color: ${UTILITY_COLORS.textMuted}; margin-top: 4px;">UNRATED</div>
                 </div>
             </div>
         </div>
@@ -166,7 +175,10 @@ export function formatReportHtmlMinimal(report) {
         <!-- Summary -->
         <div style="padding: 30px;">
             <p style="margin: 0 0 20px 0; font-size: 15px; color: ${UTILITY_COLORS.text};">
-                <strong>Total Vulnerabilities:</strong> ${report.totalCount} open/acknowledged
+                <strong>New in the last ${report.windowDays ?? 7} days:</strong> ${report.totalCount}
+                <span style="color: ${UTILITY_COLORS.textMuted};">
+                    · ${report.openTotal ?? report.totalCount} open or acknowledged in total
+                </span>
             </p>
 
             <!-- Severity breakdown as text -->
@@ -175,7 +187,8 @@ export function formatReportHtmlMinimal(report) {
                     <span style="color: ${SEVERITY_COLORS.CRITICAL}; font-weight: 600;">● ${stats.critical} Critical</span> •
                     <span style="color: ${SEVERITY_COLORS.HIGH}; font-weight: 600;">● ${stats.high} High</span> •
                     <span style="color: ${SEVERITY_COLORS.MEDIUM}; font-weight: 600;">● ${stats.medium} Medium</span> •
-                    <span style="color: ${SEVERITY_COLORS.LOW}; font-weight: 600;">● ${stats.low} Low</span>
+                    <span style="color: ${SEVERITY_COLORS.LOW}; font-weight: 600;">● ${stats.low} Low</span> •
+                    <span style="color: ${SEVERITY_COLORS.UNKNOWN}; font-weight: 600;">● ${stats.unknown} Unrated</span>
                 </p>
             </div>
         </div>
@@ -212,7 +225,7 @@ function renderVulnerabilityTable(report, templateType) {
     `;
 
     // Iterate through severity levels
-    const severities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+    const severities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
     let rowCount = 0;
 
     for (const severity of severities) {
@@ -221,7 +234,9 @@ function renderVulnerabilityTable(report, templateType) {
         for (const vuln of vulns) {
             const bgColor = rowCount % 2 === 0 ? '#FFFFFF' : UTILITY_COLORS.background;
             const severityColor = SEVERITY_COLORS[severity] || SEVERITY_COLORS.UNKNOWN;
-            const cvssDisplay = vuln.cvssScore ? `${vuln.cvssScore.toFixed(1)}` : 'N/A';
+            // Rows read from SQLite carry cvss_score; entities carry cvssScore.
+            const score = vuln.cvss_score ?? vuln.cvssScore;
+            const cvssDisplay = score == null ? 'N/A' : Number(score).toFixed(1);
 
             html += `
         <tr style="border-bottom: 1px solid ${UTILITY_COLORS.border}; background-color: ${bgColor};">
@@ -280,6 +295,10 @@ function calculateStats(report) {
         high: (report.vulnerabilities.HIGH || []).length,
         medium: (report.vulnerabilities.MEDIUM || []).length,
         low: (report.vulnerabilities.LOW || []).length,
+        // Unrated items are a real slice of the report — Ubuntu USN and the
+        // CERT feeds publish no score — so they get their own count instead of
+        // vanishing between the header total and the table.
+        unknown: (report.vulnerabilities.UNKNOWN || []).length,
     };
 }
 

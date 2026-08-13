@@ -31,7 +31,9 @@ export async function sendWeeklyEmail(report) {
         : formatReportHtmlProfessional(report);
 
     const to = recipients.split(',').map(e => e.trim()).join(',');
-    const stats = `CRITICAL:${(report.vulnerabilities.CRITICAL || []).length}, HIGH:${(report.vulnerabilities.HIGH || []).length}, MEDIUM:${(report.vulnerabilities.MEDIUM || []).length}, LOW:${(report.vulnerabilities.LOW || []).length}`;
+    const stats = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
+        .map(severity => `${severity}:${(report.vulnerabilities[severity] || []).length}`)
+        .join(', ');
 
     try {
         const transporter = nodemailer.createTransport({
@@ -44,7 +46,7 @@ export async function sendWeeklyEmail(report) {
         await transporter.sendMail({
             from,
             to,
-            subject: `Atalaia Weekly Vulnerability Report — ${report.totalCount} issues [${stats}]`,
+            subject: `Atalaia Weekly Report — ${report.totalCount} new in ${report.windowDays ?? 7} days [${stats}]`,
             html,
         });
         logger.info({ count: report.totalCount, template: templateType, to }, 'Weekly email sent');
