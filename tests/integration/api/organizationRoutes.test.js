@@ -21,6 +21,7 @@ const cache = await import('#app/infrastructure/cache/sqliteCache.js');
 const { initializeDatabase, getDb } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
 const { resetFleetScanState } = await import('#app/application/repositoryScanRunner.js');
+const { isSatisfied } = await import('#app/application/checkDependencyVersions.js');
 
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
@@ -435,5 +436,66 @@ describe('repository list: filters, sorting and pagination', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.total).toBe(4);
+    });
+});
+
+describe('dependency freshness', () => {
+    let repoId;
+
+    beforeEach(async () => {
+        getDb().exec('DELETE FROM repositories; DELETE FROM repository_dependencies;');
+
+        const created = await request(app)
+            .post('/api/v1/repositories')
+            .set(KEY)
+            .send({ url: 'https://github.com/acme/api' });
+        repoId = created.body.id;
+
+        getDb()
+            .prepare(
+                `INSERT INTO repository_dependencies
+                    (repository_id, ecosystem, name, version, manifest_file, latest_version, latest_checked_at)
+                 VALUES (?, 'NPM', 'express', '^4.17.1', 'package.json', '5.2.1', datetime('now')),
+                        (?, 'NPM', 'lodash', '4.17.21', 'package.json', '4.17.21', datetime('now')),
+                        (?, 'DOCKER', 'node', '18-alpine', 'Dockerfile', NULL, NULL)`
+            )
+            .run(repoId, repoId, repoId);
+    });
+
+    test('reports which dependencies are behind their registry', async () => {
+        const res = await request(app).get(`/api/v1/repositories/${repoId}/dependencies`).set(KEY);
+
+        expect(res.body).toMatchObject({ count: 3, outdated: 1, unchecked: 1 });
+
+        const express = res.body.dependencies.find(d => d.name === 'express');
+        const lodash = res.body.dependencies.find(d => d.name === 'lodash');
+
+        expect(express).toMatchObject({ latest_version: '5.2.1', outdated: true });
+        // Same version, declared with a range prefix: not behind.
+        expect(lodash.outdated).toBe(false);
+    });
+
+    test('exposes the state of the version check', async () => {
+        const res = await request(app).get(`/api/v1/repositories/${repoId}/versions`).set(KEY);
+        expect(res.body).toMatchObject({ running: false, lastRun: null });
+    });
+
+    test('404s for a repository that does not exist', async () => {
+        expect((await request(app).get('/api/v1/repositories/9999/versions').set(KEY)).status).toBe(404);
+        expect((await request(app).post('/api/v1/repositories/9999/versions').set(KEY).send({})).status).toBe(404);
+    });
+});
+
+describe('isSatisfied', () => {
+    test.each([
+        ['^4.17.1', '4.17.1', true],
+        ['~1.2.3', '1.2.3', true],
+        ['v3', 'v3', true],
+        ['4.17.1', '5.0.0', false],
+        ['v3', 'v4', false],
+        [null, '1.0.0', true],
+        ['1.0.0', null, true],
+    ])('%s vs %s -> %s', (declared, latest, expected) => {
+        expect(isSatisfied(declared, latest)).toBe(expected);
     });
 });
