@@ -448,3 +448,94 @@ export function summarizeRepositoryExposure() {
 
     return byRepo;
 }
+
+// Whitelist: the sort column is interpolated into SQL, so it can never come
+// straight from a query string.
+const REPOSITORY_SORT_COLUMNS = new Set([
+    'name',
+    'primary_language',
+    'last_scanned_at',
+    'created_at',
+    'updated_at',
+    'org_key',
+]);
+
+export const REPOSITORY_LIMIT_DEFAULT = 25;
+export const REPOSITORY_LIMIT_MAX = 200;
+
+/**
+ * Filtered list of repositories, sorted in SQL.
+ *
+ * Pagination happens above this, in the application layer: the exposure of each
+ * repository is computed from the vulnerability table rather than stored, so
+ * ordering by it cannot be expressed here.
+ *
+ * @param {object} [filters]
+ * @param {string} [filters.search]     Substring of name or description
+ * @param {string} [filters.org]        org_key
+ * @param {string} [filters.language]   primary_language
+ * @param {boolean} [filters.enabled]
+ * @param {boolean} [filters.archived]
+ * @param {boolean} [filters.includeDeleted]
+ * @param {string} [filters.sort]
+ * @param {'asc'|'desc'} [filters.order]
+ */
+export function queryRepositories(filters = {}) {
+    const clauses = [];
+    const params = {};
+
+    if (!filters.includeDeleted) clauses.push('deleted_at IS NULL');
+
+    if (filters.search) {
+        clauses.push('(lower(name) LIKE @search OR lower(description) LIKE @search)');
+        params.search = `%${String(filters.search).toLowerCase()}%`;
+    }
+    if (filters.org) {
+        clauses.push('org_key = @org');
+        params.org = filters.org;
+    }
+    if (filters.language) {
+        clauses.push('lower(primary_language) = @language');
+        params.language = String(filters.language).toLowerCase();
+    }
+    if (filters.enabled !== undefined) {
+        clauses.push('enabled = @enabled');
+        params.enabled = filters.enabled ? 1 : 0;
+    }
+    if (filters.archived !== undefined) {
+        clauses.push('archived = @archived');
+        params.archived = filters.archived ? 1 : 0;
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const sort = REPOSITORY_SORT_COLUMNS.has(filters.sort) ? filters.sort : 'name';
+    const order = String(filters.order).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+
+    // NULLs last whichever way the sort runs: a repository that was never
+    // scanned is not the most recently scanned one.
+    return getDb()
+        .prepare(`SELECT * FROM repositories ${where} ORDER BY ${sort} IS NULL, ${sort} ${order}, name ASC`)
+        .all(params);
+}
+
+/** Values the console offers in its filter menus. */
+export function repositoryFacets() {
+    const db = getDb();
+
+    return {
+        organizations: db
+            .prepare(
+                `SELECT org_key AS value, COUNT(*) AS count FROM repositories
+                 WHERE deleted_at IS NULL AND org_key IS NOT NULL
+                 GROUP BY org_key ORDER BY value`
+            )
+            .all(),
+        languages: db
+            .prepare(
+                `SELECT primary_language AS value, COUNT(*) AS count FROM repositories
+                 WHERE deleted_at IS NULL AND primary_language IS NOT NULL
+                 GROUP BY primary_language ORDER BY count DESC, value`
+            )
+            .all(),
+    };
+}

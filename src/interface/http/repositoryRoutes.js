@@ -2,7 +2,6 @@ import express from 'express';
 import {
     addRepo,
     removeRepo,
-    listRepos,
     getRepo,
     getRepoByUrl,
     restoreRepo,
@@ -14,7 +13,8 @@ import {
     getRepositoryTechnologies,
     refreshRepositoryLanguages,
 } from '../../application/repositoryTechnologies.js';
-import { getRepositoryVulnerabilities, summarizeFleetRisk } from '../../application/repositoryRisk.js';
+import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.js';
+import { listRepositoriesPage } from '../../application/listRepositories.js';
 import { startFleetScan, fleetScanState } from '../../application/repositoryScanRunner.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
@@ -26,23 +26,12 @@ function resolveRepo(idOrUrl) {
 export function createRepositoryRoutes() {
     const router = express.Router();
 
-    // GET /repositories
+    // GET /repositories — filtered, sorted and paginated.
+    //
+    // Exposure comes along for the ride: the list is where an operator notices
+    // something is wrong, and asking per repository would be one request per row.
     router.get('/', (req, res) => {
-        const repositories = listRepos({ includeDeleted: req.query.includeDeleted === 'true' });
-
-        // Exposure comes along for the ride: the list is where an operator
-        // notices something is wrong, and asking per repository would be one
-        // request per row.
-        const risk = summarizeFleetRisk();
-
-        res.json({
-            count: repositories.length,
-            atRisk: [...risk.keys()].length,
-            repositories: repositories.map(repository => ({
-                ...repository,
-                risk: risk.get(repository.id) ?? { total: 0, bySeverity: {}, exploited: false, worst: null },
-            })),
-        });
+        res.json(listRepositoriesPage(req.query));
     });
 
     // GET /repositories/scan-all — progress of the running scan, or the last one.
