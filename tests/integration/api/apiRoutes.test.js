@@ -271,10 +271,10 @@ describe('settings', () => {
         const res = await request(app)
             .put('/api/v1/settings')
             .set(KEY)
-            .send({ settings: { 'slack.enabled': true }, changedBy: 'console:test' });
+            .send({ settings: { 'repositories.autoScan': true }, changedBy: 'console:test' });
 
         expect(res.status).toBe(200);
-        const slack = res.body.settings.find(s => s.key === 'slack.enabled');
+        const slack = res.body.settings.find(s => s.key === 'repositories.autoScan');
         expect(slack.value).toBe(true);
         expect(slack.source).toBe('database');
         expect(slack.updatedBy).toBe('console:test');

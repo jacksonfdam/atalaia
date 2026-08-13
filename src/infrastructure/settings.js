@@ -23,21 +23,13 @@ import logger from './logger.js';
 /**
  * Settings the console is allowed to write. Anything absent here is read-only.
  *
- * Email delivery is deliberately not here: provider, credentials, sender and
- * recipients belong together, and splitting them across key/value rows would
- * leave two places to look. They live in email_config — see
- * infrastructure/notifiers/emailConfig.js.
+ * Email and Slack delivery are deliberately not here: provider, credentials,
+ * destination and the on/off switch belong together, and splitting them across
+ * key/value rows would leave two switches to reconcile. They live in
+ * email_config and slack_config — see infrastructure/notifiers/.
  */
 /** @type {SettingDescriptor[]} */
 export const WRITABLE_SETTINGS = [
-    {
-        key: 'slack.enabled',
-        type: 'boolean',
-        env: 'SLACK_ENABLED',
-        fallback: cfg => cfg.slack?.enabled === true,
-        label: 'Slack notifications',
-        help: 'When off, vulnerabilities are still collected and stored — only the outbound alert is skipped.',
-    },
     {
         key: 'cronSchedule',
         type: 'string',
