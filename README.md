@@ -522,7 +522,9 @@ GitHub rate limit and the log readable but takes roughly ten seconds per reposit
 detached from the request that started it: `POST` answers `202` immediately, a second trigger gets
 `409`, and `GET /api/v1/repositories/scan-all` reports how many are done, which one is being
 scanned right now, and what failed. The console polls it and shows the same line. Passing
-`{"skipVendorLookup": true}` drops the per-dependency OpenCVE lookup, which is most of the time. Manifests parsed include npm, pip, Go, Cargo, Maven, Gradle, RubyGems,
+`{"skipVendorLookup": true}` drops the per-dependency OpenCVE lookup, which is most of the time. Manifests parsed include npm, pip, Go, Cargo, Maven, Gradle — build files **and
+`gradle/libs.versions.toml` version catalogs, where a modern Android or Kotlin Multiplatform
+project actually declares everything** — RubyGems (`Gemfile` and `fastlane/Pluginfile`),
 NuGet, Composer, Terraform, Dockerfiles and **GitHub Actions workflows** — CI pulls third-party
 actions and container images by tag, and a tag nobody upgrades on purpose is exactly where an old
 vulnerable dependency hides.
