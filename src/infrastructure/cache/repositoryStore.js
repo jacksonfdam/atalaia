@@ -458,6 +458,7 @@ const REPOSITORY_SORT_COLUMNS = new Set([
     'created_at',
     'updated_at',
     'org_key',
+    'default_branch',
 ]);
 
 export const REPOSITORY_LIMIT_DEFAULT = 25;
@@ -538,4 +539,23 @@ export function repositoryFacets() {
             )
             .all(),
     };
+}
+
+/**
+ * Record the outcome of one registry lookup.
+ *
+ * Written per dependency, as each answer arrives: a check interrupted halfway
+ * leaves everything it already resolved, and the console can render partial
+ * results while the rest is still in flight.
+ */
+export function setDependencyLatestVersion(dependencyId, { latest = null, error = null }) {
+    getDb()
+        .prepare(
+            `UPDATE repository_dependencies
+             SET latest_version = @latest,
+                 latest_error = @error,
+                 latest_checked_at = ${NOW}
+             WHERE id = @id`
+        )
+        .run({ id: dependencyId, latest, error });
 }

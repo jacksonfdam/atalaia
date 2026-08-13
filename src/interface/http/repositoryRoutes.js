@@ -16,6 +16,11 @@ import {
 import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.js';
 import { listRepositoriesPage } from '../../application/listRepositories.js';
 import { startFleetScan, fleetScanState } from '../../application/repositoryScanRunner.js';
+import {
+    startVersionCheck,
+    versionCheckState,
+    isSatisfied,
+} from '../../application/checkDependencyVersions.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -141,7 +146,8 @@ export function createRepositoryRoutes() {
         res.json({ deleted: true, repository: idOrUrl });
     });
 
-    // GET /repositories/:idOrUrl/dependencies
+    // GET /repositories/:idOrUrl/dependencies — every dependency, with whatever
+    // freshness has already been resolved
     router.get('/:idOrUrl/dependencies', (req, res) => {
         const repository = resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
@@ -152,7 +158,55 @@ export function createRepositoryRoutes() {
             dependencies = dependencies.filter(d => String(d.ecosystem).toUpperCase() === wanted);
         }
 
-        res.json({ count: dependencies.length, repository, dependencies });
+        const enriched = dependencies.map(dependency => ({
+            ...dependency,
+            // Computed here rather than stored: it is a comparison of two
+            // columns, and storing it would be a third thing to keep in sync.
+            outdated: Boolean(
+                dependency.latest_version &&
+                    dependency.version &&
+                    !isSatisfied(dependency.version, dependency.latest_version)
+            ),
+        }));
+
+        res.json({
+            count: enriched.length,
+            outdated: enriched.filter(dependency => dependency.outdated).length,
+            unchecked: enriched.filter(dependency => !dependency.latest_checked_at).length,
+            repository,
+            dependencies: enriched,
+            versionCheck: versionCheckState(repository.id),
+        });
+    });
+
+    // GET /repositories/:idOrUrl/versions — progress of the freshness check
+    router.get('/:idOrUrl/versions', (req, res) => {
+        const repository = resolveRepo(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+
+        res.json(versionCheckState(repository.id));
+    });
+
+    // POST /repositories/:idOrUrl/versions — look up the latest published
+    // version of each dependency, in the background
+    router.post('/:idOrUrl/versions', (req, res) => {
+        const repository = resolveRepo(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+
+        try {
+            const result = startVersionCheck(repository.id, {
+                force: req.body?.force === true,
+                maxAgeHours: req.body?.maxAgeHours,
+            });
+
+            if (!result.accepted) {
+                return res.status(409).json({ error: 'A version check is already running', ...result.state });
+            }
+
+            res.status(202).json(result);
+        } catch (error) {
+            res.status(400).json({ error: error.message });
+        }
     });
 
     // POST /repositories/:idOrUrl/scan
