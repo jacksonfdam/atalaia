@@ -24,13 +24,6 @@ export async function sendWeeklyEmail(report) {
         return;
     }
 
-    const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure: port === 465,
-        ...(user && pass ? { auth: { user, pass } } : {}),
-    });
-
     // Select template based on environment variable (default: professional)
     const templateType = (process.env.EMAIL_TEMPLATE || 'professional').toLowerCase();
     const html = templateType === 'minimal'
@@ -41,6 +34,13 @@ export async function sendWeeklyEmail(report) {
     const stats = `CRITICAL:${(report.vulnerabilities.CRITICAL || []).length}, HIGH:${(report.vulnerabilities.HIGH || []).length}, MEDIUM:${(report.vulnerabilities.MEDIUM || []).length}, LOW:${(report.vulnerabilities.LOW || []).length}`;
 
     try {
+        const transporter = nodemailer.createTransport({
+            host,
+            port,
+            secure: port === 465,
+            ...(user && pass ? { auth: { user, pass } } : {}),
+        });
+
         await transporter.sendMail({
             from,
             to,
