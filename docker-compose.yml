@@ -3,8 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # The port comes from .env so a custom PORT stays consistent between the
+    # container, the published port and the health check.
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     volumes:
       - ./data:/app/data
     env_file:
@@ -14,7 +16,33 @@ services:
       - DB_PATH=/app/data/atalaia.db
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:${PORT:-3000}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Management console. A separate service: it reaches the API over HTTP only
+  # and never touches the database.
+  atalaia-console:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    ports:
+      - "${UI_PORT:-3001}:${UI_PORT:-3001}"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - UI_PORT=${UI_PORT:-3001}
+      # Service name, not localhost — the API is a different container.
+      - ATALAIA_API_URL=http://atalaia:${PORT:-3000}
+    depends_on:
+      atalaia:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:${UI_PORT:-3001}/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
