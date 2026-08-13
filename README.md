@@ -227,13 +227,16 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 
 ### LLM summaries
 
+Normally configured from the console (**Settings → LLM.CFG**). These still work and **take
+precedence** — setting `LLM_PROVIDER` turns the console section read-only.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | — | `openai` or `ollama`. Unset disables explanations. |
-| `OPENAI_API_KEY` | — | Required for `openai`. |
-| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model. |
+| `LLM_PROVIDER` | — | `ollama`, `lmstudio`, `openai`, `anthropic`, `openrouter`, `groq` or `custom`. Unset leaves it to the console. |
+| `OPENAI_API_KEY` | — | Key for whichever hosted provider is selected. |
+| `OPENAI_MODEL` | per provider | Model name. |
 | `OLLAMA_URL` | `http://localhost:11434` | Local Ollama endpoint. |
-| `OLLAMA_MODEL` | `llama2` | Ollama model. |
+| `OLLAMA_MODEL` | `llama3.1` | Ollama model. |
 
 ### Weekly email report
 
@@ -492,6 +495,8 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `PUT` | `/api/v1/settings/email` | Email provider catalog and delivery configuration. |
 | `GET` `PUT` | `/api/v1/settings/slack` | Slack integration: webhook or bot token, and the destination. |
 | `POST` | `/api/v1/settings/slack/test` | Post a test message to the configured destination. |
+| `GET` `PUT` | `/api/v1/settings/llm` | Model provider catalog and the configured model. |
+| `POST` | `/api/v1/settings/llm/test` | Send one short prompt to the configured model. |
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | Weekly report payload. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
@@ -549,6 +554,81 @@ project actually declares everything** — RubyGems (`Gemfile` and `fastlane/Plu
 NuGet, Composer, Terraform, Dockerfiles and **GitHub Actions workflows** — CI pulls third-party
 actions and container images by tag, and a tag nobody upgrades on purpose is exactly where an old
 vulnerable dependency hides.
+
+---
+
+## Plain-English explanations
+
+Atalaia can attach a short explanation to each vulnerability — what it means for someone who does not
+read CVSS vectors for a living. It is **optional**: with no model configured, alerts carry the
+advisory text as published and nothing else changes.
+
+Pick one under **Settings → LLM.CFG**. The split that matters is not the brand:
+
+| | Providers | What it means |
+|---|---|---|
+| **Local** | Ollama, LM Studio | Runs on this machine. No vulnerability text leaves the network. |
+| **Hosted** | OpenAI, Anthropic, OpenRouter, Groq, any OpenAI-compatible endpoint | The title and description of every vulnerability explained are sent to that vendor. |
+
+The console says which one is selected in as many words, because sending your security findings to
+a third party is a decision, not a default. A local provider needs no key; a hosted one does, and it
+is encrypted at rest and never returned by the API. **Test model** sends one short prompt and shows
+the answer, so a wrong endpoint or model name surfaces immediately instead of at 3am.
+
+Everything except Anthropic speaks the OpenAI chat-completions shape, so `custom` covers vLLM,
+LiteLLM or a gateway of your own — give it a base URL and a model name.
+
+The explanation is written once, when the vulnerability is first stored, and travels with the Slack
+alert and the weekly report. Changing provider takes effect on the next cycle; there is no restart.
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/llm
+
+curl -X PUT -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"provider":"ollama","model":"llama3.1","enabled":true}' \
+  http://localhost:3000/api/v1/settings/llm
+
+curl -X POST -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/llm/test
+```
+
+---
+
+## Rules that hold everywhere
+
+The same handful of decisions recur across every feature; knowing them explains most of the
+behaviour without reading the code.
+
+**Environment beats database beats file.** Anything set as an environment variable wins and turns
+the matching console field read-only — a deployment can always pin a value, and a write that would
+have no effect is refused with `409` rather than silently stored. Next comes what the console wrote
+to SQLite, and last `config.json`, which is the committed default.
+
+**Secrets are encrypted at rest and never come back.** GitHub tokens, SMTP passwords, Slack
+credentials and LLM keys are stored with AES-256-GCM keyed by `TOKEN_ENCRYPTION_KEY` (or `API_KEY`).
+The API returns whether one is held and its last four characters, never the value. Changing provider
+drops the stored key — a SendGrid key is not a Mailgun password.
+
+**Reads only, on everything external.** GitHub, the vulnerability feeds and the package registries
+are read and never written to.
+
+**Long work runs detached.** A fleet scan, a version check or a monitoring cycle answers `202`
+immediately, refuses a second concurrent run with `409`, and reports progress on a `GET` at the same
+path. Nothing that outlives an HTTP timeout is run inside a request.
+
+**Deleting is soft, and stays.** Repositories, organizations, owners and dependencies are marked
+deleted rather than removed, and an import will not resurrect one behind your back — only asking for
+it by name will.
+
+**Enabled is the operator's switch.** Re-importing or re-scanning never flips it, and a disabled
+repository stops counting towards exposure and relevance.
+
+**Counts and filters share one definition.** Where a header states a number — repositories exposed,
+CVEs affecting you, dependencies behind — the same SQL backs the number and the rows beneath it, so
+the two cannot disagree.
+
+**Nothing is claimed that was not verified.** A source that answers with zero items is reported as
+`EMPTY`, not healthy; a version that cannot be compared answers `unknown` with the reason instead of
+guessing; a repository that was never scanned says so instead of showing as clean.
 
 ---
 
@@ -655,7 +735,7 @@ open http://localhost:3001
 | Organizations | Register GitHub organizations with their own tokens and import their repositories |
 | Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies |
 | Notifications | Slack integration (webhook or bot, channel or person), plus owners and their ecosystem/dependency/repository assignments |
-| Settings | Slack toggle, schedules, LLM provider, email provider and credentials, plus which secrets are configured |
+| Settings | Schedules, email provider, model provider (local or hosted), plus which secrets are configured |
 
 **Authentication.** The browser signs in against the console with `UI_PASSWORD` and receives an
 HMAC-signed, HttpOnly session cookie. Requests then go to the console's `/bff` prefix, which
