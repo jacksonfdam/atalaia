@@ -117,10 +117,140 @@ export function update(cveId, updates) {
     logger.info({ cveId, updates: Object.keys(updates) }, 'Updated vulnerability in database');
 }
 
+function hydrate(row) {
+    row.affectedTechnologies = row.affected_technologies ? JSON.parse(row.affected_technologies) : [];
+    return row;
+}
+
 export function getAll() {
     const stmt = getDb().prepare('SELECT * FROM vulnerabilities');
-    return stmt.all().map(row => {
-        row.affectedTechnologies = row.affected_technologies ? JSON.parse(row.affected_technologies) : [];
-        return row;
-    });
+    return stmt.all().map(hydrate);
+}
+
+// Whitelist: the sort column is interpolated into SQL, so it can never come
+// straight from a query string.
+const SORTABLE_COLUMNS = new Set([
+    'first_seen_at',
+    'last_seen_at',
+    'cvss_score',
+    'severity',
+    'status',
+    'cve_id',
+    'source',
+]);
+
+export const QUERY_LIMIT_MAX = 200;
+export const QUERY_LIMIT_DEFAULT = 50;
+
+/**
+ * Filtered, paginated query over the vulnerability table.
+ *
+ * getAll() loads every row, which is fine for the monitoring cycle but not for
+ * a UI that pages through thousands of records — hence the SQL-side filtering.
+ *
+ * @param {object} [filters]
+ * @param {string} [filters.status]
+ * @param {string} [filters.severity]
+ * @param {string} [filters.source]
+ * @param {string} [filters.tech]      Matches one entry of affected_technologies
+ * @param {string} [filters.search]    Substring of cve_id or title
+ * @param {boolean} [filters.exploited]
+ * @param {number} [filters.limit]
+ * @param {number} [filters.offset]
+ * @param {string} [filters.sort]      Column from SORTABLE_COLUMNS
+ * @param {'asc'|'desc'} [filters.order]
+ * @returns {{ total: number, limit: number, offset: number, vulnerabilities: object[] }}
+ */
+export function query(filters = {}) {
+    const clauses = [];
+    const params = {};
+
+    if (filters.status) {
+        clauses.push('status = @status');
+        params.status = String(filters.status).toUpperCase();
+    }
+    if (filters.severity) {
+        clauses.push('severity = @severity');
+        params.severity = String(filters.severity).toUpperCase();
+    }
+    if (filters.source) {
+        clauses.push('lower(source) = @source');
+        params.source = String(filters.source).toLowerCase();
+    }
+    if (filters.tech) {
+        // affected_technologies is a JSON array as text; quoting the term keeps
+        // "react" from matching "react-dom".
+        clauses.push('lower(affected_technologies) LIKE @tech');
+        params.tech = `%"${String(filters.tech).toLowerCase()}"%`;
+    }
+    if (filters.search) {
+        clauses.push('(lower(cve_id) LIKE @search OR lower(title) LIKE @search)');
+        params.search = `%${String(filters.search).toLowerCase()}%`;
+    }
+    if (filters.exploited !== undefined) {
+        clauses.push('exploited = @exploited');
+        params.exploited = filters.exploited ? 1 : 0;
+    }
+
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const sort = SORTABLE_COLUMNS.has(filters.sort) ? filters.sort : 'first_seen_at';
+    const order = String(filters.order).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const limit = Math.min(
+        Math.max(parseInt(filters.limit, 10) || QUERY_LIMIT_DEFAULT, 1),
+        QUERY_LIMIT_MAX
+    );
+    const offset = Math.max(parseInt(filters.offset, 10) || 0, 0);
+
+    const database = getDb();
+    const { total } = database
+        .prepare(`SELECT COUNT(*) AS total FROM vulnerabilities ${where}`)
+        .get(params);
+
+    const rows = database
+        .prepare(
+            `SELECT * FROM vulnerabilities ${where}
+             ORDER BY ${sort} ${order}
+             LIMIT @limit OFFSET @offset`
+        )
+        .all({ ...params, limit, offset })
+        .map(hydrate);
+
+    return { total, limit, offset, vulnerabilities: rows };
+}
+
+/**
+ * Aggregate counts for the console overview, computed in SQL rather than by
+ * materialising every row in JavaScript.
+ */
+export function stats() {
+    const database = getDb();
+    const groupBy = column =>
+        Object.fromEntries(
+            database
+                .prepare(
+                    `SELECT ${column} AS key, COUNT(*) AS count FROM vulnerabilities
+                     GROUP BY ${column} ORDER BY count DESC`
+                )
+                .all()
+                .map(row => [row.key ?? 'UNKNOWN', row.count])
+        );
+
+    const { total } = database.prepare('SELECT COUNT(*) AS total FROM vulnerabilities').get();
+    const { exploited } = database
+        .prepare('SELECT COUNT(*) AS exploited FROM vulnerabilities WHERE exploited = 1')
+        .get();
+    const { lastSeen } = database
+        .prepare('SELECT MAX(last_seen_at) AS lastSeen FROM vulnerabilities')
+        .get();
+
+    return {
+        total,
+        exploited,
+        lastSeenAt: lastSeen,
+        byStatus: groupBy('status'),
+        bySeverity: groupBy('severity'),
+        bySource: groupBy('source'),
+    };
 }
