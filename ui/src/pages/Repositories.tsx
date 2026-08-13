@@ -1,26 +1,39 @@
-import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
-import {
-  Window,
-  Body,
-  Loading,
-  Notice,
-  Empty,
-  formatDate,
-  relativeTime,
-  SeverityBadge,
-} from '../components/ui';
-import type {
-  Dependency,
-  FleetScanState,
-  Repository,
-  RepositoryPage,
-  RepositoryRiskReport,
-  TechnologyReport,
-} from '../types';
+import { Window, Body, Loading, Notice, Empty, formatDate, relativeTime, SeverityBadge } from '../components/ui';
+import type { FleetScanState, Repository, RepositoryPage } from '../types';
 
 const PAGE_SIZES = [25, 50, 100];
+
+/** Clicking a header sorts by it; clicking the active one flips the direction. */
+function SortableHeader({
+  column,
+  label,
+  sort,
+  order,
+  onSort,
+}: {
+  column: string;
+  label: string;
+  sort: string;
+  order: string;
+  onSort: (column: string) => void;
+}) {
+  const active = sort === column;
+
+  return (
+    <th
+      onClick={() => onSort(column)}
+      style={{ cursor: 'pointer', userSelect: 'none' }}
+      title={`Sort by ${label.toLowerCase()}`}
+    >
+      {label}
+      <span className="muted"> {active ? (order === 'desc' ? '↓' : '↑') : '·'}</span>
+    </th>
+  );
+}
 
 const SORTS = [
   { value: 'name', label: 'Name' },
@@ -32,92 +45,6 @@ const SORTS = [
 ];
 
 /** What reaches this repository, and through which dependency. */
-function Exposure({ report }: { report: RepositoryRiskReport }) {
-  if (report.count === 0) {
-    return (
-      <p className="muted" style={{ marginBottom: '0.6rem' }}>
-        No known vulnerability reaches this repository's dependencies.
-      </p>
-    );
-  }
-
-  return (
-    <div className="table-scroll" style={{ marginBottom: '0.6rem' }}>
-      <table>
-        <thead>
-          <tr>
-            <th>CVE</th>
-            <th>Severity</th>
-            <th>Reaches it through</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {report.vulnerabilities.map(vuln => (
-            <tr key={vuln.cveId}>
-              <td>
-                <a href={`/vulnerabilities/${vuln.cveId}`}>{vuln.cveId}</a>
-                {vuln.exploited ? <span className="muted"> · exploited</span> : null}
-                <div className="muted">{vuln.title}</div>
-              </td>
-              <td className="tight">
-                <SeverityBadge severity={vuln.severity} />
-                <span className="muted mono"> {vuln.cvssScore ?? '—'}</span>
-              </td>
-              <td className="mono" style={{ fontSize: '0.7rem' }}>
-                {/* The manifest is the thing to open, so it is named. */}
-                {vuln.matches
-                  .slice(0, 3)
-                  .map(match => `${match.dependency}${match.version ? `@${match.version}` : ''} · ${match.manifestFile ?? '—'}`)
-                  .join('  |  ')}
-                {vuln.matches.length > 3 ? `  +${vuln.matches.length - 3}` : ''}
-              </td>
-              <td className="tight">{vuln.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** Languages and topics come from the provider; ecosystems come from a scan. */
-function Technologies({ report }: { report: TechnologyReport }) {
-  return (
-    <div className="grid cols-2" style={{ marginBottom: '0.6rem' }}>
-      <div className="stat">
-        <strong style={{ fontSize: '0.8rem' }}>Languages</strong>
-        {report.languages.length === 0 ? (
-          <p className="muted">
-            None recorded. Import the organization again, or refresh this repository.
-          </p>
-        ) : (
-          <p className="mono" style={{ fontSize: '0.72rem' }}>
-            {report.languages.map(lang => `${lang.name} ${lang.share ?? 0}%`).join('  ·  ')}
-          </p>
-        )}
-        {report.topics.length > 0 ? (
-          <p className="muted" style={{ marginTop: '0.3rem' }}>topics: {report.topics.join(', ')}</p>
-        ) : null}
-      </div>
-
-      <div className="stat">
-        <strong style={{ fontSize: '0.8rem' }}>Ecosystems</strong>
-        {report.ecosystems.length === 0 ? (
-          <p className="muted">No manifests parsed yet. Run a scan.</p>
-        ) : (
-          <p className="mono" style={{ fontSize: '0.72rem' }}>
-            {report.ecosystems.map(eco => `${eco.name} (${eco.packages})`).join('  ·  ')}
-          </p>
-        )}
-        <p className="muted" style={{ marginTop: '0.3rem' }}>
-          {report.dependencyCount} dependencies · scanned {formatDate(report.lastScannedAt)}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
   const [filters, setFilters] = useState({
     search: '',
@@ -163,13 +90,18 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
   /** Any filter change resets to the first page: page 4 of a new filter is nothing. */
   const set = (patch: Partial<typeof filters>) =>
     setFilters(prev => ({ ...prev, offset: 0, ...patch }));
+
+  /** Same column toggles direction; a new column starts descending. */
+  const sortBy = (column: string) =>
+    setFilters(prev => ({
+      ...prev,
+      offset: 0,
+      sort: column,
+      order: prev.sort === column && prev.order === 'desc' ? 'asc' : 'desc',
+    }));
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
-  const [expanded, setExpanded] = useState<number | null>(null);
-  const [deps, setDeps] = useState<Record<number, Dependency[]>>({});
-  const [techs, setTechs] = useState<Record<number, TechnologyReport>>({});
-  const [risks, setRisks] = useState<Record<number, RepositoryRiskReport>>({});
   const [scan, setScan] = useState<FleetScanState | null>(null);
 
   // The scan runs detached on the server, so its state is polled — while it is
@@ -222,33 +154,6 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
       setUrl('');
       return `Added ${repo.name}`;
     });
-  }
-
-  async function toggleDetails(repo: Repository) {
-    if (expanded === repo.id) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(repo.id);
-
-    try {
-      if (!deps[repo.id]) {
-        const res = await api.get<{ dependencies: Dependency[] }>(
-          `/repositories/${repo.id}/dependencies`
-        );
-        setDeps(prev => ({ ...prev, [repo.id]: res.dependencies }));
-      }
-      if (!techs[repo.id]) {
-        const report = await api.get<TechnologyReport>(`/repositories/${repo.id}/technologies`);
-        setTechs(prev => ({ ...prev, [repo.id]: report }));
-      }
-      if (!risks[repo.id]) {
-        const report = await api.get<RepositoryRiskReport>(`/repositories/${repo.id}/vulnerabilities`);
-        setRisks(prev => ({ ...prev, [repo.id]: report }));
-      }
-    } catch (err) {
-      setMessage({ kind: 'error', text: (err as Error).message });
-    }
   }
 
   return (
@@ -416,22 +321,29 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Organization</th>
-                  <th>Language</th>
-                  <th>Exposure</th>
-                  <th>Branch</th>
-                  <th>Last scanned</th>
+                  <SortableHeader column="name" label="Name" sort={filters.sort} order={filters.order} onSort={sortBy} />
+                  <SortableHeader column="org_key" label="Organization" sort={filters.sort} order={filters.order} onSort={sortBy} />
+                  <SortableHeader column="primary_language" label="Language" sort={filters.sort} order={filters.order} onSort={sortBy} />
+                  <SortableHeader column="exposure" label="Exposure" sort={filters.sort} order={filters.order} onSort={sortBy} />
+                  <SortableHeader column="default_branch" label="Branch" sort={filters.sort} order={filters.order} onSort={sortBy} />
+                  <SortableHeader column="last_scanned_at" label="Last scanned" sort={filters.sort} order={filters.order} onSort={sortBy} />
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {list.data.repositories.map(repo => (
-                  <Fragment key={repo.id}>
-                    <tr style={{ opacity: repo.enabled ? 1 : 0.55 }}>
+                  <tr key={repo.id} style={{ opacity: repo.enabled ? 1 : 0.55 }}>
                       <td>
-                        <a href={repo.url} target="_blank" rel="noreferrer noopener">
-                          {repo.name}
+                        {/* The name opens the repository here; the arrow leaves for GitHub. */}
+                        <Link to={`/repositories/${repo.id}`}>{repo.name}</Link>{' '}
+                        <a
+                          href={repo.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          title="Open on GitHub"
+                          className="muted"
+                        >
+                          ↗
                         </a>
                         {repo.archived ? <span className="muted"> · archived</span> : null}
                       </td>
@@ -452,9 +364,9 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
                       <td className="tight mono">{formatDate(repo.last_scanned_at)}</td>
                       <td className="tight">
                         <span className="cell-actions">
-                          <button onClick={() => toggleDetails(repo)}>
-                            {expanded === repo.id ? 'Hide' : 'Details'}
-                          </button>
+                          <Link to={`/repositories/${repo.id}`}>
+                            <button>Details</button>
+                          </Link>
                           <button
                             disabled={busy}
                             onClick={() =>
@@ -496,71 +408,7 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
                           </button>
                         </span>
                       </td>
-                    </tr>
-
-                    {expanded === repo.id ? (
-                      <tr>
-                        <td colSpan={7}>
-                          {risks[repo.id] ? <Exposure report={risks[repo.id]} /> : <Loading what="exposure" />}
-
-                          {techs[repo.id] ? (
-                            <>
-                              <Technologies report={techs[repo.id]} />
-                              <button
-                                disabled={busy}
-                                onClick={() =>
-                                  run(async () => {
-                                    const report = await api.post<TechnologyReport>(
-                                      `/repositories/${repo.id}/technologies`
-                                    );
-                                    setTechs(prev => ({ ...prev, [repo.id]: report }));
-                                    return `Languages refreshed for ${repo.name}`;
-                                  })
-                                }
-                              >
-                                Refresh languages
-                              </button>
-                            </>
-                          ) : (
-                            <Loading what="technologies" />
-                          )}
-
-                          {!deps[repo.id] ? (
-                            <Loading what="dependencies" />
-                          ) : deps[repo.id].length === 0 ? (
-                            <Empty>No dependencies recorded. Run a scan first.</Empty>
-                          ) : (
-                            <div className="table-scroll" style={{ marginTop: '0.6rem' }}>
-                              <table>
-                                <thead>
-                                  <tr>
-                                    <th>Ecosystem</th>
-                                    <th>Package</th>
-                                    <th>Version</th>
-                                    <th>Vendor / product</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {deps[repo.id].map(dep => (
-                                    <tr key={dep.id}>
-                                      <td className="tight">{dep.ecosystem}</td>
-                                      <td className="mono">{dep.name}</td>
-                                      <td className="tight mono">{dep.version ?? '—'}</td>
-                                      <td className="tight mono">
-                                        {dep.opencve_vendor && dep.opencve_product
-                                          ? `${dep.opencve_vendor}/${dep.opencve_product}`
-                                          : '—'}
-                                      </td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
+                  </tr>
                 ))}
               </tbody>
             </table>

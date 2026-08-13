@@ -236,6 +236,41 @@ export interface Dependency {
   version: string | null;
   opencve_vendor: string | null;
   opencve_product: string | null;
+  manifest_file: string | null;
+  latest_version: string | null;
+  latest_checked_at: string | null;
+  latest_error: string | null;
+  /** Computed: the declared version is not the latest published one. */
+  outdated: boolean;
+}
+
+export interface VersionCheckState {
+  running: boolean;
+  startedAt: string | null;
+  progress: {
+    total: number;
+    done: number;
+    outdated: number;
+    failed: number;
+    current: string | null;
+  } | null;
+  lastRun: {
+    startedAt: string;
+    finishedAt: string;
+    ok: boolean;
+    checked: number;
+    failed: number;
+    error?: string;
+  } | null;
+}
+
+export interface DependencyPage {
+  count: number;
+  outdated: number;
+  unchecked: number;
+  repository: Repository;
+  dependencies: Dependency[];
+  versionCheck: VersionCheckState;
 }
 
 export interface Owner {

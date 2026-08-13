@@ -10,6 +10,7 @@ import { VulnDetail } from './pages/VulnDetail';
 import { Feeds } from './pages/Feeds';
 import { Organizations } from './pages/Organizations';
 import { Repositories } from './pages/Repositories';
+import { RepositoryDetail } from './pages/RepositoryDetail';
 import { Owners } from './pages/Owners';
 import { Settings } from './pages/Settings';
 import type { FeedHealthReport, Stats } from './types';
@@ -85,6 +86,7 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
           <Route path="/feeds" element={<Feeds onAuthLost={onAuthLost} />} />
           <Route path="/organizations" element={<Organizations onAuthLost={onAuthLost} />} />
           <Route path="/repositories" element={<Repositories onAuthLost={onAuthLost} />} />
+          <Route path="/repositories/:id" element={<RepositoryDetail onAuthLost={onAuthLost} />} />
           <Route path="/owners" element={<Owners onAuthLost={onAuthLost} />} />
           <Route path="/settings" element={<Settings onAuthLost={onAuthLost} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
