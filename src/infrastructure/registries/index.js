@@ -1,4 +1,5 @@
 import axios from 'axios';
+import semver from 'semver';
 import logger from '../logger.js';
 
 /**
@@ -24,6 +25,62 @@ function splitMavenCoordinates(name) {
     const [groupId, artifactId] = name.split(':');
     return { groupId, artifactId };
 }
+
+/**
+ * Maven repositories publish a static maven-metadata.xml per artifact. It is a
+ * plain file rather than a search index — faster, and it does not fall over the
+ * way search.maven.org does under load.
+ */
+async function latestFromMavenMetadata(baseUrl, groupId, artifactId) {
+    const path = `${groupId.replace(/\./g, '/')}/${artifactId}/maven-metadata.xml`;
+    const xml = await get(`${baseUrl}/${path}`, { responseType: 'text' });
+
+    const versions = [...String(xml).matchAll(/<version>([^<]+)<\/version>/g)].map(match => match[1]);
+
+    // Maven's own <release> means "newest that is not a SNAPSHOT", which still
+    // includes RCs and alphas — telling someone on the stable line that they
+    // are behind because an alpha exists is noise, not news.
+    const stable = versions.filter(isStable);
+    const newest = highest(stable.length ? stable : versions);
+    if (newest) return newest;
+
+    const release = String(xml).match(/<release>([^<]+)<\/release>/);
+    return release ? release[1] : null;
+}
+
+/**
+ * A pre-release qualifier, not a flavour: guava ships 33.4.8-jre and
+ * 33.4.8-android, both of which are perfectly stable releases.
+ */
+function isStable(version) {
+    return !/(alpha|beta|-rc|\.rc|-m\d|eap|-dev|preview|snapshot|-cr\d)/i.test(version);
+}
+
+/** Maven metadata is ordered by publication, which is not the same as by version. */
+function highest(versions) {
+    let best = null;
+    let bestParsed = null;
+
+    for (const version of versions) {
+        const parsed = semver.coerce(version);
+        if (!parsed) continue;
+
+        if (!bestParsed || semver.gt(parsed, bestParsed)) {
+            best = version;
+            bestParsed = parsed;
+        }
+    }
+
+    return best ?? versions[versions.length - 1] ?? null;
+}
+
+const MAVEN_CENTRAL = 'https://repo1.maven.org/maven2';
+// Where Gradle plugins and Android's own artifacts actually live.
+const PLUGIN_REPOSITORIES = [
+    'https://plugins.gradle.org/m2',
+    'https://dl.google.com/dl/android/maven2',
+    MAVEN_CENTRAL,
+];
 
 /** @type {Record<string, VersionLookup>} */
 const LOOKUPS = {
@@ -76,10 +133,16 @@ const LOOKUPS = {
         const { groupId, artifactId } = splitMavenCoordinates(name);
         if (!groupId || !artifactId) return null;
 
-        const data = await get('https://search.maven.org/solrsearch/select', {
-            params: { q: `g:"${groupId}" AND a:"${artifactId}"`, rows: 1, wt: 'json' },
-        });
-        return data?.response?.docs?.[0]?.latestVersion ?? null;
+        try {
+            return await latestFromMavenMetadata(MAVEN_CENTRAL, groupId, artifactId);
+        } catch {
+            // Not on Central, or Central is having a moment: the search index
+            // also covers artifacts mirrored from elsewhere.
+            const data = await get('https://search.maven.org/solrsearch/select', {
+                params: { q: `g:"${groupId}" AND a:"${artifactId}"`, rows: 1, wt: 'json' },
+            });
+            return data?.response?.docs?.[0]?.latestVersion ?? null;
+        }
     },
 
     async GITHUB_ACTIONS(name) {
@@ -97,8 +160,27 @@ const LOOKUPS = {
     },
 };
 
-// Gradle declares Maven coordinates and resolves them from the same repository.
-LOOKUPS.GRADLE = LOOKUPS.MAVEN;
+/**
+ * Gradle names two different things: a library, by Maven coordinates, and a
+ * plugin, by its id. A plugin is published as a marker artifact whose
+ * coordinates are `<id>:<id>.gradle.plugin`, which is what makes it findable.
+ */
+LOOKUPS.GRADLE = async function gradlePlugin(name) {
+    if (name.includes(':')) return LOOKUPS.MAVEN(name);
+
+    // The Android plugins are on Google's repository and never on Central, and
+    // most community plugins are on the portal — so all three are tried.
+    for (const repository of PLUGIN_REPOSITORIES) {
+        try {
+            const latest = await latestFromMavenMetadata(repository, name, `${name}.gradle.plugin`);
+            if (latest) return latest;
+        } catch {
+            // Try the next repository.
+        }
+    }
+
+    return null;
+};
 
 /** Ecosystems with no single authoritative registry to ask. */
 const UNSUPPORTED = {
