@@ -1,17 +1,9 @@
 // src/application/monitorVulns.js
 
 import Vulnerability from '../domain/entities/Vulnerability.js';
-import { fetch as fetchCisa } from '../infrastructure/feeds/cisaFeed.js';
-import { fetch as fetchSnyk } from '../infrastructure/feeds/snykFeed.js';
-import { fetch as fetchVuldb } from '../infrastructure/feeds/vuldbFeed.js';
-// CVE Details scraper is kept in infrastructure/feeds/cveDetailsFeed.js but
-// disabled by default: cvedetails.com returns 403 to browser-shaped scraper
-// requests (likely TLS-fingerprinting or JS-challenge bot protection) and its
-// data is largely redundant with NVD / CISA / OpenCVE, which all rank higher
-// in SOURCE_PRIORITY. To re-enable, add back its import + feeds-array entry
-// below and set config.feeds.cveDetails in config.json.
-import { fetch as fetchNvd } from '../infrastructure/feeds/nvdFeed.js';
-import { fetch as fetchOpenCVE } from '../infrastructure/feeds/opencveFeed.js';
+// Which sources exist, and which are enabled, lives in the registry so that
+// this cycle and the /feeds/health endpoint can never disagree.
+import { enabledFeeds } from '../infrastructure/feeds/feedRegistry.js';
 import { readFileSync } from 'fs';
 import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
@@ -33,15 +25,6 @@ const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
  * for severity, description, and source fields.
  */
 const SOURCE_PRIORITY = ['nvd', 'cisa', 'opencve', 'snyk', 'vuldb', 'cvedetails'];
-
-const feeds = [
-    { name: 'nvd', fetch: fetchNvd },
-    { name: 'cisa', fetch: fetchCisa },
-    { name: 'opencve', fetch: fetchOpenCVE },
-    { name: 'snyk', fetch: fetchSnyk },
-    { name: 'vuldb', fetch: fetchVuldb },
-    // { name: 'cvedetails', fetch: fetchCveDetails },  // disabled: see note above
-];
 
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -192,6 +175,7 @@ function filterByTechnology(vulns) {
 
 async function fetchAllFeeds() {
     const allVulns = [];
+    const feeds = enabledFeeds();
 
     const results = await Promise.allSettled(
         feeds.map(async (feed, index) => {
