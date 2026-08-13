@@ -81,9 +81,13 @@ const SECRET_ENV_VARS = [
     { key: 'slack.webhookUrl', env: 'SLACK_WEBHOOK_URL', label: 'Slack webhook URL' },
     { key: 'slack.signingSecret', env: 'SLACK_SIGNING_SECRET', label: 'Slack signing secret' },
     { key: 'opencve.token', env: 'OPENCVE_API_TOKEN', label: 'OpenCVE API token' },
-    { key: 'github.token', env: 'GITHUB_TOKEN', label: 'GitHub token' },
+    // Fallback only: each organization normally carries its own token, stored
+    // encrypted in the database and managed from the Organizations page.
+    { key: 'github.token', env: 'GITHUB_TOKEN', label: 'GitHub token (fallback)' },
     { key: 'llm.apiKey', env: 'OPENAI_API_KEY', label: 'OpenAI API key' },
-    { key: 'smtp.host', env: 'SMTP_HOST', label: 'SMTP host' },
+    // SMTP is deliberately absent: email delivery is configured in its own
+    // section, and listing SMTP_HOST here as "MISSING" would read as broken
+    // email when the provider is configured in the database instead.
     { key: 'api.key', env: 'API_KEY', label: 'API key' },
 ];
 
