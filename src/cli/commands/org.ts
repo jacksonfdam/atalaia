@@ -12,6 +12,7 @@ interface ListOpts {
 interface ImportOpts {
   all?: boolean;
   languages?: boolean;
+  only?: string;
   json?: boolean;
 }
 
@@ -121,7 +122,11 @@ export async function runOrgImport(key: string | undefined, opts: ImportOpts): P
     }
 
     const { importOrgRepositories } = await import('#app/application/importRepositories.js');
-    const result = await importOrgRepositories(key, { withLanguages });
+    // --only takes full names or URLs, comma-separated.
+    const only = opts.only
+      ? opts.only.split(',').map(entry => entry.trim()).filter(Boolean)
+      : undefined;
+    const result = await importOrgRepositories(key, { withLanguages, only });
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -135,6 +140,45 @@ export async function runOrgImport(key: string | undefined, opts: ImportOpts): P
     if (result.skippedDeleted.length > 0) {
       process.stdout.write(`  ${result.skippedDeleted.length} left out — removed here earlier\n`);
     }
+    if (result.notFound.length > 0) {
+      process.stderr.write(`  not found on GitHub: ${result.notFound.join(', ')}\n`);
+    }
+  } catch (err) {
+    fail(err);
+  }
+}
+
+/** List what the token can see, so a selection can be made before importing. */
+export async function runOrgRepos(key: string, opts: ListOpts): Promise<void> {
+  const { previewOrgRepositories } = await import('#app/application/importRepositories.js');
+  try {
+    const preview = await previewOrgRepositories(key);
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(preview, null, 2) + '\n');
+      return;
+    }
+
+    if (preview.count === 0) {
+      process.stdout.write(`This token cannot see any repository in ${preview.login}.\n`);
+      return;
+    }
+
+    process.stdout.write(`${'Repository'.padEnd(44)} ${'Language'.padEnd(14)} ${'Branch'.padEnd(14)} State\n`);
+    process.stdout.write('-'.repeat(92) + '\n');
+
+    for (const repo of preview.repositories) {
+      const state = repo.state + (repo.archived ? ', archived' : '');
+      process.stdout.write(
+        `${repo.name.slice(0, 42).padEnd(44)} ${(repo.primaryLanguage ?? '—').padEnd(14)} ${repo.defaultBranch.padEnd(14)} ${state}\n`
+      );
+    }
+
+    const tracked = preview.repositories.filter(r => r.state === 'tracked').length;
+    process.stdout.write(
+      `\n${preview.count} in ${preview.login}, ${tracked} already tracked.\n` +
+        `Import a subset with: atalaia org import ${key} --only <name,name>\n`
+    );
   } catch (err) {
     fail(err);
   }

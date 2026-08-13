@@ -177,11 +177,26 @@ declare module '#app/application/importRepositories.js' {
     found: number;
     imported: number;
     skippedDeleted: string[];
+    notFound: string[];
     archived: number;
   }
+  export interface RemoteRepository {
+    name: string;
+    url: string;
+    defaultBranch: string;
+    primaryLanguage: string | null;
+    topics: string[];
+    description: string | null;
+    archived: boolean;
+    state: 'new' | 'tracked' | 'removed';
+    enabled: boolean | null;
+  }
+  export function previewOrgRepositories(
+    key: string
+  ): Promise<{ org: string; login: string; count: number; repositories: RemoteRepository[] }>;
   export function importOrgRepositories(
     key: string,
-    options?: { withLanguages?: boolean }
+    options?: { withLanguages?: boolean; only?: string[] }
   ): Promise<ImportResult>;
   export function importAllOrganizations(
     options?: { withLanguages?: boolean }

@@ -10,7 +10,7 @@ import { runResolve } from './commands/resolve.js';
 import { runScan } from './commands/scan.js';
 import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoDeps, runRepoToggle, runRepoRestore, runRepoTech } from './commands/repo.js';
 import { runOwnerAdd, runOwnerRemove, runOwnerList, runOwnerAssign, runOwnerUnassign, runOwnerShow } from './commands/owner.js';
-import { runOrgAdd, runOrgList, runOrgRemove, runOrgUpdate, runOrgImport } from './commands/org.js';
+import { runOrgAdd, runOrgList, runOrgRemove, runOrgUpdate, runOrgImport, runOrgRepos } from './commands/org.js';
 import { runFeedList, runFeedToggle, runFeedReset, runFeedCatalog } from './commands/feed.js';
 
 const program = new Command();
@@ -282,8 +282,17 @@ org
   });
 
 org
+  .command('repos <key>')
+  .description('List the repositories the token can see, without importing anything')
+  .option('--json', 'Emit JSON output')
+  .action(async (key: string, opts: Record<string, unknown>) => {
+    await runOrgRepos(key, opts as any);
+  });
+
+org
   .command('import [key]')
   .description('Import repositories (read-only). Without a key, every enabled organization.')
+  .option('--only <names>', 'Comma-separated repository names or URLs to import')
   .option('--all', 'Import every enabled organization')
   .option('--no-languages', 'Skip the language breakdown — one request less per repository')
   .option('--json', 'Emit JSON output')
