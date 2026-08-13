@@ -237,9 +237,14 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 
 ### Weekly email report
 
+Delivery is normally configured from the console (**Settings → EMAIL.CFG**), which stores the
+provider and its credential in the database. These variables still work and **take precedence** —
+set `SMTP_HOST` and the console section turns read-only, so a deployment that pins credentials in
+the environment keeps behaving exactly as before.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SMTP_HOST` | — | SMTP server. Email is disabled without it. |
+| `SMTP_HOST` | — | SMTP server. Setting it pins the whole email configuration to the environment. |
 | `SMTP_PORT` | `587` | SMTP port. |
 | `SMTP_USER` / `SMTP_PASS` | — | SMTP credentials. |
 | `EMAIL_FROM` | `atalaia@localhost` | Sender address. |
@@ -422,10 +427,54 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `DELETE` | `/api/v1/owners/:id/assignments/:assignmentId` | Remove an assignment. |
 | `GET` `POST` | `/api/v1/scan` | Monitoring cycle status / trigger one now. |
 | `GET` `PUT` | `/api/v1/settings` | Runtime settings. |
+| `GET` `PUT` | `/api/v1/settings/email` | Email provider catalog and delivery configuration. |
+| `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | Weekly report payload. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 
 Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)
+
+---
+
+## Weekly email report
+
+Every Monday at 09:00 (`WEEKLY_REPORT_CRON`) Atalaia emails a digest of **what it detected in the last
+seven days**, with the running total of everything still open shown alongside it. A quiet week reads
+as "nothing new, 113 open" instead of re-sending the whole backlog. Unrated findings — Ubuntu USN
+and the CERT feeds publish no CVSS — get their own bucket rather than being dropped.
+
+Pick a provider under **Settings → EMAIL.CFG**, fill in its credential, and save:
+
+| Provider | What it asks for |
+|----------|------------------|
+| Mailtrap | Host (sandbox or live), port, username, password |
+| Mailjet | API key (as the username) and secret key |
+| SendGrid | API key — the username is the literal string `apikey` |
+| Mailgun | SMTP host (US or EU), SMTP login, password |
+| MailerLite | Username and password |
+| Resend | API key — the username is the literal string `resend` |
+| Custom SMTP | Host, port, username, password |
+
+All of them are reached over SMTP through nodemailer rather than six REST SDKs: every provider here
+offers SMTP with the same credentials its API uses, and one transport means one code path to keep
+working.
+
+The credential is encrypted at rest with `TOKEN_ENCRYPTION_KEY` (or `API_KEY`) and never returned by
+the API — the console shows only its last four characters. Two buttons check the setup without
+waiting for Monday: **Test connection** opens the SMTP session and authenticates without sending,
+and **Send test** delivers the current digest to the configured recipients.
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/email
+
+curl -X PUT -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"provider":"resend","secret":"re_…","from":"atalaia@example.com",
+       "recipients":"security@example.com","enabled":true}' \
+  http://localhost:3000/api/v1/settings/email
+
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"send":false}' http://localhost:3000/api/v1/settings/email/test
+```
 
 ---
 
@@ -448,7 +497,7 @@ open http://localhost:3001
 | Organizations | Register GitHub organizations with their own tokens and import their repositories |
 | Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies |
 | Owners | Owners and their ecosystem/dependency/repository assignments |
-| Settings | Slack toggle, schedules, LLM provider, email — plus which credentials are configured |
+| Settings | Slack toggle, schedules, LLM provider, email provider and credentials, plus which secrets are configured |
 
 **Authentication.** The browser signs in against the console with `UI_PASSWORD` and receives an
 HMAC-signed, HttpOnly session cookie. Requests then go to the console's `/bff` prefix, which
