@@ -12,6 +12,12 @@ import {
     isEnvConfigured,
 } from '../../infrastructure/notifiers/emailConfig.js';
 import { verifyEmailTransport, sendTestEmail } from '../../infrastructure/notifiers/emailNotifier.js';
+import {
+    describeSlackConfig,
+    saveSlackConfig,
+    isEnvConfigured as isSlackEnvConfigured,
+} from '../../infrastructure/notifiers/slackConfig.js';
+import { sendTestMessage } from '../../infrastructure/notifySlack.js';
 import { generateWeeklyReport } from '../../application/generateWeeklyReport.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -55,6 +61,46 @@ export function createSettingsRoutes(cache) {
         } catch (error) {
             logger.warn({ err: error }, 'Email configuration update failed');
             res.status(400).json({ error: error.message });
+        }
+    });
+
+    // GET /settings/slack — where alerts go, and how
+    router.get('/slack', (_req, res) => {
+        res.json(describeSlackConfig());
+    });
+
+    // PUT /settings/slack — webhook or bot token, plus the destination
+    router.put('/slack', (req, res) => {
+        if (isSlackEnvConfigured()) {
+            return res.status(409).json({
+                error: 'Slack is pinned by SLACK_WEBHOOK_URL in the environment',
+                hint: 'Unset SLACK_WEBHOOK_URL to manage delivery from the console.',
+            });
+        }
+
+        const { mode, webhookUrl, botToken, destination, notifyOwners, enabled, changedBy } = req.body ?? {};
+
+        try {
+            res.json(
+                saveSlackConfig(
+                    { mode, webhookUrl, botToken, destination, notifyOwners, enabled },
+                    changedBy ?? 'api'
+                )
+            );
+        } catch (error) {
+            logger.warn({ err: error }, 'Slack configuration update failed');
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // POST /settings/slack/test — post a real message to the destination
+    router.post('/slack/test', async (_req, res) => {
+        try {
+            const result = await sendTestMessage();
+            res.status(result.ok ? 200 : 400).json(result);
+        } catch (error) {
+            logger.error({ err: error }, 'Slack test failed');
+            res.status(500).json({ error: error.message });
         }
     });
 
