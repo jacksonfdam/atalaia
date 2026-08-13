@@ -9,6 +9,7 @@ import * as rubyParser from './rubyParser.js';
 import * as composerParser from './composerParser.js';
 import * as nugetParser from './nugetParser.js';
 import * as terraformParser from './terraformParser.js';
+import * as githubActionsParser from './githubActionsParser.js';
 
 /**
  * All registered dependency parsers.
@@ -27,6 +28,7 @@ export const parsers = [
     composerParser,
     nugetParser,
     terraformParser,
+    githubActionsParser,
 ];
 
 /**

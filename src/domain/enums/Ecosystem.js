@@ -12,6 +12,9 @@ export const Ecosystem = Object.freeze({
     NUGET: 'NUGET',
     COMPOSER: 'COMPOSER',
     DOCKER: 'DOCKER',
+    // CI workflows pin third-party actions by tag, and a tag is a moving
+    // target: a pipeline is as exposed as anything it runs.
+    GITHUB_ACTIONS: 'GITHUB_ACTIONS',
     TERRAFORM: 'TERRAFORM',
     HELM: 'HELM',
     COCOAPODS: 'COCOAPODS',
