@@ -477,7 +477,9 @@ pnpm run dev:cli         # run from source with tsx
 | `atalaia ack <cve-id>` | OPEN → ACKNOWLEDGED. `--actor` |
 | `atalaia resolve <cve-id>` | → RESOLVED. `--actor` |
 | `atalaia scan` | Run a monitoring cycle now. `--dry-run` disarms the Slack webhook. |
-| `atalaia repo add\|remove\|list\|scan\|deps` | Monitored repositories. `--all`, `--ecosystem`, … |
+| `atalaia feed list\|enable\|disable\|reset\|catalog` | Sources and the database catalog. `--all`, `--json` |
+| `atalaia org add\|list\|import\|enable\|disable\|token\|remove` | Organizations and their read-only tokens. `--token`, `--no-languages` |
+| `atalaia repo add\|remove\|restore\|enable\|disable\|list\|scan\|deps\|tech` | Monitored repositories. `--all`, `--ecosystem`, `--refresh`, … |
 | `atalaia owner add\|remove\|list\|show\|assign\|unassign` | Owners and assignments. |
 
 `--db <path>` overrides the database location for any command.
