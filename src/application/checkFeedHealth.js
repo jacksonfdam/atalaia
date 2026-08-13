@@ -1,4 +1,4 @@
-import { FEEDS } from '../infrastructure/feeds/feedRegistry.js';
+import { listFeeds } from '../infrastructure/feeds/feedRegistry.js';
 import logger from '../infrastructure/logger.js';
 
 const CACHE_TTL_MS = parseInt(process.env.FEED_HEALTH_TTL_MS, 10) || 60_000;
@@ -79,7 +79,7 @@ export async function checkFeedHealth({ force = false } = {}) {
     // Disabled feeds are reported without being called: probing a source we
     // deliberately turned off would just produce a misleading error row.
     const results = await Promise.all(
-        FEEDS.map(feed =>
+        listFeeds().map(feed =>
             feed.enabled
                 ? probe(feed)
                 : Promise.resolve({
