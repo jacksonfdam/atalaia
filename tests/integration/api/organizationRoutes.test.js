@@ -20,6 +20,7 @@ process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 const cache = await import('#app/infrastructure/cache/sqliteCache.js');
 const { initializeDatabase, getDb } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
+const { resetFleetScanState } = await import('#app/application/repositoryScanRunner.js');
 
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
@@ -315,5 +316,37 @@ describe('repository exposure', () => {
             exploited: true,
             bySeverity: { CRITICAL: 1, MEDIUM: 1 },
         });
+    });
+});
+
+describe('fleet scan', () => {
+    beforeEach(() => {
+        resetFleetScanState();
+    });
+
+    test('reports an idle scanner', async () => {
+        const res = await request(app).get('/api/v1/repositories/scan-all').set(KEY);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ running: false, progress: null, lastRun: null });
+    });
+
+    test('accepts the trigger without waiting for the scan', async () => {
+        const res = await request(app).post('/api/v1/repositories/scan-all').set(KEY).send({});
+
+        // 202, not 200: the work outlives the request by design.
+        expect(res.status).toBe(202);
+        expect(res.body.accepted).toBe(true);
+    });
+
+    test('records the run once it finishes', async () => {
+        await request(app).post('/api/v1/repositories/scan-all').set(KEY).send({});
+
+        // No organizations registered, so the scan resolves on the next tick.
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        const res = await request(app).get('/api/v1/repositories/scan-all').set(KEY);
+        expect(res.body.running).toBe(false);
+        expect(res.body.lastRun).toMatchObject({ ok: true, repositories: 0 });
     });
 });
