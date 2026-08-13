@@ -147,6 +147,36 @@ const SORTABLE_COLUMNS = new Set([
     'source',
 ]);
 
+/**
+ * "Names something this fleet actually uses."
+ *
+ * One definition, shared by the filter and by the counters, so the number in
+ * the header can never disagree with the rows under it. Container images and CI
+ * actions are dependencies like any other — `infrastructure` is the same
+ * question asked of just those ecosystems.
+ */
+function relevanceExists(kind) {
+    const ecosystemClause =
+        kind === 'infrastructure'
+            ? "AND d.ecosystem IN ('DOCKER', 'GITHUB_ACTIONS', 'TERRAFORM', 'HELM')"
+            : '';
+
+    return `EXISTS (
+        SELECT 1
+        FROM repository_dependencies d
+        JOIN repositories r ON r.id = d.repository_id
+        WHERE d.deleted_at IS NULL
+          AND r.deleted_at IS NULL
+          AND r.enabled = 1
+          ${ecosystemClause}
+          AND (
+            lower(vulnerabilities.affected_technologies) LIKE '%"' || lower(d.name) || '"%'
+            OR (d.opencve_product IS NOT NULL
+                AND lower(vulnerabilities.affected_technologies) LIKE '%"' || lower(d.opencve_product) || '"%')
+          )
+    )`;
+}
+
 export const QUERY_LIMIT_MAX = 200;
 export const QUERY_LIMIT_DEFAULT = 50;
 
@@ -163,6 +193,7 @@ export const QUERY_LIMIT_DEFAULT = 50;
  * @param {string} [filters.tech]      Matches one entry of affected_technologies
  * @param {string} [filters.search]    Substring of cve_id or title
  * @param {boolean} [filters.exploited]
+ * @param {'affecting'|'infrastructure'} [filters.relevance]
  * @param {number} [filters.limit]
  * @param {number} [filters.offset]
  * @param {string} [filters.sort]      Column from SORTABLE_COLUMNS
@@ -200,6 +231,16 @@ export function query(filters = {}) {
         params.exploited = filters.exploited ? 1 : 0;
     }
 
+    // Relevance: does this CVE name something the fleet actually uses?
+    //
+    // The feeds publish everything; almost none of it is about your code. The
+    // link is the dependency table, which is also where container images and CI
+    // actions live, so "affects a Docker image or a workflow" is the same
+    // question asked of a narrower set of ecosystems.
+    if (filters.relevance === 'affecting' || filters.relevance === 'infrastructure') {
+        clauses.push(relevanceExists(filters.relevance));
+    }
+
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const sort = SORTABLE_COLUMNS.has(filters.sort) ? filters.sort : 'first_seen_at';
@@ -226,6 +267,25 @@ export function query(filters = {}) {
         .map(hydrate);
 
     return { total, limit, offset, vulnerabilities: rows };
+}
+
+/**
+ * How much of the database is actually about this fleet.
+ *
+ * The feeds publish tens of thousands of CVEs a year and almost none of them
+ * name something you run — so the console leads with the ones that do, and
+ * these are the numbers behind that.
+ */
+export function relevanceSummary() {
+    const openClause = "status != 'RESOLVED'";
+
+    const count = where => getDb().prepare(`SELECT COUNT(*) AS total FROM vulnerabilities WHERE ${where}`).get().total;
+
+    return {
+        total: count(openClause),
+        affecting: count(`${openClause} AND ${relevanceExists('affecting')}`),
+        infrastructure: count(`${openClause} AND ${relevanceExists('infrastructure')}`),
+    };
 }
 
 /**
