@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { auth } from './api/client';
 import { useApi } from './hooks/useApi';
+import { useDesktopAlerts } from './hooks/useDesktopAlerts';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
 import { Vulnerabilities } from './pages/Vulnerabilities';
@@ -26,6 +27,10 @@ const NAV = [
 function Shell({ onAuthLost }: { onAuthLost: () => void }) {
   const stats = useApi<Stats>('/stats', onAuthLost);
   const health = useApi<FeedHealthReport>('/feeds/health', onAuthLost);
+
+  // Runs wherever the operator is in the console, not only on the
+  // notifications page.
+  useDesktopAlerts();
 
   const degraded = (health.data?.feeds ?? []).filter(
     feed => feed.status === 'ERROR' || feed.status === 'EMPTY'

@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, Empty } from '../components/ui';
 import { SlackSettings } from './SlackSettings';
+import { DesktopAlerts } from './DesktopAlerts';
 import type { Assignment, Owner } from '../types';
 
 const TARGET_TYPES = ['ecosystem', 'dependency', 'repository'];
@@ -69,6 +70,7 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
   return (
     <>
     <SlackSettings onAuthLost={onAuthLost} />
+    <DesktopAlerts onAuthLost={onAuthLost} />
 
     <Window
       title="OWNERS.CFG"
