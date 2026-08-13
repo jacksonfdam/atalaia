@@ -459,7 +459,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/health` | Liveness. No auth. |
 | `GET` | `/api/v1/stats` | Counts by severity, status and source. |
 | `POST` | `/api/v1/query` | Query by technology list. |
-| `GET` | `/api/v1/vulnerabilities` | List with filters and pagination. |
+| `GET` | `/api/v1/vulnerabilities` | List with filters and pagination, including `relevance`. |
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
 | `GET` | `/api/v1/technologies` | Current stack filter. |
@@ -497,6 +497,27 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 
 Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)
+
+---
+
+## Only what touches you
+
+The feeds carry everything published anywhere. On a real fleet the numbers look like this:
+
+```
+2025 collected · 27 name something we use · 21 of those are a container image or a CI action
+```
+
+So the console leads with the ones that land: **Vulnerabilities** defaults to *Affects our code* —
+the CVE names a dependency of an enabled, tracked repository. The other two positions are
+*Containers & CI only*, narrowed to Docker images, GitHub Actions, Terraform and Helm, and
+*Everything collected*, which is the raw feed. The same filter is on the API as
+`?relevance=affecting|infrastructure`, and every response carries the three counts so a header can
+say "27 of 2025" without a second request.
+
+One definition backs both the filter and the counters, so the number in the header can never
+disagree with the rows beneath it. It depends on scans: a repository nobody scanned has no
+dependencies, and a CVE cannot be matched to it.
 
 ---
 
