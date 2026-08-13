@@ -13,3 +13,12 @@ npm-debug.log
 # SQLite WAL / shared-memory files
 /data/*.db-wal
 /data/*.db-shm
+
+# Local process state written by scripts/atalaia.sh (pids and logs)
+/.run/
+
+# Management console: installed packages and built bundle
+/ui/node_modules/
+/ui/dist/
+
+.DS_Store
