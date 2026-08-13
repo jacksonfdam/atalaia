@@ -18,6 +18,12 @@ import {
     isEnvConfigured as isSlackEnvConfigured,
 } from '../../infrastructure/notifiers/slackConfig.js';
 import { sendTestMessage } from '../../infrastructure/notifySlack.js';
+import {
+    describeLlmConfig,
+    saveLlmConfig,
+    isEnvConfigured as isLlmEnvConfigured,
+} from '../../infrastructure/llm/llmConfig.js';
+import { testLLM } from '../../infrastructure/llm/llmAdapter.js';
 import { generateWeeklyReport } from '../../application/generateWeeklyReport.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -139,6 +145,43 @@ export function createSettingsRoutes(cache) {
             res.status(result.ok ? 200 : 400).json(result);
         } catch (error) {
             logger.error({ err: error }, 'Slack test failed');
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // GET /settings/llm — provider catalog and the current model
+    router.get('/llm', (_req, res) => {
+        res.json(describeLlmConfig());
+    });
+
+    // PUT /settings/llm — pick a model, local or hosted
+    router.put('/llm', (req, res) => {
+        if (isLlmEnvConfigured()) {
+            return res.status(409).json({
+                error: 'The LLM provider is pinned by LLM_PROVIDER in the environment',
+                hint: 'Unset LLM_PROVIDER (and the OPENAI_/OLLAMA_ variables) to manage it from the console.',
+            });
+        }
+
+        const { provider, model, baseUrl, apiKey, enabled, changedBy } = req.body ?? {};
+
+        if (!provider) return res.status(400).json({ error: 'provider is required' });
+
+        try {
+            res.json(saveLlmConfig({ provider, model, baseUrl, apiKey, enabled }, changedBy ?? 'api'));
+        } catch (error) {
+            logger.warn({ err: error }, 'LLM configuration update failed');
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // POST /settings/llm/test — one short prompt against the configured model
+    router.post('/llm/test', async (_req, res) => {
+        try {
+            const result = await testLLM();
+            res.status(result.ok ? 200 : 400).json(result);
+        } catch (error) {
+            logger.error({ err: error }, 'LLM test failed');
             res.status(500).json({ error: error.message });
         }
     });

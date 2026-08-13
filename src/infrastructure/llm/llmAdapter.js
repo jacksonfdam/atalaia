@@ -3,6 +3,8 @@ import path from 'path';
 import logger from '../logger.js';
 import { OpenAIProvider } from './openaiProvider.js';
 import { OllamaProvider } from './ollamaProvider.js';
+import { AnthropicProvider } from './anthropicProvider.js';
+import { resolveLlmConfig } from './llmConfig.js';
 
 class NoOpProvider {
     async complete() {
@@ -11,23 +13,66 @@ class NoOpProvider {
 }
 
 /**
- * Create an LLM provider based on environment configuration.
- * Falls back to NoOpProvider if no provider is configured.
+ * Build the client for whatever is configured — environment, console, or
+ * nothing at all.
+ *
+ * Resolved per call rather than once at startup: the console can change the
+ * provider while the service runs, and an explanation is not worth a restart.
  */
 export function createLLMAdapter() {
-    const provider = process.env.LLM_PROVIDER?.toLowerCase();
+    const config = resolveLlmConfig();
 
-    switch (provider) {
-        case 'openai':
-            logger.info({ provider: 'openai', model: process.env.OPENAI_MODEL || 'gpt-4o-mini' }, 'Using OpenAI LLM provider');
-            return new OpenAIProvider(process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL);
-        case 'ollama':
-            logger.info({ provider: 'ollama', model: process.env.OLLAMA_MODEL || 'llama2' }, 'Using Ollama LLM provider');
-            return new OllamaProvider(process.env.OLLAMA_URL, process.env.OLLAMA_MODEL);
-        default:
-            logger.info('No LLM provider configured, explanations disabled');
-            return new NoOpProvider();
+    if (!config.ready) {
+        logger.debug({ reason: config.reason }, 'No LLM configured, explanations disabled');
+        return new NoOpProvider();
     }
+
+    logger.info(
+        { provider: config.provider, model: config.model, source: config.source },
+        'Using LLM provider'
+    );
+
+    if (config.api === 'anthropic') {
+        return new AnthropicProvider({ apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl });
+    }
+    if (config.api === 'ollama') {
+        return new OllamaProvider(config.baseUrl, config.model);
+    }
+
+    return new OpenAIProvider(config.apiKey, config.model, config.baseUrl);
+}
+
+/**
+ * Ask the configured model for one short answer, so an operator can see whether
+ * the thing works before an alert depends on it.
+ *
+ * @returns {Promise<{ ok: boolean, provider?: string, model?: string, sample?: string, error?: string }>}
+ */
+export async function testLLM() {
+    const config = resolveLlmConfig();
+    if (!config.ready) return { ok: false, error: config.reason ?? 'No model configured' };
+
+    const started = Date.now();
+    const answer = await createLLMAdapter().complete(
+        'Reply with one short sentence confirming you can summarise security advisories.'
+    );
+
+    if (!answer) {
+        return {
+            ok: false,
+            provider: config.provider,
+            model: config.model,
+            error: 'The model returned nothing — check the endpoint, the key and the model name.',
+        };
+    }
+
+    return {
+        ok: true,
+        provider: config.provider,
+        model: config.model,
+        durationMs: Date.now() - started,
+        sample: answer.slice(0, 200),
+    };
 }
 
 /**

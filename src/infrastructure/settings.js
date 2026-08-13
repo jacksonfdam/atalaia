@@ -23,10 +23,10 @@ import logger from './logger.js';
 /**
  * Settings the console is allowed to write. Anything absent here is read-only.
  *
- * Email and Slack delivery are deliberately not here: provider, credentials,
+ * Email, Slack and the LLM are deliberately not here: provider, credentials,
  * destination and the on/off switch belong together, and splitting them across
  * key/value rows would leave two switches to reconcile. They live in
- * email_config and slack_config — see infrastructure/notifiers/.
+ * email_config, slack_config and llm_config.
  */
 /** @type {SettingDescriptor[]} */
 export const WRITABLE_SETTINGS = [
@@ -37,14 +37,6 @@ export const WRITABLE_SETTINGS = [
         fallback: cfg => cfg.cronSchedule ?? '0 * * * *',
         label: 'Monitoring schedule',
         help: 'Cron expression. Takes effect on the next service restart.',
-    },
-    {
-        key: 'llm.provider',
-        type: 'string',
-        env: 'LLM_PROVIDER',
-        fallback: cfg => cfg.llm?.provider ?? '',
-        label: 'LLM provider',
-        help: 'openai, ollama, or empty to disable plain-English explanations.',
     },
     {
         key: 'repositories.autoScan',
@@ -76,7 +68,6 @@ const SECRET_ENV_VARS = [
     // Fallback only: each organization normally carries its own token, stored
     // encrypted in the database and managed from the Organizations page.
     { key: 'github.token', env: 'GITHUB_TOKEN', label: 'GitHub token (fallback)' },
-    { key: 'llm.apiKey', env: 'OPENAI_API_KEY', label: 'OpenAI API key' },
     // SMTP is deliberately absent: email delivery is configured in its own
     // section, and listing SMTP_HOST here as "MISSING" would read as broken
     // email when the provider is configured in the database instead.
