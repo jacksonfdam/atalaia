@@ -350,3 +350,90 @@ describe('fleet scan', () => {
         expect(res.body.lastRun).toMatchObject({ ok: true, repositories: 0 });
     });
 });
+
+describe('repository list: filters, sorting and pagination', () => {
+    beforeEach(async () => {
+        getDb().exec('DELETE FROM repositories; DELETE FROM repository_dependencies; DELETE FROM vulnerabilities;');
+
+        const insert = getDb().prepare(
+            `INSERT INTO repositories (name, url, provider, org_key, primary_language, description, enabled, archived)
+             VALUES (@name, @url, 'github', @org, @language, @description, @enabled, @archived)`
+        );
+
+        insert.run({ name: 'acme/api', url: 'https://github.com/acme/api', org: 'acme', language: 'TypeScript', description: 'public api', enabled: 1, archived: 0 });
+        insert.run({ name: 'acme/web', url: 'https://github.com/acme/web', org: 'acme', language: 'TypeScript', description: 'storefront', enabled: 1, archived: 0 });
+        insert.run({ name: 'acme/legacy', url: 'https://github.com/acme/legacy', org: 'acme', language: 'Perl', description: 'old thing', enabled: 0, archived: 1 });
+        insert.run({ name: 'other/tool', url: 'https://github.com/other/tool', org: 'other', language: 'Go', description: 'cli', enabled: 1, archived: 0 });
+
+        // Only acme/api is exposed, and by a known-exploited CVE.
+        const apiId = getDb().prepare("SELECT id FROM repositories WHERE name = 'acme/api'").get().id;
+        getDb()
+            .prepare(
+                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
+                 VALUES (?, 'NPM', 'express', 'package.json')`
+            )
+            .run(apiId);
+        getDb()
+            .prepare(
+                `INSERT INTO vulnerabilities (cve_id, title, severity, exploited, source, affected_technologies, status)
+                 VALUES ('CVE-2026-2000', 'Express', 'HIGH', 1, 'ghsa', '["express"]', 'OPEN')`
+            )
+            .run();
+    });
+
+    const get = query => request(app).get(`/api/v1/repositories${query}`).set(KEY);
+
+    test('paginates and reports the total behind the page', async () => {
+        const res = await get('?limit=2&offset=0&sort=name&order=asc');
+
+        expect(res.body).toMatchObject({ count: 2, total: 4, limit: 2, offset: 0 });
+        expect(res.body.repositories.map(r => r.name)).toEqual(['acme/api', 'acme/legacy']);
+
+        const second = await get('?limit=2&offset=2&sort=name&order=asc');
+        expect(second.body.repositories.map(r => r.name)).toEqual(['acme/web', 'other/tool']);
+    });
+
+    test('caps an absurd page size', async () => {
+        expect((await get('?limit=99999')).body.limit).toBe(200);
+    });
+
+    test('filters by organization, language and status', async () => {
+        expect((await get('?org=acme')).body.total).toBe(3);
+        expect((await get('?language=typescript')).body.total).toBe(2);
+        expect((await get('?enabled=false')).body.total).toBe(1);
+        expect((await get('?archived=true')).body.repositories[0].name).toBe('acme/legacy');
+    });
+
+    test('searches name and description', async () => {
+        expect((await get('?search=storefront')).body.repositories.map(r => r.name)).toEqual(['acme/web']);
+        expect((await get('?search=acme/')).body.total).toBe(3);
+    });
+
+    test('filters by exposure', async () => {
+        expect((await get('?exposure=affected')).body.repositories.map(r => r.name)).toEqual(['acme/api']);
+        expect((await get('?exposure=exploited')).body.total).toBe(1);
+        expect((await get('?exposure=clean')).body.total).toBe(3);
+    });
+
+    test('sorts by exposure, worst first', async () => {
+        const res = await get('?sort=exposure&order=desc');
+        expect(res.body.repositories[0].name).toBe('acme/api');
+    });
+
+    test('offers the values its filter menus need', async () => {
+        const { facets } = (await get('')).body;
+
+        expect(facets.organizations).toEqual([
+            { value: 'acme', count: 3 },
+            { value: 'other', count: 1 },
+        ]);
+        expect(facets.languages[0]).toEqual({ value: 'TypeScript', count: 2 });
+    });
+
+    test('ignores a sort column that is not on the whitelist', async () => {
+        const res = await get('?sort=name); DROP TABLE repositories;--');
+
+        expect(res.status).toBe(200);
+        expect(res.body.total).toBe(4);
+    });
+});
