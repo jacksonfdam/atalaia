@@ -1,5 +1,6 @@
 import cron from "node-cron";
 import config from "./config.js";
+import { getSetting } from "./settings.js";
 import logger from "./logger.js";
 import monitorVulns from "../application/monitorVulns.js";
 import { generateWeeklyReport } from "../application/generateWeeklyReport.js";
@@ -8,7 +9,7 @@ import { getAll } from "./cache/sqliteCache.js";
 import { scanAllRepositories } from "../application/scanAllRepositories.js";
 
 function startScheduler() {
-    const pattern = config.cronSchedule || "0 * * * *"; // default = every hour
+    const pattern = getSetting('cronSchedule');
     logger.info({ cron: pattern }, 'Starting scheduler');
 
     cron.schedule(pattern, async () => {
@@ -28,8 +29,8 @@ function startScheduler() {
     });
 
     // Repository scanning (default: daily 3 AM)
-    if (config.repositories?.autoScan && (config.providers || []).length > 0) {
-        const scanPattern = config.repositories.scanCron || "0 3 * * *";
+    if (getSetting('repositories.autoScan') && (config.providers || []).length > 0) {
+        const scanPattern = getSetting('repositories.scanCron');
         logger.info({ cron: scanPattern }, 'Starting repository scan schedule');
 
         cron.schedule(scanPattern, async () => {

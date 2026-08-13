@@ -1,5 +1,6 @@
 import axios from "axios";
 import config from "./config.js";
+import { getSetting } from "./settings.js";
 import logger from "./logger.js";
 
 /**
@@ -8,6 +9,13 @@ import logger from "./logger.js";
  * @param {boolean} highlight  -> @channel if Critical or Exploited
  */
 async function notifySlack(vuln, highlight = false) {
+    // Read through the settings resolver so the console's toggle takes effect
+    // without a restart (env still wins over anything set there).
+    if (!getSetting('slack.enabled')) {
+        logger.debug({ cveId: vuln.cveId }, 'Slack notifications disabled, skipping alert');
+        return;
+    }
+
     if (!config.slack.webhookUrl) {
         logger.error("Missing Slack webhook URL");
         return;

@@ -3,7 +3,8 @@ import path from "path";
 import dotenv from "dotenv";
 import pino from "pino";
 
-dotenv.config();
+// quiet: dotenv v17 otherwise prints a banner that breaks the structured log stream
+dotenv.config({ quiet: true });
 
 const configPath = path.resolve("config.json");
 let rawConfig = {};
@@ -39,6 +40,14 @@ const config = substituteEnv(rawConfig);
 // allow overriding cron from .env
 if (process.env.CRON_SCHEDULE) {
     config.cronSchedule = process.env.CRON_SCHEDULE;
+}
+
+// allow overriding the Slack notification switch from .env
+config.slack = config.slack || {};
+if (process.env.SLACK_ENABLED !== undefined) {
+    config.slack.enabled = process.env.SLACK_ENABLED === "true";
+} else {
+    config.slack.enabled = config.slack.enabled === true;
 }
 
 export default config;

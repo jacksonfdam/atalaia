@@ -1,6 +1,7 @@
 {
   "cronSchedule": "0 * * * *",
   "slack": {
+    "enabled": false,
     "webhookUrl": "${SLACK_WEBHOOK_URL}"
   },
   "feeds": {
