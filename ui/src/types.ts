@@ -120,6 +120,41 @@ export interface Repository {
   topics: string | null;
   description: string | null;
   archived: 0 | 1;
+  risk?: RepositoryRisk;
+}
+
+/** How exposed a repository is, as returned alongside the list. */
+export interface RepositoryRisk {
+  total: number;
+  bySeverity: Record<string, number>;
+  exploited: boolean;
+  worst: Severity | null;
+}
+
+export interface RepositoryVulnerability {
+  cveId: string;
+  title: string | null;
+  severity: Severity;
+  cvssScore: number | null;
+  exploited: boolean;
+  status: Status;
+  source: string;
+  firstSeenAt: string;
+  matches: {
+    dependency: string;
+    ecosystem: string;
+    version: string | null;
+    manifestFile: string | null;
+  }[];
+}
+
+export interface RepositoryRiskReport {
+  repository: { id: number; name: string; url: string; enabled: boolean };
+  count: number;
+  exploited: number;
+  bySeverity: Record<string, number>;
+  worst: Severity | null;
+  vulnerabilities: RepositoryVulnerability[];
 }
 
 export interface Organization {

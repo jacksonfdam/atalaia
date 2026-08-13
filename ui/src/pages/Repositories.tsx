@@ -1,8 +1,63 @@
 import { Fragment, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
-import { Window, Body, Loading, Notice, Empty, formatDate } from '../components/ui';
-import type { Dependency, Repository, TechnologyReport } from '../types';
+import { Window, Body, Loading, Notice, Empty, formatDate, SeverityBadge } from '../components/ui';
+import type {
+  Dependency,
+  Repository,
+  RepositoryRiskReport,
+  TechnologyReport,
+} from '../types';
+
+/** What reaches this repository, and through which dependency. */
+function Exposure({ report }: { report: RepositoryRiskReport }) {
+  if (report.count === 0) {
+    return (
+      <p className="muted" style={{ marginBottom: '0.6rem' }}>
+        No known vulnerability reaches this repository's dependencies.
+      </p>
+    );
+  }
+
+  return (
+    <div className="table-scroll" style={{ marginBottom: '0.6rem' }}>
+      <table>
+        <thead>
+          <tr>
+            <th>CVE</th>
+            <th>Severity</th>
+            <th>Reaches it through</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {report.vulnerabilities.map(vuln => (
+            <tr key={vuln.cveId}>
+              <td>
+                <a href={`/vulnerabilities/${vuln.cveId}`}>{vuln.cveId}</a>
+                {vuln.exploited ? <span className="muted"> · exploited</span> : null}
+                <div className="muted">{vuln.title}</div>
+              </td>
+              <td className="tight">
+                <SeverityBadge severity={vuln.severity} />
+                <span className="muted mono"> {vuln.cvssScore ?? '—'}</span>
+              </td>
+              <td className="mono" style={{ fontSize: '0.7rem' }}>
+                {/* The manifest is the thing to open, so it is named. */}
+                {vuln.matches
+                  .slice(0, 3)
+                  .map(match => `${match.dependency}${match.version ? `@${match.version}` : ''} · ${match.manifestFile ?? '—'}`)
+                  .join('  |  ')}
+                {vuln.matches.length > 3 ? `  +${vuln.matches.length - 3}` : ''}
+              </td>
+              <td className="tight">{vuln.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 /** Languages and topics come from the provider; ecosystems come from a scan. */
 function Technologies({ report }: { report: TechnologyReport }) {
@@ -42,13 +97,17 @@ function Technologies({ report }: { report: TechnologyReport }) {
 }
 
 export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
-  const list = useApi<{ count: number; repositories: Repository[] }>('/repositories', onAuthLost);
+  const list = useApi<{ count: number; atRisk: number; repositories: Repository[] }>(
+    '/repositories',
+    onAuthLost
+  );
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [deps, setDeps] = useState<Record<number, Dependency[]>>({});
   const [techs, setTechs] = useState<Record<number, TechnologyReport>>({});
+  const [risks, setRisks] = useState<Record<number, RepositoryRiskReport>>({});
 
   async function run(action: () => Promise<string>) {
     setBusy(true);
@@ -90,6 +149,10 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
         const report = await api.get<TechnologyReport>(`/repositories/${repo.id}/technologies`);
         setTechs(prev => ({ ...prev, [repo.id]: report }));
       }
+      if (!risks[repo.id]) {
+        const report = await api.get<RepositoryRiskReport>(`/repositories/${repo.id}/vulnerabilities`);
+        setRisks(prev => ({ ...prev, [repo.id]: report }));
+      }
     } catch (err) {
       setMessage({ kind: 'error', text: (err as Error).message });
     }
@@ -98,7 +161,11 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
   return (
     <Window
       title="REPOSITORIES.CFG"
-      note={list.data ? `${list.data.count} tracked` : undefined}
+      note={
+        list.data
+          ? `${list.data.count} tracked${list.data.atRisk ? ` · ${list.data.atRisk} exposed` : ''}`
+          : undefined
+      }
       accent="var(--lime)"
       actions={
         <button
@@ -153,6 +220,7 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
                   <th>Name</th>
                   <th>Organization</th>
                   <th>Language</th>
+                  <th>Exposure</th>
                   <th>Branch</th>
                   <th>Last scanned</th>
                   <th>Actions</th>
@@ -170,6 +238,17 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
                       </td>
                       <td className="tight mono">{repo.org_key ?? '—'}</td>
                       <td className="tight">{repo.primary_language ?? '—'}</td>
+                      <td className="tight">
+                        {repo.risk && repo.risk.total > 0 ? (
+                          <span className="row" style={{ gap: '0.3rem' }}>
+                            <SeverityBadge severity={repo.risk.worst ?? 'UNKNOWN'} />
+                            <span className="mono">{repo.risk.total}</span>
+                            {repo.risk.exploited ? <span title="Known exploited">🚨</span> : null}
+                          </span>
+                        ) : (
+                          <span className="muted">clean</span>
+                        )}
+                      </td>
                       <td className="tight mono">{repo.default_branch}</td>
                       <td className="tight mono">{formatDate(repo.last_scanned_at)}</td>
                       <td className="tight">
@@ -222,7 +301,9 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
 
                     {expanded === repo.id ? (
                       <tr>
-                        <td colSpan={6}>
+                        <td colSpan={7}>
+                          {risks[repo.id] ? <Exposure report={risks[repo.id]} /> : <Loading what="exposure" />}
+
                           {techs[repo.id] ? (
                             <>
                               <Technologies report={techs[repo.id]} />

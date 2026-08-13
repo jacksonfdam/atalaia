@@ -15,7 +15,13 @@ import {
   SEVERITY_COLOR,
   relativeTime,
 } from '../components/ui';
-import type { Stats, VulnerabilityPage, ScanState, FeedHealthReport } from '../types';
+import type {
+  Stats,
+  VulnerabilityPage,
+  ScanState,
+  FeedHealthReport,
+  Repository,
+} from '../types';
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
 const STATUS_COLOR: Record<string, string> = {
@@ -28,6 +34,10 @@ export function Overview({ onAuthLost }: { onAuthLost: () => void }) {
   const stats = useApi<Stats>('/stats', onAuthLost);
   const scan = useApi<ScanState>('/scan', onAuthLost);
   const health = useApi<FeedHealthReport>('/feeds/health', onAuthLost);
+  const repos = useApi<{ count: number; atRisk: number; repositories: Repository[] }>(
+    '/repositories',
+    onAuthLost
+  );
   const critical = useApi<VulnerabilityPage>(
     '/vulnerabilities?severity=CRITICAL&status=OPEN&limit=8&sort=cvss_score&order=desc',
     onAuthLost
@@ -162,6 +172,69 @@ export function Overview({ onAuthLost }: { onAuthLost: () => void }) {
           </Body>
         </Window>
       </div>
+
+      <Window
+        title="EXPOSED_REPOS.LST"
+        note={repos.data ? `${repos.data.atRisk} of ${repos.data.count}` : undefined}
+        accent="var(--severity-high)"
+      >
+        <Body>
+          <p className="muted">
+            Repositories whose scanned dependencies match an open vulnerability. This is the
+            difference between a CVE existing and a CVE being in something you ship.
+          </p>
+
+          {repos.loading ? <Loading what="repositories" /> : null}
+
+          {repos.data && repos.data.atRisk === 0 ? (
+            <Empty>
+              {repos.data.count === 0
+                ? 'No repositories tracked yet — import an organization to correlate CVEs against your code.'
+                : 'Nothing open reaches the dependencies of any tracked repository.'}
+            </Empty>
+          ) : null}
+
+          {repos.data && repos.data.atRisk > 0 ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Repository</th>
+                    <th>Worst</th>
+                    <th>Open CVEs</th>
+                    <th>Breakdown</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {repos.data.repositories
+                    .filter(repo => (repo.risk?.total ?? 0) > 0)
+                    // Worst first: the list is read top-down when deciding what
+                    // to fix this afternoon.
+                    .sort((a, b) => (b.risk?.total ?? 0) - (a.risk?.total ?? 0))
+                    .slice(0, 8)
+                    .map(repo => (
+                      <tr key={repo.id}>
+                        <td>
+                          <Link to="/repositories">{repo.name}</Link>
+                          {repo.risk?.exploited ? <span title="Known exploited"> 🚨</span> : null}
+                        </td>
+                        <td className="tight">
+                          <SeverityBadge severity={repo.risk?.worst ?? 'UNKNOWN'} />
+                        </td>
+                        <td className="tight mono">{repo.risk?.total}</td>
+                        <td className="tight mono" style={{ fontSize: '0.7rem' }}>
+                          {Object.entries(repo.risk?.bySeverity ?? {})
+                            .map(([severity, count]) => `${severity}:${count}`)
+                            .join('  ')}
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </Body>
+      </Window>
 
       <Window title="CRITICAL_OPEN.LST" accent="var(--severity-critical)">
         <Body flush>
