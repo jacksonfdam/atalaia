@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import {
@@ -15,9 +15,21 @@ import type {
   Dependency,
   FleetScanState,
   Repository,
+  RepositoryPage,
   RepositoryRiskReport,
   TechnologyReport,
 } from '../types';
+
+const PAGE_SIZES = [25, 50, 100];
+
+const SORTS = [
+  { value: 'name', label: 'Name' },
+  { value: 'exposure', label: 'Exposure' },
+  { value: 'last_scanned_at', label: 'Last scanned' },
+  { value: 'primary_language', label: 'Language' },
+  { value: 'org_key', label: 'Organization' },
+  { value: 'updated_at', label: 'Recently updated' },
+];
 
 /** What reaches this repository, and through which dependency. */
 function Exposure({ report }: { report: RepositoryRiskReport }) {
@@ -107,10 +119,50 @@ function Technologies({ report }: { report: TechnologyReport }) {
 }
 
 export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
-  const list = useApi<{ count: number; atRisk: number; repositories: Repository[] }>(
-    '/repositories',
-    onAuthLost
-  );
+  const [filters, setFilters] = useState({
+    search: '',
+    org: '',
+    language: '',
+    status: '',
+    exposure: '',
+    sort: 'exposure',
+    order: 'desc',
+    limit: 25,
+    offset: 0,
+  });
+
+  // Typing rebuilds the query on every keystroke, so the search term is
+  // debounced before it becomes a request.
+  const [searchInput, setSearchInput] = useState('');
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setFilters(prev => (prev.search === searchInput ? prev : { ...prev, search: searchInput, offset: 0 })),
+      300
+    );
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  const path = useMemo(() => {
+    const params = new URLSearchParams();
+    if (filters.search) params.set('search', filters.search);
+    if (filters.org) params.set('org', filters.org);
+    if (filters.language) params.set('language', filters.language);
+    if (filters.status === 'enabled') params.set('enabled', 'true');
+    if (filters.status === 'disabled') params.set('enabled', 'false');
+    if (filters.status === 'archived') params.set('archived', 'true');
+    if (filters.exposure) params.set('exposure', filters.exposure);
+    params.set('sort', filters.sort);
+    params.set('order', filters.order);
+    params.set('limit', String(filters.limit));
+    params.set('offset', String(filters.offset));
+    return `/repositories?${params.toString()}`;
+  }, [filters]);
+
+  const list = useApi<RepositoryPage>(path, onAuthLost);
+
+  /** Any filter change resets to the first page: page 4 of a new filter is nothing. */
+  const set = (patch: Partial<typeof filters>) =>
+    setFilters(prev => ({ ...prev, offset: 0, ...patch }));
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -204,7 +256,7 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
       title="REPOSITORIES.CFG"
       note={
         list.data
-          ? `${list.data.count} tracked${list.data.atRisk ? ` · ${list.data.atRisk} exposed` : ''}`
+          ? `${list.data.total} shown${list.data.atRisk ? ` · ${list.data.atRisk} exposed` : ''}`
           : undefined
       }
       accent="var(--lime)"
@@ -224,6 +276,92 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
       }
     >
       <Body>
+        <div className="toolbar">
+          <label style={{ flex: 1, minWidth: '12rem' }}>
+            Search
+            <input
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              placeholder="name or description"
+            />
+          </label>
+
+          <label style={{ minWidth: '9rem' }}>
+            Organization
+            <select value={filters.org} onChange={e => set({ org: e.target.value })}>
+              <option value="">All</option>
+              {list.data?.facets.organizations.map(entry => (
+                <option key={entry.value} value={entry.value}>
+                  {entry.value} ({entry.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ minWidth: '9rem' }}>
+            Language
+            <select value={filters.language} onChange={e => set({ language: e.target.value })}>
+              <option value="">All</option>
+              {list.data?.facets.languages.map(entry => (
+                <option key={entry.value} value={entry.value}>
+                  {entry.value} ({entry.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ minWidth: '8rem' }}>
+            Status
+            <select value={filters.status} onChange={e => set({ status: e.target.value })}>
+              <option value="">All</option>
+              <option value="enabled">Enabled</option>
+              <option value="disabled">Disabled</option>
+              <option value="archived">Archived</option>
+            </select>
+          </label>
+
+          <label style={{ minWidth: '9rem' }}>
+            Exposure
+            <select value={filters.exposure} onChange={e => set({ exposure: e.target.value })}>
+              <option value="">All</option>
+              <option value="affected">Affected</option>
+              <option value="exploited">Known exploited</option>
+              <option value="clean">Clean</option>
+            </select>
+          </label>
+
+          <label style={{ minWidth: '9rem' }}>
+            Sort by
+            <select value={filters.sort} onChange={e => set({ sort: e.target.value })}>
+              {SORTS.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <button
+            style={{ alignSelf: 'flex-end' }}
+            onClick={() => set({ order: filters.order === 'desc' ? 'asc' : 'desc' })}
+            title={filters.order === 'desc' ? 'Descending' : 'Ascending'}
+          >
+            {filters.order === 'desc' ? '↓' : '↑'}
+          </button>
+
+          {filters.search || filters.org || filters.language || filters.status || filters.exposure ? (
+            <button
+              style={{ alignSelf: 'flex-end' }}
+              onClick={() => {
+                setSearchInput('');
+                set({ search: '', org: '', language: '', status: '', exposure: '' });
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+
         <form className="toolbar" onSubmit={add}>
           <label style={{ flex: 1, minWidth: '16rem' }}>
             Repository URL
@@ -267,8 +405,9 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
 
         {list.data && list.data.repositories.length === 0 ? (
           <Empty>
-            No repositories tracked. Import an organization, or add one to correlate CVEs against
-            the dependencies you actually ship.
+            {filters.search || filters.org || filters.language || filters.status || filters.exposure
+              ? 'No repository matches these filters.'
+              : 'No repositories tracked. Import an organization, or add one to correlate CVEs against the dependencies you actually ship.'}
           </Empty>
         ) : null}
 
@@ -425,6 +564,45 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
                 ))}
               </tbody>
             </table>
+          </div>
+        ) : null}
+
+        {list.data && list.data.total > 0 ? (
+          <div className="toolbar" style={{ marginTop: '0.6rem' }}>
+            <span className="muted mono">
+              {list.data.offset + 1}–{list.data.offset + list.data.count} of {list.data.total}
+            </span>
+
+            <span className="spacer" style={{ flex: 1 }} />
+
+            <button
+              disabled={list.data.offset === 0}
+              onClick={() =>
+                setFilters(prev => ({ ...prev, offset: Math.max(prev.offset - prev.limit, 0) }))
+              }
+            >
+              ← Previous
+            </button>
+            <button
+              disabled={list.data.offset + list.data.count >= list.data.total}
+              onClick={() => setFilters(prev => ({ ...prev, offset: prev.offset + prev.limit }))}
+            >
+              Next →
+            </button>
+
+            <label style={{ minWidth: '7rem' }}>
+              Per page
+              <select
+                value={filters.limit}
+                onChange={e => set({ limit: parseInt(e.target.value, 10) })}
+              >
+                {PAGE_SIZES.map(size => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         ) : null}
       </Body>

@@ -157,6 +157,19 @@ export interface RepositoryRiskReport {
   vulnerabilities: RepositoryVulnerability[];
 }
 
+export interface RepositoryPage {
+  count: number;
+  total: number;
+  limit: number;
+  offset: number;
+  atRisk: number;
+  facets: {
+    organizations: { value: string; count: number }[];
+    languages: { value: string; count: number }[];
+  };
+  repositories: Repository[];
+}
+
 export interface Organization {
   id: number;
   key: string;
