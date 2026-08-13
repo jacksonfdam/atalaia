@@ -1,7 +1,30 @@
 import express from 'express';
 import { addOrg, getOrg, listOrgs, removeOrg, updateOrg } from '../../application/manageOrganization.js';
-import { importAllOrganizations, importOrgRepositories } from '../../application/importRepositories.js';
+import {
+    importAllOrganizations,
+    importOrgRepositories,
+    previewOrgRepositories,
+} from '../../application/importRepositories.js';
 import logger from '../../infrastructure/logger.js';
+
+/** GitHub failures are the operator's problem to fix, not a 500. */
+function githubError(res, error, key) {
+    const status = error.response?.status;
+    logger.error({ org: key, err: error.message, status }, 'GitHub request failed');
+
+    if (status === 401 || status === 403) {
+        return res.status(400).json({
+            error: 'GitHub rejected the token for this organization',
+            detail: error.message,
+        });
+    }
+    if (status === 404) {
+        return res.status(400).json({
+            error: 'GitHub has no organization or user with that login, or the token cannot see it',
+        });
+    }
+    return res.status(500).json({ error: error.message });
+}
 
 /**
  * Source-code organizations.
@@ -76,30 +99,37 @@ export function createOrganizationRoutes() {
         res.json({ deleted: true, ...removed });
     });
 
-    // POST /organizations/:key/import — read-only listing of the org's repositories
+    // GET /organizations/:key/repositories — what the token can see, annotated
+    // with what Atalaia already tracks. Nothing is stored; this is the list an
+    // operator picks from.
+    router.get('/:key/repositories', async (req, res) => {
+        try {
+            res.json(await previewOrgRepositories(req.params.key));
+        } catch (error) {
+            if (error.message.includes('not found') || error.message.includes('deleted')) {
+                return res.status(404).json({ error: error.message });
+            }
+            githubError(res, error, req.params.key);
+        }
+    });
+
+    // POST /organizations/:key/import — read-only listing of the org's
+    // repositories. Without `repositories`, the whole organization.
     router.post('/:key/import', async (req, res) => {
+        const only = req.body?.repositories;
+
+        if (only !== undefined && (!Array.isArray(only) || only.some(entry => typeof entry !== 'string'))) {
+            return res.status(400).json({ error: 'repositories must be an array of names or URLs' });
+        }
+
         try {
             const result = await importOrgRepositories(req.params.key, {
                 withLanguages: req.body?.withLanguages !== false,
+                only,
             });
             res.json(result);
         } catch (error) {
-            const status = error.response?.status;
-            logger.error({ org: req.params.key, err: error.message }, 'Repository import failed');
-
-            if (status === 401 || status === 403) {
-                return res.status(400).json({
-                    error: 'GitHub rejected the token for this organization',
-                    detail: error.message,
-                });
-            }
-            if (status === 404) {
-                return res.status(400).json({
-                    error: 'GitHub has no organization or user with that login, or the token cannot see it',
-                });
-            }
-
-            res.status(500).json({ error: error.message });
+            githubError(res, error, req.params.key);
         }
     });
 

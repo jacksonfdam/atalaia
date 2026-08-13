@@ -35,35 +35,103 @@ async function fetchLanguages(provider, repos) {
     return byUrl;
 }
 
-/**
- * @param {string} key Organization key
- * @param {{ withLanguages?: boolean }} [options]
- * @returns {Promise<{ org: string, login: string, found: number, imported: number,
- *                     skippedDeleted: string[], archived: number }>}
- */
-export async function importOrgRepositories(key, options = {}) {
+/** The organization, refusing the ones that cannot be imported from. */
+function requireOrg(key) {
     const org = getOrganizationByKey(key);
     if (!org) throw new Error(`Organization "${key}" not found`);
     if (org.deleted_at) throw new Error(`Organization "${key}" is deleted`);
+    return org;
+}
 
-    const withLanguages = options.withLanguages !== false;
+/**
+ * What the token can see on the provider, annotated with what Atalaia already
+ * knows about each repository. Reads only — nothing is persisted.
+ *
+ * This is what lets an operator pick a subset instead of taking the whole
+ * organization: an agency org with 300 repositories rarely wants all 300
+ * scanned.
+ *
+ * @param {string} key Organization key
+ * @returns {Promise<{ org: string, login: string, count: number, repositories: object[] }>}
+ */
+export async function previewOrgRepositories(key) {
+    const org = requireOrg(key);
     const provider = providerForOrg(key);
 
-    logger.info({ org: key, login: org.login }, 'Importing repositories');
+    logger.info({ org: key, login: org.login }, 'Listing repositories for selection');
+
+    const remote = await provider.listRepositories(org.login);
+
+    const repositories = remote.map(repo => {
+        const existing = getAnyRepositoryByUrl(repo.url);
+
+        return {
+            name: repo.name,
+            url: repo.url,
+            defaultBranch: repo.defaultBranch,
+            primaryLanguage: repo.primaryLanguage,
+            topics: repo.topics,
+            description: repo.description,
+            archived: repo.archived,
+            // 'tracked' is already imported, 'removed' was imported and then
+            // deleted here, 'new' has never been seen.
+            state: existing ? (existing.deleted_at ? 'removed' : 'tracked') : 'new',
+            enabled: existing ? existing.enabled === 1 : null,
+        };
+    });
+
+    return { org: key, login: org.login, count: repositories.length, repositories };
+}
+
+/** Match a selection entry against a repository, by full name or by URL. */
+function isSelected(repo, wanted) {
+    return wanted.has(repo.name.toLowerCase()) || wanted.has(repo.url.toLowerCase());
+}
+
+/**
+ * @param {string} key Organization key
+ * @param {{ withLanguages?: boolean, only?: string[] }} [options]
+ *   `only` imports just those repositories, by full name or URL. An explicit
+ *   selection also brings back one that was removed here — asking for it by
+ *   name is a deliberate act, unlike a bulk import.
+ * @returns {Promise<{ org: string, login: string, found: number, imported: number,
+ *                     skippedDeleted: string[], notFound: string[], archived: number }>}
+ */
+export async function importOrgRepositories(key, options = {}) {
+    const org = requireOrg(key);
+
+    const withLanguages = options.withLanguages !== false;
+    const selection = Array.isArray(options.only) && options.only.length > 0 ? options.only : null;
+    const provider = providerForOrg(key);
+
+    logger.info({ org: key, login: org.login, selected: selection?.length ?? 'all' }, 'Importing repositories');
 
     const found = await provider.listRepositories(org.login);
 
-    // A repository the operator removed stays removed: re-importing must not
-    // resurrect it behind their back.
     const skippedDeleted = [];
-    const importable = found.filter(repo => {
-        const existing = getAnyRepositoryByUrl(repo.url);
-        if (existing?.deleted_at) {
-            skippedDeleted.push(repo.name);
-            return false;
-        }
-        return true;
-    });
+    let notFound = [];
+    let importable;
+
+    if (selection) {
+        const wanted = new Set(selection.map(entry => String(entry).toLowerCase()));
+        importable = found.filter(repo => isSelected(repo, wanted));
+
+        const matched = new Set(
+            importable.flatMap(repo => [repo.name.toLowerCase(), repo.url.toLowerCase()])
+        );
+        notFound = [...wanted].filter(entry => !matched.has(entry));
+    } else {
+        // A repository the operator removed stays removed: a bulk re-import
+        // must not resurrect it behind their back.
+        importable = found.filter(repo => {
+            const existing = getAnyRepositoryByUrl(repo.url);
+            if (existing?.deleted_at) {
+                skippedDeleted.push(repo.name);
+                return false;
+            }
+            return true;
+        });
+    }
 
     const languages = withLanguages ? await fetchLanguages(provider, importable) : new Map();
 
@@ -91,6 +159,7 @@ export async function importOrgRepositories(key, options = {}) {
         found: found.length,
         imported: importable.length,
         skippedDeleted,
+        notFound,
         archived: importable.filter(repo => repo.archived).length,
     };
 
