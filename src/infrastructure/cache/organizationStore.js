@@ -1,5 +1,5 @@
 import { getDb } from './sqliteCache.js';
-import { encrypt, decrypt, maskSecret } from '../crypto.js';
+import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import logger from '../logger.js';
 
 const NOW = "datetime('now')";
@@ -146,8 +146,13 @@ export function getOrganizationToken(key) {
         return decrypt(row.token_cipher);
     } catch (err) {
         logger.error({ key, err }, 'Failed to decrypt organization token');
+
+        // Saying "wrong key" when there is no key at all sends the reader
+        // hunting for a mismatch that does not exist.
         throw new Error(
-            `Cannot decrypt the token for "${key}". TOKEN_ENCRYPTION_KEY (or API_KEY) is not the one it was stored with.`
+            canEncrypt()
+                ? `Cannot decrypt the token for "${key}". TOKEN_ENCRYPTION_KEY (or API_KEY) is not the one it was stored with.`
+                : `Cannot decrypt the token for "${key}": neither TOKEN_ENCRYPTION_KEY nor API_KEY is set.`
         );
     }
 }
