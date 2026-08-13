@@ -310,6 +310,25 @@ export interface EmailPayload {
   };
 }
 
+export interface FleetScanState {
+  running: boolean;
+  startedAt: string | null;
+  progress: {
+    organizations: { total: number; done: number; current: string | null };
+    repositories: { total: number; done: number; current: string | null };
+    dependencies: number;
+    errors: string[];
+  } | null;
+  lastRun: {
+    startedAt: string;
+    finishedAt: string;
+    ok: boolean;
+    repositories: number;
+    dependencies: number;
+    errors: string[];
+  } | null;
+}
+
 export interface ScanState {
   running: boolean;
   startedAt: string | null;

@@ -1,9 +1,19 @@
-import { Fragment, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
-import { Window, Body, Loading, Notice, Empty, formatDate, SeverityBadge } from '../components/ui';
+import {
+  Window,
+  Body,
+  Loading,
+  Notice,
+  Empty,
+  formatDate,
+  relativeTime,
+  SeverityBadge,
+} from '../components/ui';
 import type {
   Dependency,
+  FleetScanState,
   Repository,
   RepositoryRiskReport,
   TechnologyReport,
@@ -108,6 +118,37 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
   const [deps, setDeps] = useState<Record<number, Dependency[]>>({});
   const [techs, setTechs] = useState<Record<number, TechnologyReport>>({});
   const [risks, setRisks] = useState<Record<number, RepositoryRiskReport>>({});
+  const [scan, setScan] = useState<FleetScanState | null>(null);
+
+  // The scan runs detached on the server, so its state is polled — while it is
+  // running, and once at mount so a reload does not lose sight of it.
+  useEffect(() => {
+    let active = true;
+
+    async function poll() {
+      try {
+        const state = await api.get<FleetScanState>('/repositories/scan-all');
+        if (!active) return;
+
+        setScan(previous => {
+          // A run that just finished leaves new dependencies behind.
+          if (previous?.running && !state.running) list.reload();
+          return state;
+        });
+      } catch {
+        // Transient; the next tick tries again.
+      }
+    }
+
+    poll();
+    const timer = window.setInterval(poll, scan?.running ? 3000 : 15000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan?.running]);
 
   async function run(action: () => Promise<string>) {
     setBusy(true);
@@ -169,19 +210,16 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
       accent="var(--lime)"
       actions={
         <button
-          disabled={busy}
+          disabled={busy || scan?.running}
           onClick={() =>
             run(async () => {
-              const res = await api.post<{ totalRepos: number; totalDeps: number; errors: string[] }>(
-                '/repositories/scan-all'
-              );
-              return `Scanned ${res.totalRepos} repositories, ${res.totalDeps} dependencies${
-                res.errors.length ? `, ${res.errors.length} errors` : ''
-              }`;
+              await api.post<{ accepted: boolean; startedAt: string }>('/repositories/scan-all');
+              setScan(await api.get<FleetScanState>('/repositories/scan-all'));
+              return 'Scan started — it runs in the background, one repository at a time.';
             })
           }
         >
-          Scan all
+          {scan?.running ? 'Scanning…' : 'Scan all'}
         </button>
       }
     >
@@ -203,6 +241,28 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
 
         {message ? <Notice kind={message.kind}>{message.text}</Notice> : null}
         {list.error ? <Notice kind="error">{list.error}</Notice> : null}
+
+        {scan?.running && scan.progress ? (
+          <Notice>
+            Scanning {scan.progress.repositories.done}/{scan.progress.repositories.total || '…'}{' '}
+            repositories
+            {scan.progress.organizations.total > 1
+              ? ` · organization ${scan.progress.organizations.done + 1}/${scan.progress.organizations.total}`
+              : ''}
+            {scan.progress.repositories.current ? ` · now: ${scan.progress.repositories.current}` : ''}
+            {' · '}
+            {scan.progress.dependencies} dependencies so far
+            {scan.progress.errors.length ? ` · ${scan.progress.errors.length} failed` : ''}
+          </Notice>
+        ) : null}
+
+        {!scan?.running && scan?.lastRun ? (
+          <p className="muted">
+            Last scan {relativeTime(scan.lastRun.finishedAt)}: {scan.lastRun.repositories} repositories,{' '}
+            {scan.lastRun.dependencies} dependencies
+            {scan.lastRun.errors.length ? `, ${scan.lastRun.errors.length} failed` : ''}.
+          </p>
+        ) : null}
         {list.loading ? <Loading what="repositories" /> : null}
 
         {list.data && list.data.repositories.length === 0 ? (
