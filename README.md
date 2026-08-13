@@ -372,9 +372,16 @@ while you watch and an interrupted check keeps everything it already resolved. A
 for a day; **Re-check all** ignores the cache. Docker, Terraform and Helm are listed as not
 checkable — their versions depend on which registry the artifact came from.
 
-The comparison is textual on purpose: manifests declare ranges (`^4.17.0`), tags (`v3`) and
-digests, and resolving those properly needs a resolver per ecosystem. A range that happens to allow
-the latest version still shows as behind — a nudge to look beats a false all-clear.
+Manifests do not declare versions, they declare *constraints* — `^4.17.0`, `~> 6.1`, `==2.28.0`,
+`v3`, a commit SHA — so each one is translated into a semver range and asked whether it already
+allows the newest release. `^5.0.0` against 5.2.1 is **current**; `^4.17.1` against it is **behind**
+by a major. Anything untranslatable — a digest pin, a Maven interval — answers *unknown* with the
+reason rather than guessing, because a false "up to date" is worse than an admitted gap. Each row
+shows how far behind it is: major, minor or patch.
+
+Dependencies are **grouped by ecosystem**, since one repository routinely carries several: an
+Android project shows Gradle, GitHub Actions, its Fastlane gems and npm as separate tables, each
+with its own counts.
 
 **Finding one among many.** `GET /api/v1/repositories` takes `search`, `org`, `language`,
 `enabled`, `archived` and `exposure` (`affected` / `exploited` / `clean`), sorts by `name`,
