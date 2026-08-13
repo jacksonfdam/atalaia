@@ -9,6 +9,11 @@ const TIMEOUT_MS = parseInt(process.env.FEED_TIMEOUT_MS, 10) || 15000;
 /**
  * GitHub repository provider.
  * One instance per organization (each with its own token).
+ *
+ * Read-only by construction: every request in this class goes through _get(),
+ * which is the only place an HTTP method is chosen. Atalaia inspects source code
+ * and never writes anything back to GitHub — no issues, no commits, no status
+ * checks — so adding a write helper here would be the bug, not the feature.
  */
 export class GitHubProvider {
     /**
@@ -19,10 +24,38 @@ export class GitHubProvider {
         this.token = token;
         this.orgKey = orgKey;
         this.headers = {
-            'Accept': 'application/vnd.github.v3+json',
+            'Accept': 'application/vnd.github+json',
             'User-Agent': 'Atalaia/1.0',
             ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         };
+    }
+
+    /** The single outbound request path. GET only, deliberately. */
+    async _get(url, params = {}) {
+        const { data } = await axios.get(url, {
+            headers: this.headers,
+            timeout: TIMEOUT_MS,
+            params,
+        });
+        return data;
+    }
+
+    /** Map a GitHub repository object onto the domain entity. */
+    _toRepository(raw) {
+        return new Repository({
+            name: raw.full_name || raw.name,
+            url: raw.html_url,
+            provider: 'github',
+            orgKey: this.orgKey,
+            defaultBranch: raw.default_branch || 'main',
+            primaryLanguage: raw.language ?? null,
+            topics: raw.topics ?? [],
+            description: raw.description ?? null,
+            archived: raw.archived === true,
+            // An archived repository is imported but left switched off: it is
+            // still worth knowing it exists, and it is not worth scanning.
+            enabled: raw.archived !== true && raw.disabled !== true,
+        });
     }
 
     /**
@@ -37,12 +70,10 @@ export class GitHubProvider {
 
         while (hasMore) {
             try {
-                // Try org endpoint first, fall back to user
-                const url = await this._resolveReposUrl(orgOrUser, page);
-                const { data } = await axios.get(url, {
-                    headers: this.headers,
-                    timeout: TIMEOUT_MS,
-                    params: { per_page: PER_PAGE, page },
+                const data = await this._get(`${GITHUB_API}/orgs/${orgOrUser}/repos`, {
+                    per_page: PER_PAGE,
+                    page,
+                    type: 'all',
                 });
 
                 if (!Array.isArray(data) || data.length === 0) {
@@ -50,23 +81,15 @@ export class GitHubProvider {
                     break;
                 }
 
-                for (const r of data) {
-                    if (r.archived || r.disabled) continue;
-
-                    repos.push(new Repository({
-                        name: r.full_name || r.name,
-                        url: r.html_url,
-                        provider: 'github',
-                        orgKey: this.orgKey,
-                        defaultBranch: r.default_branch || 'main',
-                    }));
+                for (const raw of data) {
+                    repos.push(this._toRepository(raw));
                 }
 
                 hasMore = data.length === PER_PAGE;
                 page++;
             } catch (error) {
                 if (error.response?.status === 404 && page === 1) {
-                    // Try user endpoint on org 404
+                    // Not an org — the login may belong to a user account.
                     return this._listUserRepos(orgOrUser);
                 }
                 logger.error({ org: orgOrUser, page, err: error.message }, 'GitHub listRepositories failed');
@@ -76,6 +99,24 @@ export class GitHubProvider {
 
         logger.info({ org: orgOrUser, count: repos.length }, 'Listed GitHub repositories');
         return repos;
+    }
+
+    /**
+     * Language breakdown of a repository, in bytes of source per language.
+     * @param {string} repoUrl
+     * @returns {Promise<Record<string, number>>}
+     */
+    async listLanguages(repoUrl) {
+        const { owner, repo } = parseGitHubUrl(repoUrl);
+        if (!owner || !repo) return {};
+
+        try {
+            const data = await this._get(`${GITHUB_API}/repos/${owner}/${repo}/languages`);
+            return data && typeof data === 'object' ? data : {};
+        } catch (error) {
+            logger.warn({ repoUrl, err: error.message }, 'GitHub listLanguages failed');
+            return {};
+        }
     }
 
     /**
@@ -90,10 +131,9 @@ export class GitHubProvider {
         if (!owner || !repo) return null;
 
         try {
-            const params = ref ? { ref } : {};
-            const { data } = await axios.get(
+            const data = await this._get(
                 `${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`,
-                { headers: this.headers, timeout: TIMEOUT_MS, params }
+                ref ? { ref } : {}
             );
 
             if (data.encoding === 'base64' && data.content) {
@@ -125,13 +165,9 @@ export class GitHubProvider {
 
         try {
             const branch = ref || 'HEAD';
-            const { data } = await axios.get(
+            const data = await this._get(
                 `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${branch}`,
-                {
-                    headers: this.headers,
-                    timeout: TIMEOUT_MS,
-                    params: { recursive: 1 },
-                }
+                { recursive: 1 }
             );
 
             if (!data.tree || !Array.isArray(data.tree)) return [];
@@ -145,33 +181,22 @@ export class GitHubProvider {
         }
     }
 
-    async _resolveReposUrl(orgOrUser, page) {
-        return `${GITHUB_API}/orgs/${orgOrUser}/repos`;
-    }
-
     async _listUserRepos(user) {
         const repos = [];
         let page = 1;
         let hasMore = true;
 
         while (hasMore) {
-            const { data } = await axios.get(`${GITHUB_API}/users/${user}/repos`, {
-                headers: this.headers,
-                timeout: TIMEOUT_MS,
-                params: { per_page: PER_PAGE, page, type: 'owner' },
+            const data = await this._get(`${GITHUB_API}/users/${user}/repos`, {
+                per_page: PER_PAGE,
+                page,
+                type: 'owner',
             });
 
             if (!Array.isArray(data) || data.length === 0) break;
 
-            for (const r of data) {
-                if (r.archived || r.disabled) continue;
-                repos.push(new Repository({
-                    name: r.full_name || r.name,
-                    url: r.html_url,
-                    provider: 'github',
-                    orgKey: this.orgKey,
-                    defaultBranch: r.default_branch || 'main',
-                }));
+            for (const raw of data) {
+                repos.push(this._toRepository(raw));
             }
 
             hasMore = data.length === PER_PAGE;
@@ -184,10 +209,7 @@ export class GitHubProvider {
 
     async _getBlobContent(owner, repo, sha) {
         try {
-            const { data } = await axios.get(
-                `${GITHUB_API}/repos/${owner}/${repo}/git/blobs/${sha}`,
-                { headers: this.headers, timeout: TIMEOUT_MS }
-            );
+            const data = await this._get(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs/${sha}`);
             if (data.encoding === 'base64' && data.content) {
                 return Buffer.from(data.content, 'base64').toString('utf-8');
             }

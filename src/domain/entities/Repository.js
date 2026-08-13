@@ -11,6 +11,11 @@ class Repository {
         createdAt = null,
         updatedAt = null,
         deletedAt = null,
+        primaryLanguage = null,
+        languages = {},
+        topics = [],
+        description = null,
+        archived = false,
     }) {
         this.id = id;
         this.name = name;
@@ -23,6 +28,13 @@ class Repository {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.deletedAt = deletedAt;
+        // Technologies as the hosting provider sees them. What the manifests
+        // declare is tracked separately, as dependencies.
+        this.primaryLanguage = primaryLanguage;
+        this.languages = languages ?? {};
+        this.topics = topics ?? [];
+        this.description = description;
+        this.archived = archived === true || archived === 1;
     }
 
     isDeleted() {
