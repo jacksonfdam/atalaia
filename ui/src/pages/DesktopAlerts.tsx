@@ -29,12 +29,19 @@ export function DesktopAlerts({ onAuthLost }: { onAuthLost: () => void }) {
 
     async function enable() {
         const result = await alerts.request();
+
+        if (result === 'granted') {
+            // Immediate proof it works — including that the operating system is
+            // letting the browser through, which the browser cannot report.
+            alerts.sendSample();
+            setMessage('Allowed. A sample notification was just sent — if nothing appeared, the notification is being blocked by the operating system, not by Atalaia.');
+            return;
+        }
+
         setMessage(
-            result === 'granted'
-                ? 'Allowed. New vulnerabilities will pop up on this desktop.'
-                : result === 'denied'
-                    ? 'The browser blocked notifications for this site. Allow them in the site settings and try again.'
-                    : 'The permission prompt was dismissed.'
+            result === 'denied'
+                ? 'The browser blocked notifications for this site. Allow them in the site settings and try again.'
+                : 'The permission prompt was dismissed.'
         );
     }
 
@@ -68,10 +75,34 @@ export function DesktopAlerts({ onAuthLost }: { onAuthLost: () => void }) {
                     </Notice>
                 ) : null}
 
+                {!alerts.secureContext ? (
+                    <Notice kind="error">
+                        This page is not a secure context, so the browser refuses to grant
+                        notification permission at all. Open the console over{' '}
+                        <code className="mono">https</code> or on{' '}
+                        <code className="mono">localhost</code>.
+                    </Notice>
+                ) : null}
+
                 <p className="muted">
                     Status: {PERMISSION_LABEL[alerts.permission]}
                     {alerts.permission === 'granted' && !alerts.enabled ? ' · switched off here' : ''}
+                    {alerts.lastCheckedAt ? ` · last checked ${new Date(alerts.lastCheckedAt).toLocaleTimeString()}` : ''}
                 </p>
+
+                {alerts.permission === 'granted' && alerts.enabled && !alerts.lastCheckedAt ? (
+                    <p className="muted">Waiting for the first check…</p>
+                ) : null}
+
+                {alerts.lastError ? <Notice kind="error">Last check failed: {alerts.lastError}</Notice> : null}
+
+                {alerts.permission === 'denied' ? (
+                    <p className="muted">
+                        Chrome: click the icon at the left of the address bar → Notifications → Allow.
+                        On macOS the system also has to allow the browser itself, under System
+                        Settings → Notifications.
+                    </p>
+                ) : null}
 
                 <p className="muted">
                     The console checks for new findings every {alerts.pollSeconds} seconds and pops up

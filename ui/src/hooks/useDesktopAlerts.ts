@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { api } from '../api/client';
 import type { VulnerabilityPage } from '../types';
 
@@ -8,9 +8,15 @@ import type { VulnerabilityPage } from '../types';
  * The fallback for when Slack is not delivering: the console polls for what
  * appeared since it last looked and raises a native notification per finding.
  *
- * Two limits worth knowing, both from the browser rather than from Atalaia: the
- * console has to be open in a tab (a closed tab runs no code), and the user has
- * to grant permission, which only a real click can ask for.
+ * The state lives in a module-level store rather than in each component,
+ * because two components use this hook — the settings panel, which turns it on,
+ * and the shell, which does the polling. With per-component state the shell
+ * would keep its stale copy and only start polling after a reload, which reads
+ * as "notifications do not work".
+ *
+ * Two limits worth knowing, both from the browser: the console has to be open
+ * in a tab (a closed tab runs no code), and permission can only be requested
+ * from a real click.
  */
 
 const ENABLED_KEY = 'atalaia.desktopAlerts.enabled';
@@ -43,6 +49,34 @@ function write(key: string, value: string) {
     }
 }
 
+interface AlertState {
+    permission: AlertPermission;
+    enabled: boolean;
+    lastCheckedAt: string | null;
+    lastError: string | null;
+}
+
+let state: AlertState = {
+    permission: currentPermission(),
+    enabled: read(ENABLED_KEY) === 'true',
+    lastCheckedAt: null,
+    lastError: null,
+};
+
+const listeners = new Set<() => void>();
+
+function setState(patch: Partial<AlertState>) {
+    state = { ...state, ...patch };
+    for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void) {
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
+    };
+}
+
 function severityMark(severity: string): string {
     if (severity === 'CRITICAL') return '🔴';
     if (severity === 'HIGH') return '🟠';
@@ -51,51 +85,49 @@ function severityMark(severity: string): string {
     return '⚪';
 }
 
-export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
-    const [permission, setPermission] = useState<AlertPermission>(currentPermission);
-    const [enabled, setEnabled] = useState(() => read(ENABLED_KEY) === 'true');
-    const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+function show(title: string, body: string, cveId?: string) {
+    const notification = new Notification(title, { body, tag: cveId, icon: '/favicon.ico' });
 
-    // Held in a ref so the polling effect does not restart on every tick.
+    notification.onclick = () => {
+        window.focus();
+        if (cveId) window.location.href = `/vulnerabilities/${cveId}`;
+    };
+}
+
+export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
+    const snapshot = useSyncExternalStore(subscribe, () => state);
+
+    // Held in a ref so a tick does not restart the polling effect.
     const lastSeen = useRef<string | null>(read(SEEN_KEY));
 
     const request = useCallback(async () => {
         if (!('Notification' in window)) return 'unsupported' as AlertPermission;
 
         const result = (await Notification.requestPermission()) as AlertPermission;
-        setPermission(result);
+
         if (result === 'granted') {
-            setEnabled(true);
             write(ENABLED_KEY, 'true');
+            setState({ permission: result, enabled: true });
+        } else {
+            setState({ permission: result });
         }
+
         return result;
     }, []);
 
-    const toggle = useCallback(
-        (next: boolean) => {
-            setEnabled(next);
-            write(ENABLED_KEY, String(next));
-        },
-        []
-    );
-
-    const notify = useCallback((title: string, body: string, cveId?: string) => {
-        const notification = new Notification(title, { body, tag: cveId, icon: '/favicon.ico' });
-
-        notification.onclick = () => {
-            window.focus();
-            if (cveId) window.location.href = `/vulnerabilities/${cveId}`;
-        };
+    const toggle = useCallback((next: boolean) => {
+        write(ENABLED_KEY, String(next));
+        setState({ enabled: next });
     }, []);
 
     const sendSample = useCallback(() => {
-        if (permission !== 'granted') return false;
-        notify('🔴 Atalaia desktop alerts', 'This is what a new vulnerability will look like.');
+        if (state.permission !== 'granted') return false;
+        show('🔴 Atalaia desktop alerts', 'This is what a new vulnerability will look like.');
         return true;
-    }, [notify, permission]);
+    }, []);
 
     useEffect(() => {
-        if (!active || !enabled || permission !== 'granted') return;
+        if (!active || !snapshot.enabled || snapshot.permission !== 'granted') return;
 
         let cancelled = false;
 
@@ -106,7 +138,7 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
                 );
                 if (cancelled) return;
 
-                setLastCheckedAt(new Date().toISOString());
+                setState({ lastCheckedAt: new Date().toISOString(), lastError: null });
 
                 const newest = page.vulnerabilities[0]?.first_seen_at ?? null;
 
@@ -124,7 +156,7 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
                 if (fresh.length === 0) return;
 
                 for (const vuln of fresh.slice(0, MAX_PER_ROUND)) {
-                    notify(
+                    show(
                         `${severityMark(vuln.severity)} ${vuln.severity} · ${vuln.cve_id}`,
                         vuln.title ?? 'New vulnerability',
                         vuln.cve_id
@@ -133,7 +165,7 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
 
                 // One summary instead of twenty notifications after a big cycle.
                 if (fresh.length > MAX_PER_ROUND) {
-                    notify(
+                    show(
                         `Atalaia: ${fresh.length} new vulnerabilities`,
                         `${fresh.length - MAX_PER_ROUND} more since the last check.`
                     );
@@ -141,9 +173,8 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
 
                 lastSeen.current = newest;
                 if (newest) write(SEEN_KEY, newest);
-            } catch {
-                // A failed poll is not worth surfacing: the next one is a minute
-                // away, and the pages themselves already report API errors.
+            } catch (err) {
+                if (!cancelled) setState({ lastError: (err as Error).message });
             }
         }
 
@@ -154,13 +185,15 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [active, enabled, permission, notify]);
+    }, [active, snapshot.enabled, snapshot.permission]);
 
     return {
-        permission,
-        enabled,
-        lastCheckedAt,
-        supported: permission !== 'unsupported',
+        ...snapshot,
+        supported: snapshot.permission !== 'unsupported',
+        // requestPermission() is refused outside a secure context, and http on
+        // anything but localhost is not one — worth saying out loud rather than
+        // leaving a button that silently does nothing.
+        secureContext: typeof window !== 'undefined' ? window.isSecureContext : false,
         request,
         toggle,
         sendSample,
