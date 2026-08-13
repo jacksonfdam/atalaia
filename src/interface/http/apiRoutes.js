@@ -5,6 +5,7 @@ import { createVulnerabilityRoutes } from './vulnerabilityRoutes.js';
 import { createTechnologyRoutes } from './technologyRoutes.js';
 import { createFeedRoutes } from './feedRoutes.js';
 import { createRepositoryRoutes } from './repositoryRoutes.js';
+import { createOrganizationRoutes } from './organizationRoutes.js';
 import { createOwnerRoutes } from './ownerRoutes.js';
 import { createSettingsRoutes } from './settingsRoutes.js';
 import { createScanRoutes } from './scanRoutes.js';
@@ -29,6 +30,7 @@ export function createApiRoutes(cache) {
     router.use('/vulnerabilities', createVulnerabilityRoutes(cache));
     router.use('/technologies', createTechnologyRoutes());
     router.use('/feeds', createFeedRoutes());
+    router.use('/organizations', createOrganizationRoutes());
     router.use('/repositories', createRepositoryRoutes());
     router.use('/owners', createOwnerRoutes());
     router.use('/settings', createSettingsRoutes());

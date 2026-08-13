@@ -5,20 +5,59 @@ const NOW = "datetime('now')";
 
 // ── Repositories ──
 
-export function addRepository({ name, url, provider, orgKey, defaultBranch = 'main' }) {
+export function addRepository({
+    name,
+    url,
+    provider,
+    orgKey,
+    defaultBranch = 'main',
+    primaryLanguage = null,
+    languages = null,
+    topics = null,
+    description = null,
+    archived = false,
+    enabled = true,
+}) {
     const db = getDb();
     const stmt = db.prepare(`
-        INSERT INTO repositories (name, url, provider, org_key, default_branch)
-        VALUES (@name, @url, @provider, @orgKey, @defaultBranch)
+        INSERT INTO repositories (
+            name, url, provider, org_key, default_branch,
+            primary_language, languages, topics, description, archived, enabled
+        )
+        VALUES (
+            @name, @url, @provider, @orgKey, @defaultBranch,
+            @primaryLanguage, @languages, @topics, @description, @archived, @enabled
+        )
         ON CONFLICT(url) DO UPDATE SET
             name = excluded.name,
             provider = excluded.provider,
             org_key = excluded.org_key,
             default_branch = excluded.default_branch,
+            primary_language = excluded.primary_language,
+            -- A re-import without a language breakdown must not erase the one
+            -- already stored.
+            languages = COALESCE(excluded.languages, repositories.languages),
+            topics = COALESCE(excluded.topics, repositories.topics),
+            description = excluded.description,
+            archived = excluded.archived,
             updated_at = ${NOW},
             deleted_at = NULL
+            -- The enabled column is intentionally absent: it is the operator's
+            -- switch, and a re-import must not flip it back.
     `);
-    const result = stmt.run({ name, url, provider, orgKey, defaultBranch });
+    const result = stmt.run({
+        name,
+        url,
+        provider,
+        orgKey,
+        defaultBranch,
+        primaryLanguage,
+        languages: languages ? JSON.stringify(languages) : null,
+        topics: topics ? JSON.stringify(topics) : null,
+        description,
+        archived: archived ? 1 : 0,
+        enabled: enabled ? 1 : 0,
+    });
     logger.info({ url, id: result.lastInsertRowid }, 'Repository added/restored');
     return getRepository(result.lastInsertRowid) || getRepositoryByUrl(url);
 }
@@ -44,6 +83,27 @@ export function getRepositoryByUrl(url) {
     return getDb().prepare('SELECT * FROM repositories WHERE url = ? AND deleted_at IS NULL').get(url) || null;
 }
 
+/**
+ * Including the soft-deleted ones, which the importer needs: a repository the
+ * operator removed must not come back on the next import.
+ */
+export function getAnyRepositoryByUrl(url) {
+    return getDb().prepare('SELECT * FROM repositories WHERE url = ?').get(url) || null;
+}
+
+/** Restore a soft-deleted repository. */
+export function restoreRepository(id) {
+    const db = getDb();
+    db.transaction(() => {
+        db.prepare(`UPDATE repositories SET deleted_at = NULL, updated_at = ${NOW} WHERE id = ?`).run(id);
+        db.prepare(
+            `UPDATE repository_dependencies SET deleted_at = NULL, updated_at = ${NOW} WHERE repository_id = ?`
+        ).run(id);
+    })();
+    logger.info({ id }, 'Repository restored');
+    return getRepository(id);
+}
+
 export function listRepositories({ includeDeleted = false } = {}) {
     const where = includeDeleted ? '' : 'WHERE deleted_at IS NULL';
     return getDb().prepare(`SELECT * FROM repositories ${where} ORDER BY name`).all();
@@ -57,6 +117,9 @@ export function updateRepository(id, updates) {
     if (updates.enabled !== undefined) { fields.push('enabled = @enabled'); values.enabled = updates.enabled ? 1 : 0; }
     if (updates.lastScannedAt !== undefined) { fields.push('last_scanned_at = @lastScannedAt'); values.lastScannedAt = updates.lastScannedAt; }
     if (updates.defaultBranch !== undefined) { fields.push('default_branch = @defaultBranch'); values.defaultBranch = updates.defaultBranch; }
+    if (updates.languages !== undefined) { fields.push('languages = @languages'); values.languages = updates.languages ? JSON.stringify(updates.languages) : null; }
+    if (updates.primaryLanguage !== undefined) { fields.push('primary_language = @primaryLanguage'); values.primaryLanguage = updates.primaryLanguage; }
+    if (updates.topics !== undefined) { fields.push('topics = @topics'); values.topics = updates.topics ? JSON.stringify(updates.topics) : null; }
 
     if (fields.length === 0) return;
 

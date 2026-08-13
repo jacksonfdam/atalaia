@@ -1,6 +1,7 @@
 import logger from '../infrastructure/logger.js';
 import config from '../infrastructure/config.js';
-import { GitHubProvider } from '../infrastructure/providers/githubProvider.js';
+import { providerForOrg } from './manageOrganization.js';
+import { listOrganizations } from '../infrastructure/cache/organizationStore.js';
 import {
     addRepository,
     listRepositories,
@@ -24,10 +25,10 @@ const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..');
  * @returns {Promise<{ totalRepos: number, totalDeps: number, errors: string[] }>}
  */
 export async function scanAllRepositories(options = {}) {
-    const providers = config.providers || [];
+    const providers = organizationsToScan();
 
     if (providers.length === 0) {
-        logger.warn('No providers configured in config.json — nothing to scan');
+        logger.warn('No organizations registered and no providers in config.json — nothing to scan');
         return { totalRepos: 0, totalDeps: 0, errors: [] };
     }
 
@@ -56,25 +57,39 @@ export async function scanAllRepositories(options = {}) {
 }
 
 /**
+ * Organizations to walk: the ones registered in the console, plus any entry in
+ * config.json's `providers` that has no row of its own. Registered ones win, so
+ * a token managed in the console is not shadowed by a stale config entry.
+ */
+function organizationsToScan() {
+    const registered = listOrganizations()
+        .filter(org => org.enabled === 1)
+        .map(org => ({ key: org.key, type: org.provider, org: org.login }));
+
+    const keys = new Set(registered.map(entry => entry.key));
+
+    const fromConfig = (config.providers || [])
+        .filter(entry => !keys.has(entry.key))
+        .map(entry => ({ key: entry.key, type: entry.type ?? 'github', org: entry.org }));
+
+    return [...registered, ...fromConfig];
+}
+
+/**
  * Scan a single provider (org).
  */
 async function scanProvider(providerConfig, options) {
-    const { key, type, token, org } = providerConfig;
-
-    if (!token) {
-        logger.warn({ provider: key }, 'No token configured, skipping');
-        return { repoCount: 0, depCount: 0, errors: [] };
-    }
+    const { key, type, org } = providerConfig;
 
     logger.info({ provider: key, type, org }, 'Scanning provider');
 
-    let provider;
-    if (type === 'github') {
-        provider = new GitHubProvider(token, key);
-    } else {
+    if (type !== 'github') {
         logger.warn({ type }, 'Unsupported provider type, skipping');
         return { repoCount: 0, depCount: 0, errors: [`Unsupported provider: ${type}`] };
     }
+
+    // Resolves the organization's own token first, then config.json, then env.
+    const provider = providerForOrg(key);
 
     // 1. Discover repositories from the provider
     const remoteRepos = await provider.listRepositories(org);
@@ -90,6 +105,11 @@ async function scanProvider(providerConfig, options) {
             provider: repo.provider,
             orgKey: key,
             defaultBranch: repo.defaultBranch,
+            primaryLanguage: repo.primaryLanguage,
+            topics: repo.topics,
+            description: repo.description,
+            archived: repo.archived,
+            enabled: repo.enabled,
         });
     }
 
