@@ -434,11 +434,40 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `POST` | `/api/v1/scan` | Monitoring cycle status / trigger one now. |
 | `GET` `PUT` | `/api/v1/settings` | Runtime settings. |
 | `GET` `PUT` | `/api/v1/settings/email` | Email provider catalog and delivery configuration. |
+| `GET` `PUT` | `/api/v1/settings/slack` | Slack integration: webhook or bot token, and the destination. |
+| `POST` | `/api/v1/settings/slack/test` | Post a test message to the configured destination. |
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | Weekly report payload. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 
 Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)
+
+---
+
+## Slack alerts
+
+Configure delivery under **Notifications → SLACK.CFG**. Two integrations, because they can do
+different things:
+
+| Mode | What it can do | What it needs |
+|------|----------------|---------------|
+| Incoming webhook | Posts to the one channel the webhook was created for. Slack ignores any other destination. | The `https://hooks.slack.com/services/…` URL |
+| Bot token | Posts to any channel the bot is in, and can direct-message a person | `xoxb-…` with `chat:write` (plus `chat:write.public` for public channels it has not joined) |
+
+In bot mode the destination is a channel (`#security` or its `C…` ID) or a person (their `U…`
+member ID, which opens a direct message). Turning on **direct-message the owners** additionally
+DMs whoever the vulnerability correlates to, using the Slack member ID on each owner — owners
+without one are skipped, and a webhook cannot do this at all.
+
+The credential is encrypted at rest and never returned by the API. **Send test** posts a real
+message so you can confirm the destination before the next cycle.
+
+Alerts carry the affected repositories and owners when correlation finds any, and the Acknowledge
+and Resolve buttons need `SLACK_SIGNING_SECRET` in the environment — that one verifies *inbound*
+requests from Slack, so it cannot live in the database.
+
+`SLACK_WEBHOOK_URL` in the environment still wins over all of this and turns the section read-only;
+`SLACK_ENABLED=false` forces delivery off wherever it is configured.
 
 ---
 
@@ -502,7 +531,7 @@ open http://localhost:3001
 | Sources | Enable/disable each source, live per-feed health, and the full database catalog |
 | Organizations | Register GitHub organizations with their own tokens and import their repositories |
 | Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies |
-| Owners | Owners and their ecosystem/dependency/repository assignments |
+| Notifications | Slack integration (webhook or bot, channel or person), plus owners and their ecosystem/dependency/repository assignments |
 | Settings | Slack toggle, schedules, LLM provider, email provider and credentials, plus which secrets are configured |
 
 **Authentication.** The browser signs in against the console with `UI_PASSWORD` and receives an
