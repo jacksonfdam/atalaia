@@ -520,3 +520,67 @@ describe('version comparison', () => {
         expect(compareVersions('NPM', '6.0.0-beta.1', '5.2.1').state).toBe('current');
     });
 });
+
+describe('vulnerability relevance', () => {
+    beforeEach(async () => {
+        getDb().exec('DELETE FROM repositories; DELETE FROM repository_dependencies; DELETE FROM vulnerabilities;');
+
+        const created = await request(app)
+            .post('/api/v1/repositories')
+            .set(KEY)
+            .send({ url: 'https://github.com/acme/api' });
+
+        getDb()
+            .prepare(
+                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
+                 VALUES (?, 'NPM', 'express', 'package.json'),
+                        (?, 'GITHUB_ACTIONS', 'actions/checkout', '.github/workflows/ci.yml'),
+                        (?, 'DOCKER', 'node', 'Dockerfile')`
+            )
+            .run(created.body.id, created.body.id, created.body.id);
+
+        getDb()
+            .prepare(
+                `INSERT INTO vulnerabilities (cve_id, title, severity, exploited, source, affected_technologies, status)
+                 VALUES ('CVE-2026-3000', 'Express', 'HIGH', 0, 'ghsa', '["express"]', 'OPEN'),
+                        ('CVE-2026-3001', 'Checkout', 'HIGH', 0, 'ghsa', '["actions/checkout"]', 'OPEN'),
+                        ('CVE-2026-3002', 'Node image', 'MEDIUM', 0, 'nvd', '["node"]', 'OPEN'),
+                        ('CVE-2026-3003', 'Something in Wordpress', 'CRITICAL', 0, 'nvd', '["wordpress"]', 'OPEN'),
+                        ('CVE-2026-3004', 'Kubernetes', 'HIGH', 0, 'nvd', '["kubernetes"]', 'OPEN')`
+            )
+            .run();
+    });
+
+    const ids = body => body.vulnerabilities.map(v => v.cve_id).sort();
+
+    test('keeps only what names something the fleet uses', async () => {
+        const res = await request(app).get('/api/v1/vulnerabilities?relevance=affecting').set(KEY);
+
+        expect(ids(res.body)).toEqual(['CVE-2026-3000', 'CVE-2026-3001', 'CVE-2026-3002']);
+        expect(res.body.total).toBe(3);
+    });
+
+    test('narrows to containers and CI on request', async () => {
+        const res = await request(app).get('/api/v1/vulnerabilities?relevance=infrastructure').set(KEY);
+
+        // The Docker image and the workflow action; not the npm package.
+        expect(ids(res.body)).toEqual(['CVE-2026-3001', 'CVE-2026-3002']);
+    });
+
+    test('still returns everything when asked', async () => {
+        expect((await request(app).get('/api/v1/vulnerabilities').set(KEY)).body.total).toBe(5);
+    });
+
+    test('reports the counts behind the filter', async () => {
+        const res = await request(app).get('/api/v1/vulnerabilities').set(KEY);
+
+        expect(res.body.relevance).toEqual({ total: 5, affecting: 3, infrastructure: 2 });
+    });
+
+    test('a disabled repository stops counting', async () => {
+        getDb().prepare('UPDATE repositories SET enabled = 0').run();
+
+        const res = await request(app).get('/api/v1/vulnerabilities?relevance=affecting').set(KEY);
+        expect(res.body.total).toBe(0);
+    });
+});
