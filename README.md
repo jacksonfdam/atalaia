@@ -431,7 +431,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
 | `POST` | `/api/v1/repositories/:idOrUrl/scan` | Scan one repository. |
-| `POST` | `/api/v1/repositories/scan-all` | Scan every configured repository. |
+| `GET` `POST` | `/api/v1/repositories/scan-all` | Progress of the fleet scan / start one (202, runs detached). |
 | `GET` `POST` | `/api/v1/owners` | List / create owners. |
 | `GET` `PATCH` `DELETE` | `/api/v1/owners/:id` | Manage one owner. |
 | `POST` | `/api/v1/owners/:id/assignments` | Assign an ecosystem / dependency / repository. |
@@ -466,7 +466,12 @@ The link is computed, never stored: dependencies change with every scan and a CV
 list can be enriched after the fact, so a stored join would go quietly stale.
 
 Coverage depends on a scan having run — `Scan all`, or the nightly schedule
-(`repositories.autoScan`). Manifests parsed include npm, pip, Go, Cargo, Maven, Gradle, RubyGems,
+(`repositories.autoScan`). A fleet scan walks repositories **one at a time**, which keeps the
+GitHub rate limit and the log readable but takes roughly ten seconds per repository, so it runs
+detached from the request that started it: `POST` answers `202` immediately, a second trigger gets
+`409`, and `GET /api/v1/repositories/scan-all` reports how many are done, which one is being
+scanned right now, and what failed. The console polls it and shows the same line. Passing
+`{"skipVendorLookup": true}` drops the per-dependency OpenCVE lookup, which is most of the time. Manifests parsed include npm, pip, Go, Cargo, Maven, Gradle, RubyGems,
 NuGet, Composer, Terraform, Dockerfiles and **GitHub Actions workflows** — CI pulls third-party
 actions and container images by tag, and a tag nobody upgrades on purpose is exactly where an old
 vulnerable dependency hides.
