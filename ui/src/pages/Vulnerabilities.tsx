@@ -24,6 +24,9 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
   const [busyCve, setBusyCve] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  // Defaults to what touches this fleet: the feeds carry tens of thousands of
+  // CVEs and a couple of dozen of them are about code anyone here ships.
+  const relevance = params.get('relevance') ?? 'affecting';
   const severity = params.get('severity') ?? '';
   const status = params.get('status') ?? '';
   const source = params.get('source') ?? '';
@@ -43,8 +46,9 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
     if (status) query.set('status', status);
     if (source) query.set('source', source);
     if (search) query.set('search', search);
+    if (relevance !== 'all') query.set('relevance', relevance);
     return `/vulnerabilities?${query}`;
-  }, [severity, status, source, search, sort, order, offset]);
+  }, [relevance, severity, status, source, search, sort, order, offset]);
 
   const page = useApi<VulnerabilityPage>(path, onAuthLost);
 
@@ -92,6 +96,21 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
     >
       <Body>
         <div className="toolbar">
+          <label>
+            Relevance
+            <select value={relevance} onChange={e => update({ relevance: e.target.value })}>
+              <option value="affecting">
+                Affects our code{page.data ? ` (${page.data.relevance.affecting})` : ''}
+              </option>
+              <option value="infrastructure">
+                Containers &amp; CI only{page.data ? ` (${page.data.relevance.infrastructure})` : ''}
+              </option>
+              <option value="all">
+                Everything collected{page.data ? ` (${page.data.relevance.total})` : ''}
+              </option>
+            </select>
+          </label>
+
           <label>
             Severity
             <select value={severity} onChange={e => update({ severity: e.target.value })}>

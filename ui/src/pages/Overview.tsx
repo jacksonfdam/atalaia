@@ -42,6 +42,8 @@ export function Overview({ onAuthLost }: { onAuthLost: () => void }) {
     '/vulnerabilities?severity=CRITICAL&status=OPEN&limit=8&sort=cvss_score&order=desc',
     onAuthLost
   );
+  // Relevance is fleet-wide, so any page of results carries the same summary.
+  const relevance = critical.data?.relevance ?? null;
 
   const [triggering, setTriggering] = useState(false);
   const [scanMessage, setScanMessage] = useState<string | null>(null);
@@ -236,7 +238,15 @@ export function Overview({ onAuthLost }: { onAuthLost: () => void }) {
         </Body>
       </Window>
 
-      <Window title="CRITICAL_OPEN.LST" accent="var(--severity-critical)">
+      <Window
+        title="CRITICAL_OPEN.LST"
+        note={
+          relevance
+            ? `${relevance.affecting} of ${relevance.total} collected touch our code`
+            : undefined
+        }
+        accent="var(--severity-critical)"
+      >
         <Body flush>
           {critical.loading ? <Loading what="critical vulnerabilities" /> : null}
           {critical.data && critical.data.vulnerabilities.length === 0 ? (

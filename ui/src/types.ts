@@ -27,6 +27,8 @@ export interface VulnerabilityPage {
   total: number;
   limit: number;
   offset: number;
+  /** How much of the database is about this fleet at all. */
+  relevance: { total: number; affecting: number; infrastructure: number };
   vulnerabilities: Vulnerability[];
 }
 
