@@ -359,6 +359,10 @@ reads their language breakdown and reads manifest files. Every request in the
 provider goes through one GET helper; nothing is ever written back — no issues,
 no commits, no status checks.
 
+**Personal accounts.** A token only ever exposes the private repositories of *its own* account, so
+registering someone else's login lists their public repositories and nothing more. The picker says
+so when that happens instead of quietly showing a short list.
+
 **Importing a subset.** "Choose repos" lists everything the token can see — with a filter, and each
 row marked *new*, *tracked* or *removed here* — and imports only what is ticked. Whole-organization
 import stays one click away. From the terminal that is `atalaia org repos <key>` to list and
@@ -459,15 +463,30 @@ member ID, which opens a direct message). Turning on **direct-message the owners
 DMs whoever the vulnerability correlates to, using the Slack member ID on each owner — owners
 without one are skipped, and a webhook cannot do this at all.
 
-The credential is encrypted at rest and never returned by the API. **Send test** posts a real
-message so you can confirm the destination before the next cycle.
+The whole Slack app fits in that one section — webhook URL or bot token, signing secret, app-level
+token and app ID. Credentials are encrypted at rest and never returned by the API. **Send test**
+posts a real message so you can confirm the destination before the next cycle.
 
-Alerts carry the affected repositories and owners when correlation finds any, and the Acknowledge
-and Resolve buttons need `SLACK_SIGNING_SECRET` in the environment — that one verifies *inbound*
-requests from Slack, so it cannot live in the database.
+| Field | What it is for |
+|-------|----------------|
+| Webhook URL / bot token | Sending the alert |
+| Signing secret | Verifying the Acknowledge and Resolve clicks Slack sends back |
+| App-level token + app ID | Development only: repointing the app's Request URL at the current ngrok tunnel |
 
-`SLACK_WEBHOOK_URL` in the environment still wins over all of this and turns the section read-only;
-`SLACK_ENABLED=false` forces delivery off wherever it is configured.
+Alerts carry the affected repositories and owners when correlation finds any.
+
+Environment variables still win, field by field: `SLACK_WEBHOOK_URL` pins where alerts go,
+`SLACK_SIGNING_SECRET`, `SLACK_APP_TOKEN` and `SLACK_APP_ID` pin their own fields, and
+`SLACK_ENABLED=false` forces delivery off wherever it is configured. A pinned field is shown as
+read-only rather than silently ignored.
+
+### Desktop notifications
+
+**Notifications → DESKTOP.CFG** is the fallback for when Slack is not delivering. Allow
+notifications once and the console raises a native pop-up per new CVE — clicking one opens it.
+
+It needs the console open in a tab, since a closed tab runs no code; for alerts that arrive with
+the browser shut, use Slack or the weekly email.
 
 ---
 
