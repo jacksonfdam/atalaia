@@ -359,6 +359,11 @@ reads their language breakdown and reads manifest files. Every request in the
 provider goes through one GET helper; nothing is ever written back — no issues,
 no commits, no status checks.
 
+**Importing a subset.** "Choose repos" lists everything the token can see — with a filter, and each
+row marked *new*, *tracked* or *removed here* — and imports only what is ticked. Whole-organization
+import stays one click away. From the terminal that is `atalaia org repos <key>` to list and
+`atalaia org import <key> --only org/a,org/b` to pick.
+
 What the importer does:
 
 - Lists every repository the token can see, including archived ones, which are
@@ -412,7 +417,8 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/feeds/health` | Per-feed items, CVSS coverage, latency, failure reason. |
 | `GET` `POST` | `/api/v1/organizations` | List / register an organization (`{ login, key?, name?, token? }`). |
 | `GET` `PATCH` `DELETE` | `/api/v1/organizations/:key` | Inspect / update token and state / remove with its repositories. |
-| `POST` | `/api/v1/organizations/:key/import` | Import that organization's repositories. |
+| `GET` | `/api/v1/organizations/:key/repositories` | What the token can see, annotated with what is already tracked. Reads only. |
+| `POST` | `/api/v1/organizations/:key/import` | Import that organization's repositories, or a subset via `{"repositories":["org/a"]}`. |
 | `POST` | `/api/v1/organizations/import` | Import every enabled organization. |
 | `GET` `POST` | `/api/v1/repositories` | List / add a monitored repository. |
 | `GET` `PATCH` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / enable-disable / soft-delete. |
@@ -527,7 +533,7 @@ pnpm run dev:cli         # run from source with tsx
 | `atalaia resolve <cve-id>` | → RESOLVED. `--actor` |
 | `atalaia scan` | Run a monitoring cycle now. `--dry-run` disarms the Slack webhook. |
 | `atalaia feed list\|enable\|disable\|reset\|catalog` | Sources and the database catalog. `--all`, `--json` |
-| `atalaia org add\|list\|import\|enable\|disable\|token\|remove` | Organizations and their read-only tokens. `--token`, `--no-languages` |
+| `atalaia org add\|list\|repos\|import\|enable\|disable\|token\|remove` | Organizations and their read-only tokens. `--token`, `--only`, `--no-languages` |
 | `atalaia repo add\|remove\|restore\|enable\|disable\|list\|scan\|deps\|tech` | Monitored repositories. `--all`, `--ecosystem`, `--refresh`, … |
 | `atalaia owner add\|remove\|list\|show\|assign\|unassign` | Owners and assignments. |
 
