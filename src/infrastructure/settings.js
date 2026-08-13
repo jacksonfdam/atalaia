@@ -20,7 +20,14 @@ import logger from './logger.js';
  * @property {string} [help]
  */
 
-/** Settings the console is allowed to write. Anything absent here is read-only. */
+/**
+ * Settings the console is allowed to write. Anything absent here is read-only.
+ *
+ * Email delivery is deliberately not here: provider, credentials, sender and
+ * recipients belong together, and splitting them across key/value rows would
+ * leave two places to look. They live in email_config — see
+ * infrastructure/notifiers/emailConfig.js.
+ */
 /** @type {SettingDescriptor[]} */
 export const WRITABLE_SETTINGS = [
     {
@@ -46,22 +53,6 @@ export const WRITABLE_SETTINGS = [
         fallback: cfg => cfg.llm?.provider ?? '',
         label: 'LLM provider',
         help: 'openai, ollama, or empty to disable plain-English explanations.',
-    },
-    {
-        key: 'email.template',
-        type: 'string',
-        env: 'EMAIL_TEMPLATE',
-        fallback: cfg => cfg.email?.template ?? 'professional',
-        label: 'Weekly report template',
-        help: 'professional or minimal.',
-    },
-    {
-        key: 'email.recipients',
-        type: 'string',
-        env: 'EMAIL_RECIPIENTS',
-        fallback: cfg => cfg.email?.recipients ?? '',
-        label: 'Weekly report recipients',
-        help: 'Comma-separated addresses.',
     },
     {
         key: 'repositories.autoScan',
