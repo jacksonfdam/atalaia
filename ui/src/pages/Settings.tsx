@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
+import { EmailSettings } from './EmailSettings';
 import type { SettingsPayload } from '../types';
 
 export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
@@ -110,6 +111,8 @@ export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
             : null}
         </Body>
       </Window>
+
+      <EmailSettings onAuthLost={onAuthLost} />
 
       <Window title="CREDENTIALS.SYS" accent="var(--severity-high)">
         <Body cool>

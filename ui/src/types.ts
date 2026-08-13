@@ -202,6 +202,52 @@ export interface SettingsPayload {
   credentials: Credential[];
 }
 
+export interface EmailProviderField {
+  name: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  placeholder: string | null;
+  help: string | null;
+}
+
+export interface EmailProvider {
+  id: string;
+  label: string;
+  docsUrl: string;
+  defaults: { host?: string; port?: number; username?: string };
+  note: string | null;
+  fields: EmailProviderField[];
+}
+
+export interface EmailConfig {
+  provider: string;
+  host: string | null;
+  port: number | null;
+  username: string | null;
+  hasSecret: boolean;
+  secretHint: string | null;
+  from: string | null;
+  recipients: string | null;
+  template: 'professional' | 'minimal';
+  enabled: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+export interface EmailPayload {
+  providers: EmailProvider[];
+  config: EmailConfig;
+  envLocked: boolean;
+  envVars: string[];
+  status: {
+    ready: boolean;
+    reason: string | null;
+    source: 'env' | 'database' | 'none';
+    recipients: number;
+  };
+}
+
 export interface ScanState {
   running: boolean;
   startedAt: string | null;
