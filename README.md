@@ -295,6 +295,25 @@ A first cycle also runs immediately at startup, so a fresh install has data with
 
 ---
 
+## What Atalaia does not do
+
+Atalaia reports. Every team keeps ownership of its own upgrades, and of whether an upgrade is
+compatible with the rest of what it ships.
+
+- **It never writes to GitHub.** No pull requests, no branches, no commits, no issues, no status
+  checks. Every request in the provider goes through one GET helper, and a test fails the build if a
+  write call appears in that file.
+- **It never changes a manifest.** Nothing bumps a version, edits a lockfile or opens an upgrade.
+- **It does not judge compatibility.** "Behind by a major" means the registry has a newer release
+  than the manifest allows — not that upgrading is safe, wanted, or anyone's priority. Whether that
+  major breaks you is a question about your code, and your code is where it gets answered.
+- **It does not gate anything.** There is no build to fail and no threshold to enforce.
+
+What it does instead: watch the public sources, work out which of your repositories a finding
+actually reaches, and tell the right people through Slack, email or the console.
+
+---
+
 ## Sources
 
 Atalaia ships a catalog of the public vulnerability databases it knows about
