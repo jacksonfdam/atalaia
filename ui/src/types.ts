@@ -64,6 +64,39 @@ export interface FeedHealth {
   latencyMs: number;
 }
 
+export interface CatalogEntry {
+  name: string;
+  abbreviation: string;
+  url: string;
+  apiUrl: string | null;
+  maintainer: string;
+  region: string;
+  category: string;
+  free: boolean;
+  hasApi: boolean;
+  description: string;
+  feed: string | null;
+  noAdapterReason: string | null;
+}
+
+export interface FeedSource {
+  name: string;
+  label: string;
+  enabled: boolean;
+  defaultEnabled: boolean;
+  overridden: boolean;
+  disabledReason: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  catalog: CatalogEntry | null;
+}
+
+export interface CatalogPayload {
+  count: number;
+  implemented: number;
+  databases: CatalogEntry[];
+}
+
 export interface FeedHealthReport {
   checkedAt: string;
   cached: boolean;
