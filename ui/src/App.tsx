@@ -19,7 +19,7 @@ const NAV = [
   { to: '/feeds', label: 'Sources' },
   { to: '/organizations', label: 'Organizations' },
   { to: '/repositories', label: 'Repositories' },
-  { to: '/owners', label: 'Owners' },
+  { to: '/owners', label: 'Notifications' },
   { to: '/settings', label: 'Settings' },
 ];
 

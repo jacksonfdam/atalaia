@@ -2,10 +2,19 @@ import { Fragment, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, Empty } from '../components/ui';
+import { SlackSettings } from './SlackSettings';
 import type { Assignment, Owner } from '../types';
 
 const TARGET_TYPES = ['ecosystem', 'dependency', 'repository'];
 
+/**
+ * Who gets told, and where.
+ *
+ * The Slack integration comes first because it is what decides whether anyone
+ * hears about a vulnerability at all; owners below are the routing table on top
+ * of it — a person, the ecosystems and repositories they answer for, and the
+ * Slack member ID a direct message goes to.
+ */
 export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
   const list = useApi<{ count: number; owners: Owner[] }>('/owners', onAuthLost);
   const [form, setForm] = useState({ name: '', email: '', slackUserId: '' });
@@ -58,6 +67,9 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
   }
 
   return (
+    <>
+    <SlackSettings onAuthLost={onAuthLost} />
+
     <Window
       title="OWNERS.CFG"
       note={list.data ? `${list.data.count} owners` : undefined}
@@ -243,5 +255,6 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
         ) : null}
       </Body>
     </Window>
+    </>
   );
 }

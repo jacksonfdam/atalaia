@@ -274,3 +274,29 @@ export interface ScanState {
   startedAt: string | null;
   lastRun: { startedAt: string; finishedAt: string; ok: boolean; error: string | null } | null;
 }
+
+export interface SlackPayload {
+  modes: string[];
+  config: {
+    mode: 'webhook' | 'bot';
+    hasWebhook: boolean;
+    webhookHint: string | null;
+    hasBotToken: boolean;
+    botHint: string | null;
+    destination: string | null;
+    destinationKind: 'none' | 'channel' | 'user';
+    notifyOwners: boolean;
+    enabled: boolean;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  };
+  envLocked: boolean;
+  envVars: string[];
+  interactivity: { configured: boolean; envVar: string };
+  status: {
+    ready: boolean;
+    reason: string | null;
+    source: 'env' | 'database' | 'config' | 'none';
+    mode: string;
+  };
+}
