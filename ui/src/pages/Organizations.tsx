@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, Empty, formatDate } from '../components/ui';
+import { RepositoryPicker } from '../components/RepositoryPicker';
 import type { ImportResult, Organization } from '../types';
 
 /**
@@ -18,6 +19,9 @@ export function Organizations({ onAuthLost }: { onAuthLost: () => void }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [tokenEdit, setTokenEdit] = useState<Record<string, string>>({});
+  const [picking, setPicking] = useState<string | null>(null);
+
+  const reportError = useCallback((text: string) => setMessage({ kind: 'error', text }), []);
 
   async function run(action: () => Promise<string>) {
     setBusy(true);
@@ -49,7 +53,8 @@ export function Organizations({ onAuthLost }: { onAuthLost: () => void }) {
     const skipped = result.skippedDeleted.length
       ? `, ${result.skippedDeleted.length} left out (removed here earlier)`
       : '';
-    return `${result.login}: ${result.imported} of ${result.found} repositories imported${skipped}`;
+    const missing = result.notFound?.length ? `, ${result.notFound.length} not found on GitHub` : '';
+    return `${result.login}: ${result.imported} of ${result.found} repositories imported${skipped}${missing}`;
   }
 
   return (
@@ -131,7 +136,8 @@ export function Organizations({ onAuthLost }: { onAuthLost: () => void }) {
               </thead>
               <tbody>
                 {list.data.organizations.map(org => (
-                  <tr key={org.key} style={{ opacity: org.enabled ? 1 : 0.6 }}>
+                  <Fragment key={org.key}>
+                  <tr style={{ opacity: org.enabled ? 1 : 0.6 }}>
                     <td className="mono">{org.key}</td>
                     <td>
                       <a
@@ -152,6 +158,11 @@ export function Organizations({ onAuthLost }: { onAuthLost: () => void }) {
                     <td className="tight">
                       <span className="cell-actions">
                         <button
+                          onClick={() => setPicking(picking === org.key ? null : org.key)}
+                        >
+                          {picking === org.key ? 'Close' : 'Choose repos'}
+                        </button>
+                        <button
                           disabled={busy}
                           onClick={() =>
                             run(async () =>
@@ -161,7 +172,7 @@ export function Organizations({ onAuthLost }: { onAuthLost: () => void }) {
                             )
                           }
                         >
-                          Import
+                          Import all
                         </button>
                         <button
                           disabled={busy}
@@ -216,6 +227,23 @@ export function Organizations({ onAuthLost }: { onAuthLost: () => void }) {
                       </span>
                     </td>
                   </tr>
+
+                  {picking === org.key ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <RepositoryPicker
+                          orgKey={org.key}
+                          onError={reportError}
+                          onImported={result => {
+                            setMessage({ kind: 'ok', text: importResultText(result) });
+                            setPicking(null);
+                            list.reload();
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

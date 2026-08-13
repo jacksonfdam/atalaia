@@ -141,7 +141,28 @@ export interface ImportResult {
   found: number;
   imported: number;
   skippedDeleted: string[];
+  notFound: string[];
   archived: number;
+}
+
+/** A repository as it exists on the provider, before anything is imported. */
+export interface RemoteRepository {
+  name: string;
+  url: string;
+  defaultBranch: string;
+  primaryLanguage: string | null;
+  topics: string[];
+  description: string | null;
+  archived: boolean;
+  state: 'new' | 'tracked' | 'removed';
+  enabled: boolean | null;
+}
+
+export interface RemoteRepositoryList {
+  org: string;
+  login: string;
+  count: number;
+  repositories: RemoteRepository[];
 }
 
 export interface TechnologyReport {
