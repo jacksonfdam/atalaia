@@ -428,6 +428,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `PATCH` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / enable-disable / soft-delete. |
 | `POST` | `/api/v1/repositories/:idOrUrl/restore` | Undo a soft delete. |
 | `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies. |
+| `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
 | `POST` | `/api/v1/repositories/:idOrUrl/scan` | Scan one repository. |
 | `POST` | `/api/v1/repositories/scan-all` | Scan every configured repository. |
@@ -445,6 +446,30 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 
 Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)
+
+---
+
+## When a vulnerability reaches a repository
+
+A CVE only matters here if it lands in something you ship, so Atalaia answers that in both
+directions:
+
+- **The alert says so.** The Slack message lists the affected repositories and the owners
+  responsible, alongside the CVE itself.
+- **The repository says so.** Repositories carry an **Exposure** column — worst severity, how many
+  open CVEs, and a 🚨 when one of them is known-exploited. Expanding a row lists each CVE with the
+  dependency and the manifest file it arrives through, which is the file you actually have to open.
+- **The overview says so.** `EXPOSED_REPOS.LST` ranks the repositories carrying the most open CVEs.
+- **The CVE says so.** A vulnerability's detail page lists the repositories it touches.
+
+The link is computed, never stored: dependencies change with every scan and a CVE's technology
+list can be enriched after the fact, so a stored join would go quietly stale.
+
+Coverage depends on a scan having run — `Scan all`, or the nightly schedule
+(`repositories.autoScan`). Manifests parsed include npm, pip, Go, Cargo, Maven, Gradle, RubyGems,
+NuGet, Composer, Terraform, Dockerfiles and **GitHub Actions workflows** — CI pulls third-party
+actions and container images by tag, and a tag nobody upgrades on purpose is exactly where an old
+vulnerable dependency hides.
 
 ---
 
