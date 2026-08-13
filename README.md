@@ -359,6 +359,13 @@ reads their language breakdown and reads manifest files. Every request in the
 provider goes through one GET helper; nothing is ever written back — no issues,
 no commits, no status checks.
 
+**Finding one among many.** `GET /api/v1/repositories` takes `search`, `org`, `language`,
+`enabled`, `archived` and `exposure` (`affected` / `exploited` / `clean`), sorts by `name`,
+`exposure`, `last_scanned_at`, `primary_language`, `org_key` or `updated_at` in either direction,
+and pages with `limit` (25 by default, 200 at most) and `offset`. The response carries the totals
+behind the page and the values the console needs for its filter menus. The console exposes all of
+it in the toolbar above the table.
+
 **Personal accounts.** A token only ever exposes the private repositories of *its own* account, so
 registering someone else's login lists their public repositories and nothing more. The picker says
 so when that happens instead of quietly showing a short list.
@@ -424,7 +431,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/organizations/:key/repositories` | What the token can see, annotated with what is already tracked. Reads only. |
 | `POST` | `/api/v1/organizations/:key/import` | Import that organization's repositories, or a subset via `{"repositories":["org/a"]}`. |
 | `POST` | `/api/v1/organizations/import` | Import every enabled organization. |
-| `GET` `POST` | `/api/v1/repositories` | List / add a monitored repository. |
+| `GET` `POST` | `/api/v1/repositories` | List (filtered, sorted, paginated) / add a monitored repository. |
 | `GET` `PATCH` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / enable-disable / soft-delete. |
 | `POST` | `/api/v1/repositories/:idOrUrl/restore` | Undo a soft delete. |
 | `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies. |
