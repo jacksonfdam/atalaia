@@ -21,11 +21,15 @@ const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..');
  * Scan all repositories from all configured providers.
  * Creates provider instances per org, discovers repos, upserts them, and scans each.
  *
- * @param {{ skipVendorLookup?: boolean }} [options]
+ * @param {{ skipVendorLookup?: boolean, onProgress?: (event: object) => void }} [options]
  * @returns {Promise<{ totalRepos: number, totalDeps: number, errors: string[] }>}
  */
 export async function scanAllRepositories(options = {}) {
     const providers = organizationsToScan();
+    // A no-op by default: a scan run from the CLI has the log for company.
+    const report = options.onProgress ?? (() => {});
+
+    report({ type: 'organizations', total: providers.length });
 
     if (providers.length === 0) {
         logger.warn('No organizations registered and no providers in config.json — nothing to scan');
@@ -40,8 +44,10 @@ export async function scanAllRepositories(options = {}) {
     const errors = [];
 
     for (const providerConfig of providers) {
+        report({ type: 'organization-start', org: providerConfig.key });
+
         try {
-            const result = await scanProvider(providerConfig, options);
+            const result = await scanProvider(providerConfig, options, report);
             totalRepos += result.repoCount;
             totalDeps += result.depCount;
             errors.push(...result.errors);
@@ -49,7 +55,10 @@ export async function scanAllRepositories(options = {}) {
             const msg = `Provider ${providerConfig.key}: ${error.message}`;
             logger.error({ provider: providerConfig.key, err: error }, 'Provider scan failed');
             errors.push(msg);
+            report({ type: 'error', message: msg });
         }
+
+        report({ type: 'organization-done', org: providerConfig.key });
     }
 
     logger.info({ totalRepos, totalDeps, errorCount: errors.length }, 'All repository scans complete');
@@ -78,7 +87,7 @@ function organizationsToScan() {
 /**
  * Scan a single provider (org).
  */
-async function scanProvider(providerConfig, options) {
+async function scanProvider(providerConfig, options, report = () => {}) {
     const { key, type, org } = providerConfig;
 
     logger.info({ provider: key, type, org }, 'Scanning provider');
@@ -127,14 +136,23 @@ async function scanProvider(providerConfig, options) {
     let depCount = 0;
     const errors = [];
 
+    report({ type: 'repositories', org: key, total: activeRepos.length });
+
+    // One at a time: the log stays readable and the GitHub rate limit is never
+    // the thing that breaks a scan.
     for (const repo of activeRepos) {
+        report({ type: 'repository-start', repository: repo.name, org: key });
+
         try {
             const result = await scanRepository(repo.id, provider, options);
             depCount += result.dependencyCount;
+            report({ type: 'repository-done', repository: repo.name, dependencies: result.dependencyCount });
         } catch (error) {
             const msg = `${repo.name}: ${error.message}`;
             logger.error({ repoId: repo.id, name: repo.name, err: error }, 'Repository scan failed');
             errors.push(msg);
+            report({ type: 'error', message: msg });
+            report({ type: 'repository-done', repository: repo.name, dependencies: 0 });
         }
     }
 

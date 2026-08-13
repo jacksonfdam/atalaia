@@ -9,13 +9,13 @@ import {
     setRepoEnabled,
 } from '../../application/manageRepository.js';
 import { scanRepository } from '../../application/scanRepository.js';
-import { scanAllRepositories } from '../../application/scanAllRepositories.js';
 import { providerForOrg } from '../../application/manageOrganization.js';
 import {
     getRepositoryTechnologies,
     refreshRepositoryLanguages,
 } from '../../application/repositoryTechnologies.js';
 import { getRepositoryVulnerabilities, summarizeFleetRisk } from '../../application/repositoryRisk.js';
+import { startFleetScan, fleetScanState } from '../../application/repositoryScanRunner.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -45,18 +45,25 @@ export function createRepositoryRoutes() {
         });
     });
 
-    // POST /repositories/scan-all — declared before /:id so "scan-all" is not
-    // parsed as an identifier
-    router.post('/scan-all', async (req, res) => {
-        try {
-            const result = await scanAllRepositories({
-                skipVendorLookup: req.body?.skipVendorLookup === true,
-            });
-            res.json(result);
-        } catch (error) {
-            logger.error({ err: error }, 'Scan of all repositories failed');
-            res.status(500).json({ error: error.message });
+    // GET /repositories/scan-all — progress of the running scan, or the last one.
+    // Declared before /:idOrUrl so "scan-all" is not parsed as an identifier.
+    router.get('/scan-all', (_req, res) => {
+        res.json(fleetScanState());
+    });
+
+    // POST /repositories/scan-all — starts it and returns immediately.
+    //
+    // Scanning a hundred repositories takes far longer than any HTTP client
+    // waits, so the work is detached and the caller polls the GET above.
+    router.post('/scan-all', (req, res) => {
+        const result = startFleetScan({ skipVendorLookup: req.body?.skipVendorLookup === true });
+
+        if (!result.accepted) {
+            return res.status(409).json({ error: 'A repository scan is already running', ...result.state });
         }
+
+        logger.info('Fleet scan triggered via API');
+        res.status(202).json({ accepted: true, startedAt: result.startedAt });
     });
 
     // POST /repositories
