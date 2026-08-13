@@ -239,3 +239,81 @@ describe('feed control', () => {
         expect(osv.noAdapterReason).toBeTruthy();
     });
 });
+
+describe('repository exposure', () => {
+    let repoId;
+
+    beforeEach(async () => {
+        getDb().exec("DELETE FROM vulnerabilities;");
+
+        const created = await request(app)
+            .post('/api/v1/repositories')
+            .set(KEY)
+            .send({ url: 'https://github.com/acme/pipeline' });
+        repoId = created.body.id;
+
+        getDb()
+            .prepare(
+                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, version, manifest_file)
+                 VALUES (?, 'GITHUB_ACTIONS', 'actions/checkout', 'v3', '.github/workflows/ci.yml'),
+                        (?, 'NPM', 'express', '4.0.0', 'package.json')`
+            )
+            .run(repoId, repoId);
+
+        getDb()
+            .prepare(
+                `INSERT INTO vulnerabilities (cve_id, title, severity, cvss_score, exploited, source, affected_technologies, status)
+                 VALUES ('CVE-2026-1000', 'Bad action', 'CRITICAL', 9.8, 1, 'ghsa', '["actions/checkout"]', 'OPEN'),
+                        ('CVE-2026-1001', 'Old express', 'MEDIUM', 5.3, 0, 'ghsa', '["express"]', 'OPEN'),
+                        ('CVE-2026-1002', 'Fixed already', 'HIGH', 7.5, 0, 'nvd', '["express"]', 'RESOLVED'),
+                        ('CVE-2026-1003', 'Unrelated', 'HIGH', 7.1, 0, 'nvd', '["kubernetes"]', 'OPEN')`
+            )
+            .run();
+    });
+
+    test('lists what reaches the repository, and through which dependency', async () => {
+        const res = await request(app).get(`/api/v1/repositories/${repoId}/vulnerabilities`).set(KEY);
+
+        expect(res.status).toBe(200);
+        expect(res.body.count).toBe(2);
+        expect(res.body.worst).toBe('CRITICAL');
+        expect(res.body.exploited).toBe(1);
+
+        const action = res.body.vulnerabilities.find(v => v.cveId === 'CVE-2026-1000');
+        expect(action.matches).toEqual([
+            expect.objectContaining({
+                dependency: 'actions/checkout',
+                ecosystem: 'GITHUB_ACTIONS',
+                manifestFile: '.github/workflows/ci.yml',
+            }),
+        ]);
+    });
+
+    test('leaves out what does not reach it, and what is already resolved', async () => {
+        const res = await request(app).get(`/api/v1/repositories/${repoId}/vulnerabilities`).set(KEY);
+        const ids = res.body.vulnerabilities.map(v => v.cveId);
+
+        expect(ids).not.toContain('CVE-2026-1003');
+        expect(ids).not.toContain('CVE-2026-1002');
+    });
+
+    test('includes resolved ones on request', async () => {
+        const res = await request(app)
+            .get(`/api/v1/repositories/${repoId}/vulnerabilities?includeResolved=true`)
+            .set(KEY);
+
+        expect(res.body.vulnerabilities.map(v => v.cveId)).toContain('CVE-2026-1002');
+    });
+
+    test('the list endpoint carries the exposure of every repository', async () => {
+        const res = await request(app).get('/api/v1/repositories').set(KEY);
+
+        expect(res.body.atRisk).toBe(1);
+        expect(res.body.repositories[0].risk).toMatchObject({
+            total: 2,
+            worst: 'CRITICAL',
+            exploited: true,
+            bySeverity: { CRITICAL: 1, MEDIUM: 1 },
+        });
+    });
+});
