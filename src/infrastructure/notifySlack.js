@@ -1,27 +1,18 @@
 import axios from "axios";
-import config from "./config.js";
-import { getSetting } from "./settings.js";
 import logger from "./logger.js";
+import { resolveSlackConfig, describeDestination } from "./notifiers/slackConfig.js";
+
+const SLACK_API = "https://slack.com/api/chat.postMessage";
+const TIMEOUT_MS = 10_000;
 
 /**
- * Send vulnerability notification to Slack using Block Kit.
+ * Build the Block Kit payload for a vulnerability.
+ *
  * @param {Vulnerability} vuln
  * @param {boolean} highlight  -> @channel if Critical or Exploited
+ * @param {{ affectedRepositories?: object[], owners?: object[] }} [correlation]
  */
-async function notifySlack(vuln, highlight = false) {
-    // Read through the settings resolver so the console's toggle takes effect
-    // without a restart (env still wins over anything set there).
-    if (!getSetting('slack.enabled')) {
-        logger.debug({ cveId: vuln.cveId }, 'Slack notifications disabled, skipping alert');
-        return;
-    }
-
-    if (!config.slack.webhookUrl) {
-        logger.error("Missing Slack webhook URL");
-        return;
-    }
-
-    // Header based on severity / exploit status
+export function buildVulnerabilityMessage(vuln, highlight = false, correlation = {}) {
     const header = vuln.exploited
         ? "🚨 EXPLOITED VULNERABILITY"
         : vuln.severity?.toUpperCase() === "CRITICAL"
@@ -35,7 +26,6 @@ async function notifySlack(vuln, highlight = false) {
 
     const technologies = (vuln.affectedTechnologies || []).join(", ") || "N/A";
 
-    // Block Kit message
     const blocks = [
         {
             type: "header",
@@ -60,13 +50,37 @@ async function notifySlack(vuln, highlight = false) {
 
     blocks.push({
         type: "section",
-        text: {
-            type: "mrkdwn",
-            text: `*What this means:*\n${explanation}`,
-        },
+        text: { type: "mrkdwn", text: `*What this means:*\n${explanation}` },
     });
 
-    // Exploit warning context
+    // What of ours it touches. This is the difference between "a CVE exists"
+    // and "a CVE is in something you ship", so it goes in the message.
+    const repositories = correlation.affectedRepositories ?? [];
+    if (repositories.length > 0) {
+        const names = repositories
+            .slice(0, 5)
+            .map(repo => (repo.url ? `<${repo.url}|${repo.name}>` : repo.name))
+            .join(", ");
+        const rest = repositories.length > 5 ? ` and ${repositories.length - 5} more` : "";
+
+        blocks.push({
+            type: "section",
+            text: { type: "mrkdwn", text: `*Affected repositories:*\n${names}${rest}` },
+        });
+    }
+
+    const owners = correlation.owners ?? [];
+    if (owners.length > 0) {
+        const mentions = owners
+            .map(owner => (owner.slack_user_id ? `<@${owner.slack_user_id}>` : owner.name))
+            .join(", ");
+
+        blocks.push({
+            type: "context",
+            elements: [{ type: "mrkdwn", text: `Owners: ${mentions}` }],
+        });
+    }
+
     if (vuln.exploited) {
         blocks.push({
             type: "context",
@@ -74,7 +88,6 @@ async function notifySlack(vuln, highlight = false) {
         });
     }
 
-    // Action buttons for CVEs that can be tracked
     if (vuln.cveId) {
         blocks.push({
             type: "actions",
@@ -97,18 +110,120 @@ async function notifySlack(vuln, highlight = false) {
         });
     }
 
-    // @channel in text fallback for critical/exploited vulns
     const channelTag = highlight ? "@channel " : "";
-    const message = {
+
+    return {
         text: `${channelTag}${header} — ${vuln.cveId || vuln.title}`,
         blocks,
     };
+}
+
+/**
+ * Deliver one message through whichever transport is configured.
+ *
+ * @param {object} config Resolved Slack configuration
+ * @param {object} message Block Kit payload
+ * @param {string} [destination] Overrides the configured one (bot mode only)
+ */
+export async function deliver(config, message, destination) {
+    if (config.mode === 'bot') {
+        const channel = describeDestination(destination ?? config.destination).value;
+        if (!channel) throw new Error('No channel or user to post to');
+
+        const { data } = await axios.post(
+            SLACK_API,
+            { channel, ...message },
+            {
+                timeout: TIMEOUT_MS,
+                headers: {
+                    Authorization: `Bearer ${config.botToken}`,
+                    'Content-Type': 'application/json; charset=utf-8',
+                },
+            }
+        );
+
+        // chat.postMessage answers 200 with ok:false on failure, so the HTTP
+        // status alone would report a silent drop as a success.
+        if (!data.ok) throw new Error(`Slack rejected the message: ${data.error}`);
+        return { channel: data.channel ?? channel, ts: data.ts };
+    }
+
+    if (!config.webhookUrl) throw new Error('No webhook URL configured');
+
+    await axios.post(config.webhookUrl, message, { timeout: TIMEOUT_MS });
+    return { channel: 'webhook' };
+}
+
+/**
+ * Send a vulnerability notification to Slack.
+ *
+ * @param {Vulnerability} vuln
+ * @param {boolean} highlight
+ * @param {{ affectedRepositories?: object[], owners?: object[] }} [correlation]
+ */
+async function notifySlack(vuln, highlight = false, correlation = {}) {
+    const config = resolveSlackConfig();
+
+    if (!config.ready) {
+        logger.debug({ cveId: vuln.cveId, reason: config.reason }, 'Slack alert skipped');
+        return;
+    }
+
+    const message = buildVulnerabilityMessage(vuln, highlight, correlation);
 
     try {
-        await axios.post(config.slack.webhookUrl, message, { timeout: 10000 });
-        logger.info({ cveId: vuln.cveId, title: vuln.title }, 'Sent Slack alert');
+        await deliver(config, message);
+        logger.info({ cveId: vuln.cveId, mode: config.mode }, 'Sent Slack alert');
     } catch (err) {
-        logger.error({ err }, 'Failed to send Slack message');
+        logger.error({ err, cveId: vuln.cveId, mode: config.mode }, 'Failed to send Slack message');
+        return;
+    }
+
+    // Direct messages to the people responsible, when asked for. Only a bot
+    // token can do this: an incoming webhook is bound to its own channel.
+    if (!config.notifyOwners || config.mode !== 'bot') return;
+
+    const owners = (correlation.owners ?? []).filter(owner => owner.slack_user_id);
+
+    for (const owner of owners) {
+        try {
+            await deliver(config, message, owner.slack_user_id);
+            logger.info({ cveId: vuln.cveId, owner: owner.email }, 'Sent Slack DM to owner');
+        } catch (err) {
+            logger.warn({ err, owner: owner.email }, 'Failed to DM owner');
+        }
+    }
+}
+
+/**
+ * Post a message the operator asked for, reporting what happened.
+ * @returns {Promise<{ ok: boolean, mode?: string, channel?: string, error?: string }>}
+ */
+export async function sendTestMessage() {
+    const config = resolveSlackConfig();
+    if (!config.ready) {
+        return { ok: false, error: config.reason ?? 'Slack is not configured' };
+    }
+
+    const message = {
+        text: 'Atalaia test message',
+        blocks: [
+            {
+                type: 'section',
+                text: {
+                    type: 'mrkdwn',
+                    text: '✅ *Atalaia is connected.*\nVulnerability alerts will arrive here.',
+                },
+            },
+        ],
+    };
+
+    try {
+        const result = await deliver(config, message);
+        return { ok: true, mode: config.mode, channel: result.channel };
+    } catch (err) {
+        logger.warn({ err, mode: config.mode }, 'Slack test message failed');
+        return { ok: false, mode: config.mode, error: err.message };
     }
 }
 
