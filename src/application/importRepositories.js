@@ -60,6 +60,9 @@ export async function previewOrgRepositories(key) {
 
     logger.info({ org: key, login: org.login }, 'Listing repositories for selection');
 
+    // What the token can reach for this login, so a short list can be explained
+    // instead of leaving the operator to guess.
+    const access = await provider.describeAccess(org.login);
     const remote = await provider.listRepositories(org.login);
 
     const repositories = remote.map(repo => {
@@ -80,7 +83,7 @@ export async function previewOrgRepositories(key) {
         };
     });
 
-    return { org: key, login: org.login, count: repositories.length, repositories };
+    return { org: key, login: org.login, count: repositories.length, access, repositories };
 }
 
 /** Match a selection entry against a repository, by full name or by URL. */

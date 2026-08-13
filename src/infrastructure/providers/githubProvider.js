@@ -30,6 +30,63 @@ export class GitHubProvider {
         };
     }
 
+    /**
+     * Who the token belongs to, or null when there is no token.
+     * Memoised: it is asked once per listing, and the answer cannot change
+     * within the life of one provider instance.
+     */
+    async _authenticatedLogin() {
+        if (!this.token) return null;
+        if (this._login !== undefined) return this._login;
+
+        try {
+            const data = await this._get(`${GITHUB_API}/user`);
+            this._login = data?.login ?? null;
+        } catch (error) {
+            logger.warn({ err: error.message }, 'GitHub /user failed; treating the token as anonymous');
+            this._login = null;
+        }
+
+        return this._login;
+    }
+
+    /**
+     * What this token can actually see for a given login.
+     *
+     * The distinction matters: /users/:login/repos returns public repositories
+     * only — a token does not widen it. Private repositories of a personal
+     * account are reachable through /user/repos, and only for the account the
+     * token belongs to.
+     *
+     * @param {string} login
+     * @returns {Promise<{ kind: 'organization'|'self'|'user', visibility: 'all'|'public',
+     *                     authenticatedAs: string|null }>}
+     */
+    async describeAccess(login) {
+        const authenticatedAs = await this._authenticatedLogin();
+
+        try {
+            const data = await this._get(`${GITHUB_API}/orgs/${login}`);
+            if (data?.login) {
+                return {
+                    kind: 'organization',
+                    visibility: this.token ? 'all' : 'public',
+                    authenticatedAs,
+                };
+            }
+        } catch {
+            // Not an organization — fall through to the user case.
+        }
+
+        const isSelf = Boolean(authenticatedAs) && authenticatedAs.toLowerCase() === login.toLowerCase();
+
+        return {
+            kind: isSelf ? 'self' : 'user',
+            visibility: isSelf ? 'all' : 'public',
+            authenticatedAs,
+        };
+    }
+
     /** The single outbound request path. GET only, deliberately. */
     async _get(url, params = {}) {
         const { data } = await axios.get(url, {
@@ -182,15 +239,31 @@ export class GitHubProvider {
     }
 
     async _listUserRepos(user) {
+        const authenticatedAs = await this._authenticatedLogin();
+        const isSelf = Boolean(authenticatedAs) && authenticatedAs.toLowerCase() === user.toLowerCase();
+
+        // /users/:login/repos is public-only, whatever the token. The private
+        // repositories of a personal account live behind /user/repos, and only
+        // for the account the token belongs to.
+        const url = isSelf ? `${GITHUB_API}/user/repos` : `${GITHUB_API}/users/${user}/repos`;
+
+        if (!isSelf) {
+            logger.warn(
+                { user, authenticatedAs },
+                'Listing a personal account that is not the token owner — only public repositories are visible'
+            );
+        }
+
         const repos = [];
         let page = 1;
         let hasMore = true;
 
         while (hasMore) {
-            const data = await this._get(`${GITHUB_API}/users/${user}/repos`, {
+            const data = await this._get(url, {
                 per_page: PER_PAGE,
                 page,
-                type: 'owner',
+                // affiliation is the /user/repos spelling; type is the other's.
+                ...(isSelf ? { affiliation: 'owner,collaborator,organization_member' } : { type: 'owner' }),
             });
 
             if (!Array.isArray(data) || data.length === 0) break;
@@ -203,7 +276,7 @@ export class GitHubProvider {
             page++;
         }
 
-        logger.info({ user, count: repos.length }, 'Listed GitHub user repositories');
+        logger.info({ user, count: repos.length, isSelf }, 'Listed GitHub user repositories');
         return repos;
     }
 
