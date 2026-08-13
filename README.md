@@ -12,7 +12,8 @@ Built for teams that ship fast and need security to keep up.
 
 Most vulnerability scanners are reactive — they tell you what's wrong *after* the fact. Atalaia continuously monitors public feeds and notifies your team the moment a relevant CVE is published, with severity context, exploit status, and one-click triage.
 
-- **6 intelligence sources** in a single pipeline — CISA KEV, NVD, Snyk, VulDB, CVE Details, OpenCVE
+- **14 intelligence sources** in a single pipeline — NVD, CISA KEV, MITRE, GHSA, EUVD, OpenCVE, Snyk, VulDB and vendor/regional feeds — each one switchable at runtime
+- **Read-only GitHub import** — several organizations, each with its own token, and the technologies every repository actually uses
 - **Stack-aware filtering** — only see vulnerabilities that affect *your* technologies
 - **Slack-native workflow** — Block Kit alerts with Acknowledge/Resolve buttons, no context-switching
 - **Weekly executive reports** — severity-grouped HTML emails for stakeholders
@@ -218,7 +219,11 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 | `FEED_HEALTH_TTL_MS` | `60000` | Cache TTL for `/api/v1/feeds/health`. |
 | `OPENCVE_API_URL` | — | OpenCVE instance for vendor/product lookup. |
 | `OPENCVE_API_TOKEN` | — | OpenCVE token. |
-| `GITHUB_TOKEN` | — | Fallback token for repository scanning when no provider token is configured. |
+| `GITHUB_TOKEN` | — | Fallback token for the GHSA feed and for repository scanning when an organization has none of its own. |
+| `TOKEN_ENCRYPTION_KEY` | falls back to `API_KEY` | Key used to encrypt organization tokens at rest. Change it and the stored tokens become unreadable. |
+| `MITRE_MAX_RECORDS` | `25` | CVE records fetched per cycle from the MITRE delta — one request each. |
+| `REDHAT_PAGE_SIZE` | `100` | CVEs per Red Hat Security Data page. |
+| `USN_LIMIT` | `10` | Ubuntu notices per cycle. A single kernel notice can carry hundreds of CVEs. |
 
 ### LLM summaries
 
@@ -250,7 +255,7 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 | `slack.enabled` / `slack.webhookUrl` | Slack switch and webhook (env-substituted). |
 | `feeds.*` | Source URLs for CISA, Snyk, VulDB. |
 | `opencve.*` | OpenCVE API URL and token (env-substituted). |
-| `providers[]` | Git providers (org key, type, token) for repository scanning. |
+| `providers[]` | Git providers (org key, type, token) pinned in configuration. Organizations registered in the console take precedence over an entry with the same key. |
 | `repositories.autoScan` / `scanCron` | Scheduled dependency scanning. |
 | `repositories.autoFilterFromDeps` | Extend the technology filter from scanned dependencies. |
 | `filterSettings.enabled` / `technologies[]` | The stack filter applied to every feed item. |
@@ -262,25 +267,112 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 ```
 ┌─────────────┐     ┌──────────────┐     ┌───────────┐     ┌───────────┐
 │  CVE Feeds  │────▶│  Filter by   │────▶│ Deduplicate│────▶│  Notify   │
-│  (6 sources)│     │  Tech Stack  │     │  & Merge   │     │  Slack +  │
-│             │     │              │     │  (SQLite)  │     │  Email    │
+│  (enabled   │     │  Tech Stack  │     │  & Merge   │     │  Slack +  │
+│   sources)  │     │              │     │  (SQLite)  │     │  Email    │
 └─────────────┘     └──────────────┘     └───────────┘     └───────────┘
-     CISA KEV            config/              Source           Block Kit
-     NVD                 technologies.json    priority         buttons
-     Snyk                                    ranking          + weekly
-     VulDB                                                    reports
-     CVE Details
-     OpenCVE
+     NVD                 config/              Source           Block Kit
+     CISA KEV            technologies.json    priority         buttons
+     MITRE / EUVD                             ranking          + weekly
+     GHSA / OpenCVE                                            reports
+     Snyk / VulDB
+     …and the rest,
+     off by default
 ```
 
 1. **Scheduler** triggers monitoring on a configurable cron interval
-2. **Feed aggregator** fetches all sources concurrently — one feed failure never blocks others
+2. **Feed aggregator** fetches all enabled sources concurrently — one feed failure never blocks others
 3. **Tech filter** matches CVEs against your stack (case-insensitive, configurable at runtime)
 4. **Deduplication** checks SQLite cache; merges multi-source CVEs using priority ranking
 5. **Notification** sends Slack alerts with interactive buttons + optional LLM explanation
 6. **Weekly digest** emails a severity-grouped report to stakeholders
 
 A first cycle also runs immediately at startup, so a fresh install has data within a minute.
+
+---
+
+## Sources
+
+Atalaia ships a catalog of the public vulnerability databases it knows about
+(`config/vulnerability-databases.json`, kept in step with
+[haxdoggy/vulnerability-databases](https://github.com/haxdoggy/vulnerability-databases)).
+The catalog is deliberately larger than the set Atalaia collects: a database you
+cannot collect is still worth seeing, along with the reason.
+
+Each source with an adapter can be switched on or off at runtime, from the
+console's **Sources** page or through the API. The choice is stored in the
+database, so it survives a restart; sources you never touch keep following the
+default shipped in the registry.
+
+```bash
+curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"enabled":true}' http://localhost:3000/api/v1/feeds/ubuntu
+
+curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/feeds/catalog
+```
+
+| Source | Default | Notes |
+|--------|---------|-------|
+| `nvd` | on | CVSS, CWE and CPE enrichment. |
+| `cisa` | on | Known Exploited Vulnerabilities — the only source that marks active exploitation. |
+| `mitre` | on | Authoritative CVE records, read from `cvelistV5`'s delta. Capped by `MITRE_MAX_RECORDS`. |
+| `opencve` | on | Vendor/product correlation. |
+| `ghsa` | on | GitHub advisories, package-level precision. Needs `GITHUB_TOKEN` for a usable rate limit. |
+| `euvd` | on | ENISA's European database. |
+| `snyk` | on | Scraped. |
+| `vuldb` | on | RSS; rarely carries a CVSS score. |
+| `redhat` | off | Vendor source, for Red Hat and CentOS based images. |
+| `ubuntu` | off | Vendor source, for Debian and Ubuntu based images. |
+| `zdi` | off | Often published before a patch exists. |
+| `certeu` | off | Regional, largely redundant with NVD. |
+| `certfr` | off | Regional, French. |
+| `cvedetails` | off | Blocks scrapers with a 403. |
+
+A source that answers with zero items is reported as `EMPTY` rather than
+healthy, and the health report shows how many of the items actually carry a
+CVSS score — a feed can be alive and still be useless for triage.
+
+---
+
+## Organizations and repositories
+
+Atalaia correlates CVEs against the code you actually ship, which means knowing
+your repositories. Register a GitHub organization (or user) with a read-only
+token and import them; several organizations with different tokens is the
+normal case, and each token is stored encrypted and never returned by the API.
+
+```bash
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"login":"my-company","token":"ghp_…"}' \
+  http://localhost:3000/api/v1/organizations
+
+curl -X POST -H "X-API-Key: $API_KEY" \
+  http://localhost:3000/api/v1/organizations/my-company/import
+```
+
+**Everything Atalaia does against GitHub is read-only.** It lists repositories,
+reads their language breakdown and reads manifest files. Every request in the
+provider goes through one GET helper; nothing is ever written back — no issues,
+no commits, no status checks.
+
+What the importer does:
+
+- Lists every repository the token can see, including archived ones, which are
+  imported **switched off** rather than skipped.
+- Records the primary language, the language breakdown, topics and description.
+- Leaves repositories you removed removed — a re-import does not resurrect them.
+- Leaves your enable/disable choice alone — a re-import does not flip it back.
+
+Per repository you get two independent views of its technologies:
+**languages and topics** as reported by GitHub, and **ecosystems** derived from
+the manifests found by a dependency scan. A repository can report "TypeScript"
+and still carry its risk inside a Dockerfile, so the two are shown separately.
+
+Removing an organization also removes the repositories imported under it — they
+would otherwise be left with no credential that reaches them.
+
+Tokens need read access only: `public_repo` (or `repo` for private ones) on a
+classic token, or *Contents: read-only* and *Metadata: read-only* on a
+fine-grained one.
 
 ---
 
@@ -308,11 +400,20 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
 | `GET` | `/api/v1/technologies` | Current stack filter. |
 | `POST` | `/api/v1/technologies` | Update the stack filter. |
-| `GET` | `/api/v1/feeds` | Configured feeds. |
+| `GET` | `/api/v1/feeds` | Every source, its state and its catalog entry. |
+| `PATCH` | `/api/v1/feeds/:name` | Enable or disable a source (`{ "enabled": true }`). |
+| `DELETE` | `/api/v1/feeds/:name/override` | Follow the registry default again. |
+| `GET` | `/api/v1/feeds/catalog` | Every public database Atalaia knows about, collected or not. |
 | `GET` | `/api/v1/feeds/health` | Per-feed items, CVSS coverage, latency, failure reason. |
+| `GET` `POST` | `/api/v1/organizations` | List / register an organization (`{ login, key?, name?, token? }`). |
+| `GET` `PATCH` `DELETE` | `/api/v1/organizations/:key` | Inspect / update token and state / remove with its repositories. |
+| `POST` | `/api/v1/organizations/:key/import` | Import that organization's repositories. |
+| `POST` | `/api/v1/organizations/import` | Import every enabled organization. |
 | `GET` `POST` | `/api/v1/repositories` | List / add a monitored repository. |
-| `GET` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / soft-delete. |
+| `GET` `PATCH` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / enable-disable / soft-delete. |
+| `POST` | `/api/v1/repositories/:idOrUrl/restore` | Undo a soft delete. |
 | `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies. |
+| `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
 | `POST` | `/api/v1/repositories/:idOrUrl/scan` | Scan one repository. |
 | `POST` | `/api/v1/repositories/scan-all` | Scan every configured repository. |
 | `GET` `POST` | `/api/v1/owners` | List / create owners. |
@@ -343,8 +444,9 @@ open http://localhost:3001
 |------|-----------------|
 | Overview | Counts by severity/status/source, open criticals, trigger a monitoring cycle |
 | Vulnerabilities | Filter, paginate, acknowledge and resolve |
-| Sources | Live per-feed health — items returned, how many carry a CVSS score, latency, failure reason |
-| Repositories | Add, scan, inspect parsed dependencies |
+| Sources | Enable/disable each source, live per-feed health, and the full database catalog |
+| Organizations | Register GitHub organizations with their own tokens and import their repositories |
+| Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies |
 | Owners | Owners and their ecosystem/dependency/repository assignments |
 | Settings | Slack toggle, schedules, LLM provider, email — plus which credentials are configured |
 
@@ -398,9 +500,14 @@ ui/                   # Console service — no imports from src/
 ├── server/           # BFF: session auth + API-key-injecting proxy
 └── src/              # React client
 
+config/               # Technology filter, vendor mappings, database catalog
 db/migrations/        # SQL migrations, applied on startup
 scripts/atalaia.sh      # Launcher for both services, Docker or local
 ```
+
+One source per file under `infrastructure/feeds/`, listed in `feedRegistry.js`
+— the single list the monitoring cycle and the health check both read, so a
+source can never be collected but invisible to health checks, or the reverse.
 
 Full architecture guide: [Wiki — Architecture](https://github.com/jacksonfdam/atalaia/wiki/Architecture)
 
@@ -452,7 +559,10 @@ Tests live in `tests/unit/` and `tests/integration/`. HTTP tests mount the app t
 | Console loads but every request 401s | `API_KEY` in the console's environment does not match the API's. |
 | Port already in use | Another instance is running: `./scripts/atalaia.sh status`, then `down`. Or change `PORT` / `UI_PORT`. |
 | Slack buttons do nothing | `SLACK_SIGNING_SECRET` missing, or Slack cannot reach the callback URL — locally that needs the ngrok tunnel. |
-| Feed shows as failing under Sources | Upstream scraping target changed or is rate-limiting. The cycle continues; other feeds are unaffected. |
+| Feed shows as failing under Sources | Upstream scraping target changed or is rate-limiting. The cycle continues; other feeds are unaffected. Disable it from the Sources page if it stays broken. |
+| GHSA returns 403 | Unauthenticated GitHub calls get 60 requests/hour per IP. Set `GITHUB_TOKEN`. |
+| `Cannot decrypt the token for "…"` | `TOKEN_ENCRYPTION_KEY` (or `API_KEY`, when it is the fallback) is not the value the token was stored with. Save the token again. |
+| `GitHub rejected the token for this organization` | The token expired or cannot see that organization. Replace it on the Organizations page. |
 | Docker build is slow the first time | `better-sqlite3` is compiled from source — no musl prebuilds. Later builds are cached. |
 | No console bundle in local mode | `pnpm --filter atalaia-console run build`, or `./scripts/atalaia.sh up --local --build`. |
 
