@@ -1,0 +1,34 @@
+# pnpm settings. As of pnpm 11 these live here, not in package.json's "pnpm" field.
+
+# Two services: the API (root) and the management console (ui). The console has
+# its own package.json so React and Vite never enter the API's dependency tree.
+packages:
+  - '.'
+  - 'ui'
+
+# Security pins for transitive dependencies with known advisories.
+# Each entry corresponds to a GitHub advisory that `pnpm audit` reported;
+# drop an entry once the direct dependent ships a fixed range on its own.
+overrides:
+  '@babel/core@7': ^7.29.7
+  'brace-expansion@1': ^1.1.18
+  'brace-expansion@2': ^2.1.4
+  'brace-expansion@>=3': ^5.0.9
+  'form-data@4': ^4.0.6
+  'js-yaml@3': ^3.15.1
+  'qs@6': ^6.15.3
+  'undici@7': ^7.29.0
+  'uuid@11': ^11.1.1
+  'ws@8': ^8.21.3
+  # 8.9.2 is newer than the minimumReleaseAge cutoff; unpin once it ages in.
+  'node-addon-api@8': 8.9.1
+
+# Packages allowed to run install/postinstall scripts (native builds).
+allowBuilds:
+  '@ngrok/ngrok': true
+  better-sqlite3: true
+  esbuild: true
+  unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - '@rolldown/binding-linux-s390x-gnu@1.2.4'
