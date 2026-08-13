@@ -5,6 +5,7 @@ import * as dockerParser from './dockerParser.js';
 import * as cargoParser from './cargoParser.js';
 import * as mavenParser from './mavenParser.js';
 import * as gradleParser from './gradleParser.js';
+import * as gradleCatalogParser from './gradleCatalogParser.js';
 import * as rubyParser from './rubyParser.js';
 import * as composerParser from './composerParser.js';
 import * as nugetParser from './nugetParser.js';
@@ -24,6 +25,7 @@ export const parsers = [
     cargoParser,
     mavenParser,
     gradleParser,
+    gradleCatalogParser,
     rubyParser,
     composerParser,
     nugetParser,
