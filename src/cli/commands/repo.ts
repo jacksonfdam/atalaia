@@ -124,8 +124,7 @@ export async function runRepoScan(idOrUrl: string | undefined, opts: ScanOpts): 
       // Scan a single repo
       const { getRepoByUrl, getRepo } = await import('#app/application/manageRepository.js');
       const { scanRepository } = await import('#app/application/scanRepository.js');
-      const { GitHubProvider } = await import('#app/infrastructure/providers/githubProvider.js');
-      const config = (await import('#app/infrastructure/config.js')).default;
+      const { providerForOrg } = await import('#app/application/manageOrganization.js');
 
       const isNumeric = /^\d+$/.test(idOrUrl);
       const repo = isNumeric ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
@@ -135,10 +134,8 @@ export async function runRepoScan(idOrUrl: string | undefined, opts: ScanOpts): 
         return;
       }
 
-      // Find the provider config for this repo's org_key
-      const providerConfig = (config.providers || []).find((p: any) => p.key === repo.org_key);
-      const token = providerConfig?.token || process.env.GITHUB_TOKEN || '';
-      const provider = new GitHubProvider(token, repo.org_key || 'default');
+      // Resolves the organization's own token first, then config.json, then env.
+      const provider = providerForOrg(repo.org_key);
 
       const result = await scanRepository(repo.id, provider, { skipVendorLookup: opts.skipVendorLookup });
       const elapsed = ((Date.now() - started) / 1000).toFixed(1);
@@ -197,6 +194,87 @@ export async function runRepoDeps(idOrUrl: string, opts: DepsOpts): Promise<void
         `${(d.ecosystem || '').padEnd(12)} ${(d.name || '').slice(0, 38).padEnd(40)} ${(d.version || '—').slice(0, 18).padEnd(20)} ${vp.slice(0, 28).padEnd(30)}\n`
       );
     }
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exitCode = 1;
+  }
+}
+
+async function resolveRepo(idOrUrl: string) {
+  const { getRepo, getRepoByUrl } = await import('#app/application/manageRepository.js');
+  return /^\d+$/.test(idOrUrl) ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
+}
+
+/** Turn scanning on or off without losing what has been collected. */
+export async function runRepoToggle(idOrUrl: string, enabled: boolean): Promise<void> {
+  const { setRepoEnabled } = await import('#app/application/manageRepository.js');
+  try {
+    const repo = await resolveRepo(idOrUrl);
+    if (!repo) {
+      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    const updated = setRepoEnabled(repo.id, enabled);
+    process.stdout.write(`${updated.name} is now ${updated.enabled ? 'enabled' : 'disabled'}\n`);
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exitCode = 1;
+  }
+}
+
+export async function runRepoRestore(idOrUrl: string): Promise<void> {
+  const { restoreRepo } = await import('#app/application/manageRepository.js');
+  try {
+    const restored = restoreRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
+    if (!restored) {
+      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    process.stdout.write(`Restored ${restored.name}\n`);
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exitCode = 1;
+  }
+}
+
+export async function runRepoTech(idOrUrl: string, opts: { refresh?: boolean; json?: boolean }): Promise<void> {
+  const { getRepositoryTechnologies, refreshRepositoryLanguages } = await import(
+    '#app/application/repositoryTechnologies.js'
+  );
+  try {
+    const repo = await resolveRepo(idOrUrl);
+    if (!repo) {
+      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
+      process.exitCode = 1;
+      return;
+    }
+
+    const report = opts.refresh
+      ? await refreshRepositoryLanguages(repo.id)
+      : getRepositoryTechnologies(repo.id);
+
+    if (!report) {
+      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
+      process.exitCode = 1;
+      return;
+    }
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+      return;
+    }
+
+    process.stdout.write(`${report.repository.name}\n`);
+    process.stdout.write(
+      `  Languages:   ${report.languages.map(l => `${l.name} ${l.share ?? 0}%`).join(', ') || 'none recorded'}\n`
+    );
+    process.stdout.write(`  Topics:      ${report.topics.join(', ') || 'none'}\n`);
+    process.stdout.write(
+      `  Ecosystems:  ${report.ecosystems.map(e => `${e.name} (${e.packages})`).join(', ') || 'none — run a scan'}\n`
+    );
+    process.stdout.write(`  Dependencies: ${report.dependencyCount}\n`);
   } catch (err) {
     process.stderr.write(`Error: ${(err as Error).message}\n`);
     process.exitCode = 1;

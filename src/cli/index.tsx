@@ -8,8 +8,10 @@ import { runShow } from './commands/show.js';
 import { runAck } from './commands/ack.js';
 import { runResolve } from './commands/resolve.js';
 import { runScan } from './commands/scan.js';
-import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoDeps } from './commands/repo.js';
+import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoDeps, runRepoToggle, runRepoRestore, runRepoTech } from './commands/repo.js';
 import { runOwnerAdd, runOwnerRemove, runOwnerList, runOwnerAssign, runOwnerUnassign, runOwnerShow } from './commands/owner.js';
+import { runOrgAdd, runOrgList, runOrgRemove, runOrgUpdate, runOrgImport } from './commands/org.js';
+import { runFeedList, runFeedToggle, runFeedReset, runFeedCatalog } from './commands/feed.js';
 
 const program = new Command();
 
@@ -171,6 +173,36 @@ repo
 
 // ── owner command group ──
 
+repo
+  .command('enable <id-or-url>')
+  .description('Include a repository in scans again')
+  .action(async (idOrUrl: string) => {
+    await runRepoToggle(idOrUrl, true);
+  });
+
+repo
+  .command('disable <id-or-url>')
+  .description('Leave a repository out of scans, keeping what was collected')
+  .action(async (idOrUrl: string) => {
+    await runRepoToggle(idOrUrl, false);
+  });
+
+repo
+  .command('restore <id-or-url>')
+  .description('Undo a soft delete')
+  .action(async (idOrUrl: string) => {
+    await runRepoRestore(idOrUrl);
+  });
+
+repo
+  .command('tech <id-or-url>')
+  .description('Languages and topics from the provider, ecosystems from the manifests')
+  .option('--refresh', 'Re-read the language breakdown from the provider')
+  .option('--json', 'Emit JSON output')
+  .action(async (idOrUrl: string, opts: Record<string, unknown>) => {
+    await runRepoTech(idOrUrl, opts as any);
+  });
+
 const owner = program
   .command('owner')
   .description('Manage system owners (responsible for technologies/repos)');
@@ -224,6 +256,109 @@ owner
   .option('--json', 'Emit JSON output')
   .action(async (id: string, opts: Record<string, unknown>) => {
     await runOwnerShow(id, opts as any);
+  });
+
+const org = program
+  .command('org')
+  .description('Source-code organizations and their read-only tokens');
+
+org
+  .command('add <login>')
+  .description('Register a GitHub organization or user')
+  .option('--key <key>', 'Stable key used by repositories (default: the login)')
+  .option('--name <name>', 'Display name')
+  .option('--token <token>', 'Read-only access token, stored encrypted')
+  .option('--json', 'Emit JSON output')
+  .action(async (login: string, opts: Record<string, unknown>) => {
+    await runOrgAdd(login, opts as any);
+  });
+
+org
+  .command('list')
+  .description('List registered organizations')
+  .option('--json', 'Emit JSON output')
+  .action(async (opts: Record<string, unknown>) => {
+    await runOrgList(opts as any);
+  });
+
+org
+  .command('import [key]')
+  .description('Import repositories (read-only). Without a key, every enabled organization.')
+  .option('--all', 'Import every enabled organization')
+  .option('--no-languages', 'Skip the language breakdown — one request less per repository')
+  .option('--json', 'Emit JSON output')
+  .action(async (key: string | undefined, opts: Record<string, unknown>) => {
+    await runOrgImport(key, opts as any);
+  });
+
+org
+  .command('enable <key>')
+  .description('Include an organization in scheduled scans again')
+  .action(async (key: string) => {
+    await runOrgUpdate(key, { enabled: true });
+  });
+
+org
+  .command('disable <key>')
+  .description('Leave an organization out of scheduled scans')
+  .action(async (key: string) => {
+    await runOrgUpdate(key, { enabled: false });
+  });
+
+org
+  .command('token <key> [token]')
+  .description('Replace the stored token, or clear it when no token is given')
+  .action(async (key: string, token: string | undefined) => {
+    await runOrgUpdate(key, { token: token ?? null });
+  });
+
+org
+  .command('remove <key>')
+  .description('Remove an organization and the repositories imported under it')
+  .action(async (key: string) => {
+    await runOrgRemove(key);
+  });
+
+const feed = program
+  .command('feed')
+  .description('Intelligence sources and the database catalog');
+
+feed
+  .command('list')
+  .description('List every source and whether it is collected')
+  .option('--json', 'Emit JSON output')
+  .action(async (opts: Record<string, unknown>) => {
+    await runFeedList(opts as any);
+  });
+
+feed
+  .command('enable <name>')
+  .description('Start collecting a source')
+  .action(async (name: string) => {
+    await runFeedToggle(name, true);
+  });
+
+feed
+  .command('disable <name>')
+  .description('Stop collecting a source')
+  .action(async (name: string) => {
+    await runFeedToggle(name, false);
+  });
+
+feed
+  .command('reset <name>')
+  .description('Drop the manual override and follow the shipped default')
+  .action(async (name: string) => {
+    await runFeedReset(name);
+  });
+
+feed
+  .command('catalog')
+  .description('Public vulnerability databases Atalaia knows about')
+  .option('--all', 'Include the ones that are not free')
+  .option('--json', 'Emit JSON output')
+  .action(async (opts: Record<string, unknown>) => {
+    await runFeedCatalog(opts as any);
   });
 
 program.parseAsync(process.argv).catch((err) => {
