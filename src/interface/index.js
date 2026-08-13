@@ -8,6 +8,7 @@ import * as cache from "../infrastructure/cache/sqliteCache.js";
 import { createApp } from "./http/createApp.js";
 import { startNgrokTunnel } from "../infrastructure/ngrokClient.js";
 import { updateSlackRequestUrl } from "../infrastructure/slackUrlUpdater.js";
+import { resolveAppCredentials } from "../infrastructure/notifiers/slackConfig.js";
 
 // quiet: dotenv v17 otherwise prints a banner that breaks the structured log stream
 dotenv.config({ quiet: true });
@@ -29,8 +30,8 @@ app.listen(PORT, HOST, async () => {
         try {
             const ngrokAuthToken = process.env.NGROK_AUTH_TOKEN;
             const ngrokRegion = process.env.NGROK_REGION || 'auto';
-            const slackAppToken = process.env.SLACK_APP_TOKEN;
-            const slackAppId = process.env.SLACK_APP_ID;
+            // Environment first, then whatever the console stored.
+            const { appToken: slackAppToken, appId: slackAppId } = resolveAppCredentials();
 
             const ngrokUrl = await startNgrokTunnel(PORT, ngrokAuthToken, ngrokRegion);
 

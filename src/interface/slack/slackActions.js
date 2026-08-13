@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import logger from '../../infrastructure/logger.js';
 import { acknowledgeVuln } from '../../application/acknowledgeVuln.js';
 import { resolveVuln } from '../../application/resolveVuln.js';
+import { resolveSigningSecret } from '../../infrastructure/notifiers/slackConfig.js';
 
 /**
  * Validate Slack request signature to prevent replay attacks.
@@ -38,9 +39,10 @@ export function validateSlackSignature(signingSecret, timestamp, rawBody, signat
  * Express middleware to validate Slack signing secret.
  */
 export function requireSlackSignature(req, res, next) {
-    const signingSecret = process.env.SLACK_SIGNING_SECRET;
+    // Environment first, then whatever the console stored.
+    const signingSecret = resolveSigningSecret();
     if (!signingSecret) {
-        logger.error('SLACK_SIGNING_SECRET not configured');
+        logger.error('No Slack signing secret configured; rejecting the callback');
         return res.status(500).json({ error: 'Server misconfigured' });
     }
 

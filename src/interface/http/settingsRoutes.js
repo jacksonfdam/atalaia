@@ -71,19 +71,58 @@ export function createSettingsRoutes(cache) {
 
     // PUT /settings/slack — webhook or bot token, plus the destination
     router.put('/slack', (req, res) => {
+        const body = req.body ?? {};
+
+        // Field by field rather than all or nothing: SLACK_WEBHOOK_URL pins how
+        // alerts are delivered, but the signing secret and the app credentials
+        // can still be managed here.
+        const pinned = [];
+        const pins = (value, envVar) => {
+            if (value !== undefined && process.env[envVar] !== undefined) pinned.push(envVar);
+        };
+
         if (isSlackEnvConfigured()) {
+            // The env webhook decides where alerts go, so the destination is
+            // not the console's to change. `mode` is left out on purpose: it is
+            // ignored while the environment pins the transport, and the form
+            // always sends it.
+            for (const field of ['webhookUrl', 'destination', 'notifyOwners']) {
+                if (body[field] !== undefined) {
+                    pinned.push('SLACK_WEBHOOK_URL');
+                    break;
+                }
+            }
+        }
+        pins(body.signingSecret, 'SLACK_SIGNING_SECRET');
+        pins(body.appToken, 'SLACK_APP_TOKEN');
+        pins(body.appId, 'SLACK_APP_ID');
+        pins(body.enabled, 'SLACK_ENABLED');
+
+        if (pinned.length > 0) {
             return res.status(409).json({
-                error: 'Slack is pinned by SLACK_WEBHOOK_URL in the environment',
-                hint: 'Unset SLACK_WEBHOOK_URL to manage delivery from the console.',
+                error: 'One or more values are pinned by an environment variable',
+                pinned: [...new Set(pinned)],
+                hint: 'Unset them to manage these from the console.',
             });
         }
 
-        const { mode, webhookUrl, botToken, destination, notifyOwners, enabled, changedBy } = req.body ?? {};
+        const {
+            mode,
+            webhookUrl,
+            botToken,
+            signingSecret,
+            appToken,
+            appId,
+            destination,
+            notifyOwners,
+            enabled,
+            changedBy,
+        } = req.body ?? {};
 
         try {
             res.json(
                 saveSlackConfig(
-                    { mode, webhookUrl, botToken, destination, notifyOwners, enabled },
+                    { mode, webhookUrl, botToken, signingSecret, appToken, appId, destination, notifyOwners, enabled },
                     changedBy ?? 'api'
                 )
             );

@@ -146,13 +146,28 @@ describe('PUT /api/v1/settings/slack', () => {
 });
 
 describe('environment pinning', () => {
+    test('lets the signing secret be stored even while the webhook is pinned', async () => {
+        process.env.SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/env';
+
+        const res = await request(app)
+            .put('/api/v1/settings/slack')
+            .set(KEY)
+            .send({ mode: 'webhook', signingSecret: 'abc123signing', appId: 'A01234567' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.config.hasSigningSecret).toBe(true);
+        expect(res.body.config.appId).toBe('A01234567');
+        // Only the webhook is pinned here, so the secret comes from the console.
+        expect(res.body.interactivity).toMatchObject({ configured: true, source: 'database' });
+    });
+
     test('refuses to write while SLACK_WEBHOOK_URL is set', async () => {
         process.env.SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/env';
 
         const res = await request(app).put('/api/v1/settings/slack').set(KEY).send(BOT);
 
         expect(res.status).toBe(409);
-        expect(res.body.error).toMatch(/SLACK_WEBHOOK_URL/);
+        expect(res.body.pinned).toContain('SLACK_WEBHOOK_URL');
     });
 
     test('a webhook in the environment counts as on unless SLACK_ENABLED says otherwise', async () => {

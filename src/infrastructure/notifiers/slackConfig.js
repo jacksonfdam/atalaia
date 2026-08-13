@@ -137,6 +137,44 @@ export function resolveSlackConfig() {
     };
 }
 
+/**
+ * The signing secret used to verify inbound interactive callbacks.
+ * Environment first, then the console's value.
+ */
+export function resolveSigningSecret() {
+    if (process.env.SLACK_SIGNING_SECRET) return process.env.SLACK_SIGNING_SECRET;
+
+    const row = readRow();
+    if (!row?.signing_cipher) return null;
+
+    try {
+        return decrypt(row.signing_cipher);
+    } catch (err) {
+        logger.error({ err }, 'Failed to decrypt the Slack signing secret');
+        return null;
+    }
+}
+
+/**
+ * App token and ID, used in development to point the app's Request URL at the
+ * current tunnel.
+ * @returns {{ appToken: string|null, appId: string|null }}
+ */
+export function resolveAppCredentials() {
+    const row = readRow();
+    let appToken = process.env.SLACK_APP_TOKEN ?? null;
+
+    if (!appToken && row?.app_token_cipher) {
+        try {
+            appToken = decrypt(row.app_token_cipher);
+        } catch (err) {
+            logger.error({ err }, 'Failed to decrypt the Slack app token');
+        }
+    }
+
+    return { appToken, appId: process.env.SLACK_APP_ID ?? row?.app_id ?? null };
+}
+
 /** Everything the console renders. Never a credential. */
 export function describeSlackConfig() {
     const row = readRow();
@@ -153,17 +191,32 @@ export function describeSlackConfig() {
             botHint: row?.bot_hint ?? null,
             destination: row?.destination ?? null,
             destinationKind: destination.kind,
+            hasSigningSecret: Boolean(row?.signing_cipher),
+            signingHint: row?.signing_hint ?? null,
+            hasAppToken: Boolean(row?.app_token_cipher),
+            appTokenHint: row?.app_token_hint ?? null,
+            appId: row?.app_id ?? null,
             notifyOwners: row?.notify_owners === 1,
             enabled: row?.enabled === 1,
             updatedAt: row?.updated_at ?? null,
             updatedBy: row?.updated_by ?? null,
         },
         envLocked: isEnvConfigured(),
-        envVars: ['SLACK_WEBHOOK_URL', 'SLACK_SIGNING_SECRET'],
-        // Interactive buttons are verified by signature, which is env-only:
-        // it is read on every inbound request, not by this service's outbound.
+        envVars: ['SLACK_WEBHOOK_URL', 'SLACK_ENABLED'],
+        // Which of these the environment is pinning, so the console can grey
+        // out a field instead of storing a value that never takes effect.
+        env: {
+            webhookUrl: Boolean(process.env.SLACK_WEBHOOK_URL),
+            signingSecret: Boolean(process.env.SLACK_SIGNING_SECRET),
+            appToken: Boolean(process.env.SLACK_APP_TOKEN),
+            appId: Boolean(process.env.SLACK_APP_ID),
+            enabled: process.env.SLACK_ENABLED === undefined ? null : process.env.SLACK_ENABLED === 'true',
+        },
+        // Interactive buttons need the signing secret to verify what Slack
+        // sends back; without it every click is rejected.
         interactivity: {
-            configured: Boolean(process.env.SLACK_SIGNING_SECRET),
+            configured: Boolean(resolveSigningSecret()),
+            source: process.env.SLACK_SIGNING_SECRET ? 'env' : row?.signing_cipher ? 'database' : 'none',
             envVar: 'SLACK_SIGNING_SECRET',
         },
         status: {
@@ -200,6 +253,12 @@ export function saveSlackConfig(input, changedBy) {
         throw new Error('A bot token starts with xoxb-');
     }
 
+    // App-level tokens are xapp-…; a bot token pasted here would fail later
+    // against apps.manifest.update with a much less obvious message.
+    if (input.appToken && !input.appToken.startsWith('xapp-')) {
+        throw new Error('An app-level token starts with xapp-');
+    }
+
     const current = readRow();
 
     const secret = (value, currentCipher, currentHint) => {
@@ -215,6 +274,8 @@ export function saveSlackConfig(input, changedBy) {
 
     const webhook = secret(input.webhookUrl, current?.webhook_cipher, current?.webhook_hint);
     const bot = secret(input.botToken, current?.bot_cipher, current?.bot_hint);
+    const signing = secret(input.signingSecret, current?.signing_cipher, current?.signing_hint);
+    const appToken = secret(input.appToken, current?.app_token_cipher, current?.app_token_hint);
 
     const destination =
         input.destination === undefined
@@ -225,9 +286,11 @@ export function saveSlackConfig(input, changedBy) {
         .prepare(
             `INSERT INTO slack_config
                 (id, mode, webhook_cipher, webhook_hint, bot_cipher, bot_hint,
+                 signing_cipher, signing_hint, app_token_cipher, app_token_hint, app_id,
                  destination, notify_owners, enabled, updated_at, updated_by)
              VALUES
                 (1, @mode, @webhookCipher, @webhookHint, @botCipher, @botHint,
+                 @signingCipher, @signingHint, @appTokenCipher, @appTokenHint, @appId,
                  @destination, @notifyOwners, @enabled, datetime('now'), @changedBy)
              ON CONFLICT(id) DO UPDATE SET
                 mode = excluded.mode,
@@ -235,6 +298,11 @@ export function saveSlackConfig(input, changedBy) {
                 webhook_hint = excluded.webhook_hint,
                 bot_cipher = excluded.bot_cipher,
                 bot_hint = excluded.bot_hint,
+                signing_cipher = excluded.signing_cipher,
+                signing_hint = excluded.signing_hint,
+                app_token_cipher = excluded.app_token_cipher,
+                app_token_hint = excluded.app_token_hint,
+                app_id = excluded.app_id,
                 destination = excluded.destination,
                 notify_owners = excluded.notify_owners,
                 enabled = excluded.enabled,
@@ -247,6 +315,11 @@ export function saveSlackConfig(input, changedBy) {
             webhookHint: webhook.hint,
             botCipher: bot.cipher,
             botHint: bot.hint,
+            signingCipher: signing.cipher,
+            signingHint: signing.hint,
+            appTokenCipher: appToken.cipher,
+            appTokenHint: appToken.hint,
+            appId: input.appId === undefined ? current?.app_id ?? null : input.appId || null,
             destination,
             notifyOwners: input.notifyOwners ? 1 : 0,
             enabled: input.enabled === undefined ? current?.enabled ?? 0 : input.enabled ? 1 : 0,
