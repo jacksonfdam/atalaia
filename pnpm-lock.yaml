@@ -63,6 +63,9 @@ importers:
       rss-parser:
         specifier: ^3.13.0
         version: 3.13.0
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
     devDependencies:
       '@jest/globals':
         specifier: ^30.4.1

@@ -1,5 +1,6 @@
 import logger from '../infrastructure/logger.js';
 import { fetchLatestVersion, supportsEcosystem } from '../infrastructure/registries/index.js';
+import { compareVersions } from './versionComparison.js';
 import {
     getDependenciesByRepo,
     getRepository,
@@ -110,7 +111,7 @@ async function run(repositoryId, dependencies, progress) {
 
                 progress.done += 1;
                 if (error) progress.failed += 1;
-                else if (latest && dependency.version && !isSatisfied(dependency.version, latest)) {
+                else if (compareVersions(dependency.ecosystem, dependency.version, latest).state === 'behind') {
                     progress.outdated += 1;
                 }
             })
@@ -119,19 +120,4 @@ async function run(repositoryId, dependencies, progress) {
 
     progress.current = null;
     logger.info({ repoId: repositoryId, ...progress }, 'Version check complete');
-}
-
-/**
- * Whether the declared version already points at the latest one.
- *
- * Deliberately shallow: manifests declare ranges (`^4.17.0`), tags (`v3`) and
- * digests, and resolving those properly means a resolver per ecosystem. The
- * comparison is textual, so a range that happens to allow the latest version is
- * still reported as behind — better a nudge to look than a false all-clear.
- */
-export function isSatisfied(declared, latest) {
-    if (!declared || !latest) return true;
-
-    const normalize = value => String(value).replace(/^[\^~=v>< ]+/, '').trim();
-    return normalize(declared) === normalize(latest);
 }

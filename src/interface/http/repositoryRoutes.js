@@ -16,11 +16,8 @@ import {
 import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.js';
 import { listRepositoriesPage } from '../../application/listRepositories.js';
 import { startFleetScan, fleetScanState } from '../../application/repositoryScanRunner.js';
-import {
-    startVersionCheck,
-    versionCheckState,
-    isSatisfied,
-} from '../../application/checkDependencyVersions.js';
+import { startVersionCheck, versionCheckState } from '../../application/checkDependencyVersions.js';
+import { compareVersions } from '../../application/versionComparison.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -158,21 +155,46 @@ export function createRepositoryRoutes() {
             dependencies = dependencies.filter(d => String(d.ecosystem).toUpperCase() === wanted);
         }
 
-        const enriched = dependencies.map(dependency => ({
-            ...dependency,
-            // Computed here rather than stored: it is a comparison of two
-            // columns, and storing it would be a third thing to keep in sync.
-            outdated: Boolean(
-                dependency.latest_version &&
-                    dependency.version &&
-                    !isSatisfied(dependency.version, dependency.latest_version)
-            ),
-        }));
+        const enriched = dependencies.map(dependency => {
+            // Computed here rather than stored: it compares two columns, and a
+            // third column would be one more thing to keep in sync.
+            const comparison = compareVersions(
+                dependency.ecosystem,
+                dependency.version,
+                dependency.latest_version
+            );
+
+            return {
+                ...dependency,
+                versionState: comparison.state,
+                versionGap: comparison.gap,
+                versionNote: comparison.reason,
+                outdated: comparison.state === 'behind',
+            };
+        });
+
+        // Grouped by ecosystem: a repository can carry Gradle, GitHub Actions,
+        // Fastlane gems and npm at once, and they are read one type at a time.
+        const groups = new Map();
+        for (const dependency of enriched) {
+            const group = groups.get(dependency.ecosystem) ?? {
+                ecosystem: dependency.ecosystem,
+                count: 0,
+                outdated: 0,
+                unchecked: 0,
+            };
+
+            group.count += 1;
+            if (dependency.outdated) group.outdated += 1;
+            if (!dependency.latest_checked_at) group.unchecked += 1;
+            groups.set(dependency.ecosystem, group);
+        }
 
         res.json({
             count: enriched.length,
             outdated: enriched.filter(dependency => dependency.outdated).length,
             unchecked: enriched.filter(dependency => !dependency.latest_checked_at).length,
+            groups: [...groups.values()].sort((a, b) => b.count - a.count),
             repository,
             dependencies: enriched,
             versionCheck: versionCheckState(repository.id),
