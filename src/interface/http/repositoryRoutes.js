@@ -15,6 +15,7 @@ import {
     getRepositoryTechnologies,
     refreshRepositoryLanguages,
 } from '../../application/repositoryTechnologies.js';
+import { getRepositoryVulnerabilities, summarizeFleetRisk } from '../../application/repositoryRisk.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -28,7 +29,20 @@ export function createRepositoryRoutes() {
     // GET /repositories
     router.get('/', (req, res) => {
         const repositories = listRepos({ includeDeleted: req.query.includeDeleted === 'true' });
-        res.json({ count: repositories.length, repositories });
+
+        // Exposure comes along for the ride: the list is where an operator
+        // notices something is wrong, and asking per repository would be one
+        // request per row.
+        const risk = summarizeFleetRisk();
+
+        res.json({
+            count: repositories.length,
+            atRisk: [...risk.keys()].length,
+            repositories: repositories.map(repository => ({
+                ...repository,
+                risk: risk.get(repository.id) ?? { total: 0, bySeverity: {}, exploited: false, worst: null },
+            })),
+        });
     });
 
     // POST /repositories/scan-all — declared before /:id so "scan-all" is not
@@ -88,6 +102,19 @@ export function createRepositoryRoutes() {
         const restored = restoreRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
         if (!restored) return res.status(404).json({ error: 'Repository not found' });
         res.json(restored);
+    });
+
+    // GET /repositories/:idOrUrl/vulnerabilities — what reaches this repository,
+    // and through which dependency
+    router.get('/:idOrUrl/vulnerabilities', (req, res) => {
+        const repository = resolveRepo(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+
+        res.json(
+            getRepositoryVulnerabilities(repository.id, {
+                includeResolved: req.query.includeResolved === 'true',
+            })
+        );
     });
 
     // GET /repositories/:idOrUrl/technologies

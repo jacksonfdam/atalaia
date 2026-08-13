@@ -373,3 +373,78 @@ export function seedVendorProductMappings(mappings) {
 
     logger.info({ count: mappings.length }, 'Seeded vendor/product mappings');
 }
+
+// ── Repository exposure ──
+
+/**
+ * Vulnerabilities that touch a repository, by way of its dependencies.
+ *
+ * The link is computed rather than stored: a dependency list changes with every
+ * scan and a vulnerability's technologies can be enriched after the fact, so a
+ * stored join would go stale silently. One row per (CVE, matching dependency) —
+ * the caller groups them.
+ *
+ * @param {number} repoId
+ * @param {{ includeResolved?: boolean }} [options]
+ */
+export function findVulnerabilitiesForRepository(repoId, { includeResolved = false } = {}) {
+    const statusClause = includeResolved ? '' : "AND v.status != 'RESOLVED'";
+
+    return getDb()
+        .prepare(
+            `SELECT v.*,
+                    d.name AS matched_dependency,
+                    d.ecosystem AS matched_ecosystem,
+                    d.version AS matched_version,
+                    d.manifest_file AS matched_manifest
+             FROM repository_dependencies d
+             JOIN vulnerabilities v
+               ON lower(v.affected_technologies) LIKE '%"' || lower(d.name) || '"%'
+                  OR (d.opencve_product IS NOT NULL
+                      AND lower(v.affected_technologies) LIKE '%"' || lower(d.opencve_product) || '"%')
+             WHERE d.repository_id = @repoId
+               AND d.deleted_at IS NULL
+               ${statusClause}
+             ORDER BY v.cvss_score DESC, v.cve_id`
+        )
+        .all({ repoId });
+}
+
+/**
+ * How exposed every tracked repository is, in one pass.
+ * Used for the list view, where running the per-repository query N times would
+ * mean N round trips for a column.
+ *
+ * @returns {Map<number, { total: number, bySeverity: Record<string, number>, exploited: number }>}
+ */
+export function summarizeRepositoryExposure() {
+    const rows = getDb()
+        .prepare(
+            `SELECT d.repository_id AS repositoryId,
+                    v.severity AS severity,
+                    MAX(v.exploited) AS exploited,
+                    COUNT(DISTINCT v.cve_id) AS total
+             FROM repository_dependencies d
+             JOIN repositories r ON r.id = d.repository_id AND r.deleted_at IS NULL
+             JOIN vulnerabilities v
+               ON lower(v.affected_technologies) LIKE '%"' || lower(d.name) || '"%'
+                  OR (d.opencve_product IS NOT NULL
+                      AND lower(v.affected_technologies) LIKE '%"' || lower(d.opencve_product) || '"%')
+             WHERE d.deleted_at IS NULL
+               AND v.status != 'RESOLVED'
+             GROUP BY d.repository_id, v.severity`
+        )
+        .all();
+
+    const byRepo = new Map();
+
+    for (const row of rows) {
+        const entry = byRepo.get(row.repositoryId) ?? { total: 0, bySeverity: {}, exploited: 0 };
+        entry.bySeverity[row.severity ?? 'UNKNOWN'] = row.total;
+        entry.total += row.total;
+        entry.exploited = Math.max(entry.exploited, row.exploited ?? 0);
+        byRepo.set(row.repositoryId, entry);
+    }
+
+    return byRepo;
+}
