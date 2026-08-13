@@ -21,7 +21,7 @@ const cache = await import('#app/infrastructure/cache/sqliteCache.js');
 const { initializeDatabase, getDb } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
 const { resetFleetScanState } = await import('#app/application/repositoryScanRunner.js');
-const { isSatisfied } = await import('#app/application/checkDependencyVersions.js');
+const { compareVersions } = await import('#app/application/versionComparison.js');
 
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
@@ -486,16 +486,37 @@ describe('dependency freshness', () => {
     });
 });
 
-describe('isSatisfied', () => {
+describe('version comparison', () => {
     test.each([
-        ['^4.17.1', '4.17.1', true],
-        ['~1.2.3', '1.2.3', true],
-        ['v3', 'v3', true],
-        ['4.17.1', '5.0.0', false],
-        ['v3', 'v4', false],
-        [null, '1.0.0', true],
-        ['1.0.0', null, true],
-    ])('%s vs %s -> %s', (declared, latest, expected) => {
-        expect(isSatisfied(declared, latest)).toBe(expected);
+        ['NPM', '^4.17.1', '5.2.1', 'behind', 'major'],
+        ['NPM', '^5.0.0', '5.2.1', 'current', null],
+        ['NPM', '~5.2.0', '5.2.1', 'current', null],
+        ['CARGO', '1.0.200', '1.0.229', 'behind', 'patch'],
+        ['GO', 'v1.7.6', 'v1.12.0', 'behind', 'minor'],
+        ['GITHUB_ACTIONS', 'v4', 'v7.0.1', 'behind', 'major'],
+        ['GITHUB_ACTIONS', 'v7', 'v7.0.1', 'current', null],
+        ['RUBYGEMS', '~> 6.1', '8.1.3', 'behind', 'major'],
+        ['RUBYGEMS', '~> 8.1', '8.1.3', 'current', null],
+        ['PIP', '==2.28.0', '2.34.2', 'behind', 'minor'],
+        ['PIP', '~=2.34.0', '2.34.2', 'current', null],
+    ])('%s %s vs %s', (ecosystem, declared, latest, state, gap) => {
+        expect(compareVersions(ecosystem, declared, latest)).toMatchObject({ state, gap });
+    });
+
+    test.each([
+        // A commit pin, a Maven interval and a tag that is not a version: all
+        // real, none of them comparable — answered as such rather than guessed.
+        ['GITHUB_ACTIONS', 'f1a2b3c4d5e6', 'v7.0.1'],
+        ['MAVEN', '[1.0,2.0)', '1.9.0'],
+        ['NPM', null, '5.0.0'],
+        ['NPM', '1.0.0', null],
+    ])('%s %s vs %s is unknown', (ecosystem, declared, latest) => {
+        const result = compareVersions(ecosystem, declared, latest);
+        expect(result.state).toBe('unknown');
+        expect(result.reason).toBeTruthy();
+    });
+
+    test('a declared version ahead of the registry is not chased', () => {
+        expect(compareVersions('NPM', '6.0.0-beta.1', '5.2.1').state).toBe('current');
     });
 });
