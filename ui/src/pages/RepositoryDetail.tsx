@@ -219,7 +219,7 @@ function LatestCell({ dependency }: { dependency: Dependency }) {
     <span className="row" style={{ gap: '0.3rem' }}>
       <span
         className="mono"
-        style={{ color: dependency.outdated ? 'var(--severity-high)' : 'var(--green)' }}
+        style={{ color: dependency.outdated ? 'var(--ink-behind)' : 'var(--ink-ok)' }}
       >
         {dependency.latest_version ?? '—'}
       </span>

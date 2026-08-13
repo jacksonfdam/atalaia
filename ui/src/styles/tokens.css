@@ -50,6 +50,14 @@
   --fg-secondary: #a1a1aa;
   --border-subtle: #1a1a1a;
 
+  /*
+   * Ink on paper. The neon palette above is built for the dark desktop and for
+   * filled badges; as text on the cream surfaces it is barely visible, so
+   * anything coloured *inside* a window uses these instead.
+   */
+  --ink-ok: #0f6b3c;
+  --ink-behind: #b03a00;
+
   /* Severity — design/atalaia.pen. These drive every accent in the console. */
   --severity-critical: #dc3545;
   --severity-high: #fd7e14;
