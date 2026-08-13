@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
@@ -13,6 +13,7 @@ import {
   relativeTime,
 } from '../components/ui';
 import type {
+  Dependency,
   DependencyPage,
   Repository,
   RepositoryRiskReport,
@@ -198,6 +199,47 @@ function ExposureTab({ report, loading }: { report: RepositoryRiskReport | null;
   );
 }
 
+const GAP_COLOR: Record<string, string> = {
+  major: 'var(--severity-critical)',
+  minor: 'var(--severity-high)',
+  patch: 'var(--severity-medium)',
+};
+
+/** Latest version, and how far behind the manifest is from it. */
+function LatestCell({ dependency }: { dependency: Dependency }) {
+  if (dependency.versionState === 'unknown' && !dependency.latest_version) {
+    return (
+      <span className="muted" title={dependency.versionNote ?? dependency.latest_error ?? undefined}>
+        {dependency.latest_checked_at ? '—' : 'not checked'}
+      </span>
+    );
+  }
+
+  return (
+    <span className="row" style={{ gap: '0.3rem' }}>
+      <span
+        className="mono"
+        style={{ color: dependency.outdated ? 'var(--severity-high)' : 'var(--green)' }}
+      >
+        {dependency.latest_version ?? '—'}
+      </span>
+      {dependency.versionGap ? (
+        <span
+          className="badge"
+          style={{ background: GAP_COLOR[dependency.versionGap], color: 'var(--win-black)' }}
+        >
+          {dependency.versionGap}
+        </span>
+      ) : null}
+      {dependency.versionState === 'unknown' ? (
+        <span className="muted" title={dependency.versionNote ?? undefined}>
+          ?
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function DependenciesTab({
   repositoryId,
   page,
@@ -242,10 +284,8 @@ function DependenciesTab({
     }
   }
 
-  const ecosystems = useMemo(
-    () => [...new Set((page?.dependencies ?? []).map(dependency => dependency.ecosystem))].sort(),
-    [page]
-  );
+  const groups = page?.groups ?? [];
+  const visibleGroups = ecosystem ? groups.filter(group => group.ecosystem === ecosystem) : groups;
 
   const rows = (page?.dependencies ?? []).filter(dependency => {
     if (ecosystem && dependency.ecosystem !== ecosystem) return false;
@@ -299,7 +339,11 @@ function DependenciesTab({
         ) : null}
 
         {page && page.count === 0 ? (
-          <Empty>Nothing parsed yet. Run a scan on this repository.</Empty>
+          <Empty>
+            {page.repository.last_scanned_at
+              ? `Scanned ${formatDate(page.repository.last_scanned_at)} and no manifest file was found — this repository declares no dependencies Atalaia can read.`
+              : 'This repository has never been scanned. Use “Scan now” above.'}
+          </Empty>
         ) : null}
 
         {page && page.count > 0 ? (
@@ -308,10 +352,10 @@ function DependenciesTab({
               <label style={{ minWidth: '10rem' }}>
                 Ecosystem
                 <select value={ecosystem} onChange={e => setEcosystem(e.target.value)}>
-                  <option value="">All</option>
-                  {ecosystems.map(entry => (
-                    <option key={entry} value={entry}>
-                      {entry}
+                  <option value="">All ({page.count})</option>
+                  {groups.map(group => (
+                    <option key={group.ecosystem} value={group.ecosystem}>
+                      {group.ecosystem} ({group.count})
                     </option>
                   ))}
                 </select>
@@ -330,48 +374,52 @@ function DependenciesTab({
               <span className="muted mono">{rows.length} shown</span>
             </div>
 
-            <div className="table-scroll" style={{ maxHeight: '32rem' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Package</th>
-                    <th>Ecosystem</th>
-                    <th>Current</th>
-                    <th>Latest</th>
-                    <th>Manifest</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map(dependency => (
-                    <tr key={dependency.id}>
-                      <td className="mono">{dependency.name}</td>
-                      <td className="tight">{dependency.ecosystem}</td>
-                      <td className="tight mono">{dependency.version ?? '—'}</td>
-                      <td className="tight mono">
-                        {dependency.latest_version ? (
-                          <span
-                            style={{
-                              color: dependency.outdated ? 'var(--severity-high)' : 'var(--green)',
-                            }}
-                          >
-                            {dependency.latest_version}
-                          </span>
-                        ) : dependency.latest_error ? (
-                          <span className="muted" title={dependency.latest_error}>
-                            —
-                          </span>
-                        ) : (
-                          <span className="muted">not checked</span>
-                        )}
-                      </td>
-                      <td className="tight mono" style={{ fontSize: '0.68rem' }}>
-                        {dependency.manifest_file ?? '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            {/* One table per ecosystem: an Android repository carries Gradle,
+                GitHub Actions, Fastlane gems and npm at once, and nobody reads
+                those interleaved. */}
+            {visibleGroups.map(group => {
+              const groupRows = rows.filter(dependency => dependency.ecosystem === group.ecosystem);
+              if (groupRows.length === 0) return null;
+
+              return (
+                <div key={group.ecosystem} style={{ marginTop: '0.8rem' }}>
+                  <div className="row" style={{ gap: '0.5rem' }}>
+                    <strong style={{ fontSize: '0.82rem' }}>{group.ecosystem}</strong>
+                    <span className="muted mono" style={{ fontSize: '0.7rem' }}>
+                      {groupRows.length} shown · {group.outdated} behind
+                      {group.unchecked ? ` · ${group.unchecked} unchecked` : ''}
+                    </span>
+                  </div>
+
+                  <div className="table-scroll" style={{ maxHeight: '24rem' }}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Package</th>
+                          <th>Current</th>
+                          <th>Latest</th>
+                          <th>Manifest</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groupRows.map(dependency => (
+                          <tr key={dependency.id}>
+                            <td className="mono">{dependency.name}</td>
+                            <td className="tight mono">{dependency.version ?? '—'}</td>
+                            <td className="tight mono">
+                              <LatestCell dependency={dependency} />
+                            </td>
+                            <td className="tight mono" style={{ fontSize: '0.68rem' }}>
+                              {dependency.manifest_file ?? '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
           </>
         ) : null}
       </Body>

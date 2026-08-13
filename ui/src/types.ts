@@ -242,6 +242,9 @@ export interface Dependency {
   latest_error: string | null;
   /** Computed: the declared version is not the latest published one. */
   outdated: boolean;
+  versionState: 'current' | 'behind' | 'unknown';
+  versionGap: 'major' | 'minor' | 'patch' | null;
+  versionNote: string | null;
 }
 
 export interface VersionCheckState {
@@ -264,10 +267,18 @@ export interface VersionCheckState {
   } | null;
 }
 
+export interface DependencyGroup {
+  ecosystem: string;
+  count: number;
+  outdated: number;
+  unchecked: number;
+}
+
 export interface DependencyPage {
   count: number;
   outdated: number;
   unchecked: number;
+  groups: DependencyGroup[];
   repository: Repository;
   dependencies: Dependency[];
   versionCheck: VersionCheckState;
