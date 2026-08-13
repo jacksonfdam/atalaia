@@ -18,6 +18,9 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
   const [webhookUrl, setWebhookUrl] = useState('');
   const [botToken, setBotToken] = useState('');
   const [destination, setDestination] = useState('');
+  const [signingSecret, setSigningSecret] = useState('');
+  const [appToken, setAppToken] = useState('');
+  const [appId, setAppId] = useState('');
   const [notifyOwners, setNotifyOwners] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,11 +34,15 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
     setWebhookUrl('');
     setBotToken('');
     setDestination(config.destination ?? '');
+    setSigningSecret('');
+    setAppToken('');
+    setAppId(config.appId ?? '');
     setNotifyOwners(config.notifyOwners);
     setEnabled(config.enabled);
   }, [payload.data]);
 
   const locked = payload.data?.envLocked ?? false;
+  const env = payload.data?.env;
   const status = payload.data?.status;
   const config = payload.data?.config;
 
@@ -55,16 +62,21 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
     await run(async () => {
       await api.put('/settings/slack', {
         mode,
-        // Omitted when untouched, so the stored credential survives a save.
-        ...(webhookUrl ? { webhookUrl } : {}),
+        // Omitted when untouched, so the stored credential survives a save;
+        // and omitted when the environment pins it, which the API refuses.
+        ...(webhookUrl && !env?.webhookUrl ? { webhookUrl } : {}),
         ...(botToken ? { botToken } : {}),
-        destination,
-        notifyOwners,
-        enabled,
+        ...(signingSecret && !env?.signingSecret ? { signingSecret } : {}),
+        ...(appToken && !env?.appToken ? { appToken } : {}),
+        ...(env?.appId ? {} : { appId }),
+        ...(locked ? {} : { destination, notifyOwners }),
+        ...(env?.enabled === null || env?.enabled === undefined ? { enabled } : {}),
         changedBy: 'console',
       });
       setWebhookUrl('');
       setBotToken('');
+      setSigningSecret('');
+      setAppToken('');
       payload.reload();
       return 'Slack settings saved';
     });
@@ -90,7 +102,7 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
           <button disabled={busy} onClick={test}>
             Send test
           </button>
-          <button className="primary" disabled={busy || locked} onClick={save}>
+          <button className="primary" disabled={busy} onClick={save}>
             Save
           </button>
         </>
@@ -130,11 +142,14 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
               <label className="row" style={{ gap: '0.3rem', alignSelf: 'flex-end' }}>
                 <input
                   type="checkbox"
-                  disabled={locked}
-                  checked={enabled}
+                  disabled={env?.enabled !== null && env?.enabled !== undefined}
+                  checked={env?.enabled ?? enabled}
                   onChange={e => setEnabled(e.target.checked)}
                 />
                 Send alerts to Slack
+                {env?.enabled !== null && env?.enabled !== undefined ? (
+                  <span className="muted mono"> SLACK_ENABLED</span>
+                ) : null}
               </label>
             </div>
 
@@ -218,11 +233,65 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
               </p>
             )}
 
+            <div className="toolbar">
+              <label style={{ flex: 1, minWidth: '14rem' }}>
+                Signing secret
+                <input
+                  type="password"
+                  autoComplete="off"
+                  disabled={env?.signingSecret}
+                  value={signingSecret}
+                  placeholder={
+                    env?.signingSecret
+                      ? 'set by SLACK_SIGNING_SECRET'
+                      : config?.hasSigningSecret
+                        ? `stored (${config.signingHint}) — leave blank to keep`
+                        : 'verifies the Acknowledge / Resolve clicks'
+                  }
+                  onChange={e => setSigningSecret(e.target.value)}
+                />
+              </label>
+
+              <label style={{ flex: 1, minWidth: '12rem' }}>
+                App-level token
+                <input
+                  type="password"
+                  autoComplete="off"
+                  disabled={env?.appToken}
+                  value={appToken}
+                  placeholder={
+                    env?.appToken
+                      ? 'set by SLACK_APP_TOKEN'
+                      : config?.hasAppToken
+                        ? `stored (${config.appTokenHint}) — leave blank to keep`
+                        : 'xapp-… (development only)'
+                  }
+                  onChange={e => setAppToken(e.target.value)}
+                />
+              </label>
+
+              <label style={{ minWidth: '10rem' }}>
+                App ID
+                <input
+                  disabled={env?.appId}
+                  value={appId}
+                  placeholder={env?.appId ? 'set by SLACK_APP_ID' : 'A01234567'}
+                  onChange={e => setAppId(e.target.value)}
+                />
+              </label>
+            </div>
+
+            <p className="muted">
+              The signing secret verifies what Slack sends back when someone clicks a button. The
+              app-level token and app ID are only used in development, to point the app's Request
+              URL at the current ngrok tunnel.
+            </p>
+
             {!payload.data.interactivity.configured ? (
               <Notice>
-                The Acknowledge and Resolve buttons need{' '}
-                <code className="mono">{payload.data.interactivity.envVar}</code> in the
-                environment. Without it, inbound clicks are rejected.
+                The Acknowledge and Resolve buttons need a signing secret — set it above or as{' '}
+                <code className="mono">{payload.data.interactivity.envVar}</code>. Without it,
+                inbound clicks are rejected.
               </Notice>
             ) : null}
 

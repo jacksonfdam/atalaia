@@ -162,6 +162,12 @@ export interface RemoteRepositoryList {
   org: string;
   login: string;
   count: number;
+  /** What the token can actually reach for this login. */
+  access: {
+    kind: 'organization' | 'self' | 'user';
+    visibility: 'all' | 'public';
+    authenticatedAs: string | null;
+  };
   repositories: RemoteRepository[];
 }
 
@@ -283,6 +289,11 @@ export interface SlackPayload {
     webhookHint: string | null;
     hasBotToken: boolean;
     botHint: string | null;
+    hasSigningSecret: boolean;
+    signingHint: string | null;
+    hasAppToken: boolean;
+    appTokenHint: string | null;
+    appId: string | null;
     destination: string | null;
     destinationKind: 'none' | 'channel' | 'user';
     notifyOwners: boolean;
@@ -292,7 +303,14 @@ export interface SlackPayload {
   };
   envLocked: boolean;
   envVars: string[];
-  interactivity: { configured: boolean; envVar: string };
+  env: {
+    webhookUrl: boolean;
+    signingSecret: boolean;
+    appToken: boolean;
+    appId: boolean;
+    enabled: boolean | null;
+  };
+  interactivity: { configured: boolean; source: 'env' | 'database' | 'none'; envVar: string };
   status: {
     ready: boolean;
     reason: string | null;

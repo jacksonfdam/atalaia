@@ -126,6 +126,15 @@ export function RepositoryPicker({
         {list.repositories.filter(r => r.state === 'tracked').length} already tracked
       </p>
 
+      {list.access?.visibility === 'public' ? (
+        <Notice>
+          Only public repositories are visible.{' '}
+          {list.access.kind === 'user'
+            ? `The token belongs to ${list.access.authenticatedAs ?? 'another account'}, not to ${list.login} — a personal account only exposes its private repositories to its own token.`
+            : 'No token is configured for this organization.'}
+        </Notice>
+      ) : null}
+
       {visible.length === 0 ? <Notice>Nothing matches that filter.</Notice> : null}
 
       <div className="table-scroll" style={{ maxHeight: '22rem' }}>
