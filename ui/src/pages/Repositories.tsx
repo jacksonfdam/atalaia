@@ -2,7 +2,44 @@ import { Fragment, useState, type FormEvent } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, Empty, formatDate } from '../components/ui';
-import type { Dependency, Repository } from '../types';
+import type { Dependency, Repository, TechnologyReport } from '../types';
+
+/** Languages and topics come from the provider; ecosystems come from a scan. */
+function Technologies({ report }: { report: TechnologyReport }) {
+  return (
+    <div className="grid cols-2" style={{ marginBottom: '0.6rem' }}>
+      <div className="stat">
+        <strong style={{ fontSize: '0.8rem' }}>Languages</strong>
+        {report.languages.length === 0 ? (
+          <p className="muted">
+            None recorded. Import the organization again, or refresh this repository.
+          </p>
+        ) : (
+          <p className="mono" style={{ fontSize: '0.72rem' }}>
+            {report.languages.map(lang => `${lang.name} ${lang.share ?? 0}%`).join('  ·  ')}
+          </p>
+        )}
+        {report.topics.length > 0 ? (
+          <p className="muted" style={{ marginTop: '0.3rem' }}>topics: {report.topics.join(', ')}</p>
+        ) : null}
+      </div>
+
+      <div className="stat">
+        <strong style={{ fontSize: '0.8rem' }}>Ecosystems</strong>
+        {report.ecosystems.length === 0 ? (
+          <p className="muted">No manifests parsed yet. Run a scan.</p>
+        ) : (
+          <p className="mono" style={{ fontSize: '0.72rem' }}>
+            {report.ecosystems.map(eco => `${eco.name} (${eco.packages})`).join('  ·  ')}
+          </p>
+        )}
+        <p className="muted" style={{ marginTop: '0.3rem' }}>
+          {report.dependencyCount} dependencies · scanned {formatDate(report.lastScannedAt)}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
   const list = useApi<{ count: number; repositories: Repository[] }>('/repositories', onAuthLost);
@@ -11,6 +48,7 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [deps, setDeps] = useState<Record<number, Dependency[]>>({});
+  const [techs, setTechs] = useState<Record<number, TechnologyReport>>({});
 
   async function run(action: () => Promise<string>) {
     setBusy(true);
@@ -34,22 +72,26 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
     });
   }
 
-  async function toggleDeps(repo: Repository) {
+  async function toggleDetails(repo: Repository) {
     if (expanded === repo.id) {
       setExpanded(null);
       return;
     }
     setExpanded(repo.id);
 
-    if (!deps[repo.id]) {
-      try {
+    try {
+      if (!deps[repo.id]) {
         const res = await api.get<{ dependencies: Dependency[] }>(
           `/repositories/${repo.id}/dependencies`
         );
         setDeps(prev => ({ ...prev, [repo.id]: res.dependencies }));
-      } catch (err) {
-        setMessage({ kind: 'error', text: (err as Error).message });
       }
+      if (!techs[repo.id]) {
+        const report = await api.get<TechnologyReport>(`/repositories/${repo.id}/technologies`);
+        setTechs(prev => ({ ...prev, [repo.id]: report }));
+      }
+    } catch (err) {
+      setMessage({ kind: 'error', text: (err as Error).message });
     }
   }
 
@@ -98,8 +140,8 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
 
         {list.data && list.data.repositories.length === 0 ? (
           <Empty>
-            No repositories tracked. Add one to correlate CVEs against the dependencies you
-            actually ship.
+            No repositories tracked. Import an organization, or add one to correlate CVEs against
+            the dependencies you actually ship.
           </Empty>
         ) : null}
 
@@ -109,7 +151,8 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
               <thead>
                 <tr>
                   <th>Name</th>
-                  <th>Provider</th>
+                  <th>Organization</th>
+                  <th>Language</th>
                   <th>Branch</th>
                   <th>Last scanned</th>
                   <th>Actions</th>
@@ -118,19 +161,34 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
               <tbody>
                 {list.data.repositories.map(repo => (
                   <Fragment key={repo.id}>
-                    <tr>
+                    <tr style={{ opacity: repo.enabled ? 1 : 0.55 }}>
                       <td>
                         <a href={repo.url} target="_blank" rel="noreferrer noopener">
                           {repo.name}
                         </a>
+                        {repo.archived ? <span className="muted"> · archived</span> : null}
                       </td>
-                      <td className="tight">{repo.provider}</td>
+                      <td className="tight mono">{repo.org_key ?? '—'}</td>
+                      <td className="tight">{repo.primary_language ?? '—'}</td>
                       <td className="tight mono">{repo.default_branch}</td>
                       <td className="tight mono">{formatDate(repo.last_scanned_at)}</td>
                       <td className="tight">
                         <span className="cell-actions">
-                          <button onClick={() => toggleDeps(repo)}>
-                            {expanded === repo.id ? 'Hide deps' : 'Deps'}
+                          <button onClick={() => toggleDetails(repo)}>
+                            {expanded === repo.id ? 'Hide' : 'Details'}
+                          </button>
+                          <button
+                            disabled={busy}
+                            onClick={() =>
+                              run(async () => {
+                                await api.patch(`/repositories/${repo.id}`, {
+                                  enabled: !repo.enabled,
+                                });
+                                return `${repo.name} ${repo.enabled ? 'disabled' : 'enabled'}`;
+                              })
+                            }
+                          >
+                            {repo.enabled ? 'Disable' : 'Enable'}
                           </button>
                           <button
                             disabled={busy}
@@ -164,13 +222,35 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
 
                     {expanded === repo.id ? (
                       <tr>
-                        <td colSpan={5}>
+                        <td colSpan={6}>
+                          {techs[repo.id] ? (
+                            <>
+                              <Technologies report={techs[repo.id]} />
+                              <button
+                                disabled={busy}
+                                onClick={() =>
+                                  run(async () => {
+                                    const report = await api.post<TechnologyReport>(
+                                      `/repositories/${repo.id}/technologies`
+                                    );
+                                    setTechs(prev => ({ ...prev, [repo.id]: report }));
+                                    return `Languages refreshed for ${repo.name}`;
+                                  })
+                                }
+                              >
+                                Refresh languages
+                              </button>
+                            </>
+                          ) : (
+                            <Loading what="technologies" />
+                          )}
+
                           {!deps[repo.id] ? (
                             <Loading what="dependencies" />
                           ) : deps[repo.id].length === 0 ? (
                             <Empty>No dependencies recorded. Run a scan first.</Empty>
                           ) : (
-                            <div className="table-scroll">
+                            <div className="table-scroll" style={{ marginTop: '0.6rem' }}>
                               <table>
                                 <thead>
                                   <tr>

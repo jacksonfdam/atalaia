@@ -113,6 +113,45 @@ export interface Repository {
   last_scanned_at: string | null;
   enabled: 0 | 1;
   deleted_at: string | null;
+  primary_language: string | null;
+  /** JSON object of language -> bytes, as stored. */
+  languages: string | null;
+  /** JSON array, as stored. */
+  topics: string | null;
+  description: string | null;
+  archived: 0 | 1;
+}
+
+export interface Organization {
+  id: number;
+  key: string;
+  login: string;
+  name: string | null;
+  provider: string;
+  enabled: boolean;
+  hasToken: boolean;
+  tokenHint: string | null;
+  lastImportAt: string | null;
+  repositories?: { total: number; enabled: number };
+}
+
+export interface ImportResult {
+  org: string;
+  login: string;
+  found: number;
+  imported: number;
+  skippedDeleted: string[];
+  archived: number;
+}
+
+export interface TechnologyReport {
+  repository: { id: number; name: string; url: string };
+  primaryLanguage: string | null;
+  languages: { name: string; bytes: number; share: number | null }[];
+  topics: string[];
+  ecosystems: { name: string; packages: number }[];
+  dependencyCount: number;
+  lastScannedAt: string | null;
 }
 
 export interface Dependency {

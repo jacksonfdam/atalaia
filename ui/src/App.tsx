@@ -7,6 +7,7 @@ import { Overview } from './pages/Overview';
 import { Vulnerabilities } from './pages/Vulnerabilities';
 import { VulnDetail } from './pages/VulnDetail';
 import { Feeds } from './pages/Feeds';
+import { Organizations } from './pages/Organizations';
 import { Repositories } from './pages/Repositories';
 import { Owners } from './pages/Owners';
 import { Settings } from './pages/Settings';
@@ -16,6 +17,7 @@ const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/vulnerabilities', label: 'Vulnerabilities' },
   { to: '/feeds', label: 'Sources' },
+  { to: '/organizations', label: 'Organizations' },
   { to: '/repositories', label: 'Repositories' },
   { to: '/owners', label: 'Owners' },
   { to: '/settings', label: 'Settings' },
@@ -76,6 +78,7 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
           <Route path="/vulnerabilities" element={<Vulnerabilities onAuthLost={onAuthLost} />} />
           <Route path="/vulnerabilities/:cveId" element={<VulnDetail onAuthLost={onAuthLost} />} />
           <Route path="/feeds" element={<Feeds onAuthLost={onAuthLost} />} />
+          <Route path="/organizations" element={<Organizations onAuthLost={onAuthLost} />} />
           <Route path="/repositories" element={<Repositories onAuthLost={onAuthLost} />} />
           <Route path="/owners" element={<Owners onAuthLost={onAuthLost} />} />
           <Route path="/settings" element={<Settings onAuthLost={onAuthLost} />} />
