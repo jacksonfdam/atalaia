@@ -20,7 +20,7 @@
 | A container dies with `ECONNREFUSED 127.0.0.1:5432x` | Inside a container, `127.0.0.1` is that container. Start with `./scripts/atalaia.sh up`, which translates the loopback host, or export `DATABASE_URL` with `host.docker.internal` before a bare `docker compose up`. |
 | The queue never picks anything up | Nothing is consuming it. Check the worker: `./scripts/atalaia.sh logs atalaia-worker`. The API only enqueues. |
 | Odd `prepared statement` or `LISTEN` errors | `DATABASE_URL` points at Supabase's 6543 transaction pooler. Use the session connection on 5432; `doctor` flags this. |
-| A scan says `409` and nothing is running | A worker died mid-job, so the job is still `active`. pg-boss retries it when its expiry window passes — see [queues.md](queues.md) — or cancel it in `pgboss.job`. |
+| A scan says `409` and nothing is running | A worker was killed mid-job (rebuilding the containers does this), so the job is still `active` and an exclusive queue refuses new work until its expiry window passes. `atalaia repo scan-cancel`, or `DELETE /api/v1/repositories/scan-all`. |
 | `LOG_LEVEL=... is not a pino level` | Only `trace debug info warn error fatal silent` exist. The service carries on at `info` rather than refusing to boot. |
 | No console bundle in the image | `./scripts/atalaia.sh up --build`. |
 | `atalaia` (CLI) cannot reach the API | It is an HTTP client now: export `API_KEY`, and `ATALAIA_API_URL` if the API is not on `localhost:3000`. |

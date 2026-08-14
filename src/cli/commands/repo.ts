@@ -27,6 +27,7 @@ interface ListOpts extends BaseOpts {
 interface ScanOpts extends BaseOpts {
   all?: boolean;
   skipVendorLookup?: boolean;
+  concurrency?: string;
 }
 
 interface DepsOpts extends BaseOpts {
@@ -145,7 +146,11 @@ export async function runRepoList(opts: ListOpts): Promise<void> {
 export async function runRepoScan(idOrUrl: string | undefined, opts: ScanOpts): Promise<void> {
   try {
     const api = createClient({ baseUrl: opts.api });
-    const body = { skipVendorLookup: opts.skipVendorLookup === true };
+    const body = {
+      skipVendorLookup: opts.skipVendorLookup === true,
+      // Left out when absent so the server's own default applies.
+      ...(opts.concurrency ? { concurrency: Number(opts.concurrency) } : {}),
+    };
 
     const path = opts.all || !idOrUrl ? '/repositories/scan-all' : `/repositories/${ref(idOrUrl)}/scan`;
     const result = await api.post<{ accepted: boolean; jobId: string }>(path, body);
@@ -174,7 +179,9 @@ export async function runRepoScanStatus(opts: BaseOpts): Promise<void> {
     const api = createClient({ baseUrl: opts.api });
     const state = await api.get<{
       running: boolean;
-      progress: { repositories?: { done: number; total: number; current: string | null } } | null;
+      progress: {
+        repositories?: { done: number; total: number; current: string | null; inFlight?: number };
+      } | null;
       lastRun: { finishedAt: string; ok: boolean } | null;
     }>('/repositories/scan-all');
 
@@ -196,8 +203,24 @@ export async function runRepoScanStatus(opts: BaseOpts): Promise<void> {
     const repos = state.progress?.repositories;
     process.stdout.write(
       repos
-        ? `Running — ${repos.done}/${repos.total} repositories${repos.current ? ` (${repos.current})` : ''}\n`
+        ? `Running — ${repos.done}/${repos.total} repositories` +
+          (repos.inFlight ? `, ${repos.inFlight} in flight` : '') +
+          '\n'
         : 'Running…\n'
+    );
+  } catch (err) {
+    fail(err);
+  }
+}
+
+/** Stop the sweep — or unstick a queue that thinks one is still running. */
+export async function runRepoScanCancel(opts: BaseOpts): Promise<void> {
+  try {
+    const api = createClient({ baseUrl: opts.api });
+    const { cancelled } = await api.del<{ cancelled: number }>('/repositories/scan-all');
+
+    process.stdout.write(
+      cancelled > 0 ? `Cancelled ${cancelled} queued or running job(s).\n` : 'Nothing was queued.\n'
     );
   } catch (err) {
     fail(err);

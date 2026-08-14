@@ -126,6 +126,35 @@ export async function queueState(queue, singletonKey = null) {
     };
 }
 
+/**
+ * Cancel whatever is queued or active on a queue.
+ *
+ * The operator's way out of "it says one is already running and nothing is".
+ * That happens when a worker is killed mid-job: pg-boss cannot tell a dead
+ * worker from a slow one, so it waits out the job's expiry window before
+ * handing it to anyone else, and an exclusive queue refuses new work until then.
+ *
+ * @param {string} queue
+ * @returns {Promise<{ cancelled: number }>}
+ */
+export async function cancelQueued(queue) {
+    const instance = await getBoss();
+    const schema = process.env.PGBOSS_SCHEMA || 'pgboss';
+
+    const rows = await queryAll(
+        `SELECT id FROM ${schema}.job
+         WHERE name = @queue AND state IN ('created', 'active', 'retry')`,
+        { queue }
+    );
+
+    if (rows.length === 0) return { cancelled: 0 };
+
+    await instance.cancel(queue, rows.map(row => row.id));
+    logger.info({ queue, cancelled: rows.length }, 'Cancelled queued jobs');
+
+    return { cancelled: rows.length };
+}
+
 /** pg-boss stores a failure's payload in `output`; shapes vary by thrower. */
 function errorFrom(output) {
     if (!output) return null;

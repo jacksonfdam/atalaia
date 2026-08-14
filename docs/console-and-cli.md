@@ -57,7 +57,7 @@ pnpm run dev:cli         # run from source with tsx
 | `atalaia scan` | Queue a monitoring cycle. The worker runs it. |
 | `atalaia feed list\|enable\|disable\|reset\|catalog` | Sources and the database catalog. `--all`, `--json` |
 | `atalaia org add\|list\|repos\|import\|enable\|disable\|token\|remove` | Organizations and their read-only tokens. `--token`, `--only`, `--no-languages` |
-| `atalaia repo add\|remove\|restore\|enable\|disable\|list\|scan\|scan-status\|deps\|tech` | Monitored repositories. `--all`, `--ecosystem`, `--refresh`, … A scan is queued, and `scan-status` follows it. |
+| `atalaia repo add\|remove\|restore\|enable\|disable\|list\|scan\|scan-status\|deps\|tech` | Monitored repositories. `--all`, `--ecosystem`, `--refresh`, … A scan is queued, and `scan-status` follows it. `--concurrency <n>` overrides how many repositories are scanned at once, and `scan-cancel` stops a sweep. |
 | `atalaia owner add\|remove\|list\|show\|assign\|unassign` | Owners and assignments. |
 
 `--api <url>` points any command at another API; `ATALAIA_API_URL` does the same for every command. There is no `--db` any more — the CLI does not open the database.

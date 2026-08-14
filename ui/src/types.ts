@@ -383,7 +383,14 @@ export interface FleetScanState {
    */
   progress: {
     organizations?: { total: number; done: number; current: string | null };
-    repositories?: { total: number; done: number; current: string | null };
+    repositories?: {
+      total: number;
+      done: number;
+      current: string | null;
+      concurrency?: number;
+      /** Still being read. The tail of a sweep looks stuck without it. */
+      inFlight?: number;
+    };
     dependencies?: number;
     errors?: string[];
   } | null;

@@ -8,7 +8,7 @@ import { runShow } from './commands/show.js';
 import { runAck } from './commands/ack.js';
 import { runResolve } from './commands/resolve.js';
 import { runScan } from './commands/scan.js';
-import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoScanStatus, runRepoDeps, runRepoToggle, runRepoRestore, runRepoTech } from './commands/repo.js';
+import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoScanStatus, runRepoScanCancel, runRepoDeps, runRepoToggle, runRepoRestore, runRepoTech } from './commands/repo.js';
 import { runOwnerAdd, runOwnerRemove, runOwnerList, runOwnerAssign, runOwnerUnassign, runOwnerShow } from './commands/owner.js';
 import { runOrgAdd, runOrgList, runOrgRemove, runOrgUpdate, runOrgImport, runOrgRepos } from './commands/org.js';
 import { runFeedList, runFeedToggle, runFeedReset, runFeedCatalog } from './commands/feed.js';
@@ -160,6 +160,7 @@ repo
   .description('Scan repository dependencies (or --all for all repos)')
   .option('--all', 'Scan all repositories from all configured providers')
   .option('--skip-vendor-lookup', 'Skip OpenCVE vendor/product resolution (faster)')
+  .option('--concurrency <n>', 'Repositories to scan at once (default: $SCAN_CONCURRENCY or 10)')
   .option('--json', 'Emit JSON output')
   .action(async (idOrUrl: string | undefined, opts: Record<string, unknown>) => {
     await runRepoScan(idOrUrl, opts as any);
@@ -171,6 +172,13 @@ repo
   .option('--json', 'Emit JSON output')
   .action(async (opts: { json?: boolean }) => {
     await runRepoScanStatus(opts);
+  });
+
+repo
+  .command('scan-cancel')
+  .description('Stop the fleet scan, or unstick a queue that thinks one is running')
+  .action(async (opts: { api?: string }) => {
+    await runRepoScanCancel(opts);
   });
 
 repo

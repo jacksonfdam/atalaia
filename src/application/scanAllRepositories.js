@@ -17,11 +17,30 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..');
 
+const DEFAULT_CONCURRENCY = 10;
+
+/**
+ * How many repositories are scanned at once.
+ *
+ * A caller may pass one per run (the API accepts it in the POST body); otherwise
+ * SCAN_CONCURRENCY, otherwise ten. Clamped to at least one, because a zero would
+ * silently scan nothing.
+ *
+ * @param {number|string} [requested]
+ */
+function resolveConcurrency(requested) {
+    const value = parseInt(requested ?? process.env.SCAN_CONCURRENCY, 10);
+    if (Number.isNaN(value)) return DEFAULT_CONCURRENCY;
+    return Math.max(1, value);
+}
+
 /**
  * Scan all repositories from all configured providers.
- * Creates provider instances per org, discovers repos, upserts them, and scans each.
+ * Creates provider instances per org, discovers repos, upserts them, and scans
+ * them `concurrency` at a time.
  *
- * @param {{ skipVendorLookup?: boolean, onProgress?: (event: object) => void }} [options]
+ * @param {{ skipVendorLookup?: boolean, concurrency?: number,
+ *           onProgress?: (event: object) => void }} [options]
  * @returns {Promise<{ totalRepos: number, totalDeps: number, errors: string[] }>}
  */
 export async function scanAllRepositories(options = {}) {
@@ -136,25 +155,49 @@ async function scanProvider(providerConfig, options, report = () => {}) {
     let depCount = 0;
     const errors = [];
 
-    report({ type: 'repositories', org: key, total: activeRepos.length });
+    const concurrency = resolveConcurrency(options.concurrency);
 
-    // One at a time: the log stays readable and the GitHub rate limit is never
-    // the thing that breaks a scan.
-    for (const repo of activeRepos) {
-        report({ type: 'repository-start', repository: repo.name, org: key });
+    report({ type: 'repositories', org: key, total: activeRepos.length, concurrency });
 
-        try {
-            const result = await scanRepository(repo.id, provider, options);
-            depCount += result.dependencyCount;
-            report({ type: 'repository-done', repository: repo.name, dependencies: result.dependencyCount });
-        } catch (error) {
-            const msg = `${repo.name}: ${error.message}`;
-            logger.error({ repoId: repo.id, name: repo.name, err: error }, 'Repository scan failed');
-            errors.push(msg);
-            report({ type: 'error', message: msg });
-            report({ type: 'repository-done', repository: repo.name, dependencies: 0 });
+    // Several at a time. Each repository is an independent read of somebody
+    // else's API followed by a write of its own rows, so they do not contend —
+    // and a sweep of four hundred repositories at ten seconds each is over an
+    // hour when done one by one.
+    //
+    // The bound matters: parallelism does not reduce the number of GitHub
+    // requests, only the rate, and a token has 5000 an hour. Ten is comfortable
+    // for a fleet in the hundreds; SCAN_CONCURRENCY exists for the fleets it is
+    // not comfortable for, in either direction.
+    const queue = [...activeRepos];
+
+    const runner = async () => {
+        for (;;) {
+            const repo = queue.shift();
+            if (!repo) return;
+
+            report({ type: 'repository-start', repository: repo.name, org: key });
+
+            try {
+                const result = await scanRepository(repo.id, provider, options);
+                depCount += result.dependencyCount;
+                report({ type: 'repository-done', repository: repo.name, dependencies: result.dependencyCount });
+            } catch (error) {
+                const msg = `${repo.name}: ${error.message}`;
+                logger.error({ repoId: repo.id, name: repo.name, err: error }, 'Repository scan failed');
+                errors.push(msg);
+                report({ type: 'error', message: msg });
+                // Counted as done either way: the progress line is "how much of
+                // the sweep is behind us", not "how much of it worked".
+                report({ type: 'repository-done', repository: repo.name, dependencies: 0 });
+            }
         }
-    }
+    };
+
+    logger.info({ provider: key, repositories: activeRepos.length, concurrency }, 'Scanning repositories');
+
+    // Workers pull from the shared queue rather than taking a slice each, so one
+    // slow repository does not leave a worker idle while another has ten left.
+    await Promise.all(Array.from({ length: Math.min(concurrency, activeRepos.length) }, runner));
 
     return { repoCount: activeRepos.length, depCount, errors };
 }

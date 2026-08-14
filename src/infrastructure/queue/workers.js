@@ -41,15 +41,21 @@ function applyEvent(progress, event) {
             // Discovered per organization, so the total grows as the scan walks
             // them rather than being known up front.
             progress.repositories.total += event.total;
+            progress.repositories.concurrency = event.concurrency ?? 1;
             break;
 
         case 'repository-start':
+            // With several in flight this is the most recent one to start, not
+            // the only one running — hence inFlight, which is what stops the
+            // tail of a sweep looking stuck: `done` stops moving while the last
+            // few large repositories are still being read.
             progress.repositories.current = event.repository;
+            progress.repositories.inFlight = (progress.repositories.inFlight ?? 0) + 1;
             break;
 
         case 'repository-done':
             progress.repositories.done += 1;
-            progress.repositories.current = null;
+            progress.repositories.inFlight = Math.max(0, (progress.repositories.inFlight ?? 1) - 1);
             progress.dependencies += event.dependencies ?? 0;
             break;
 
@@ -61,6 +67,12 @@ function applyEvent(progress, event) {
             break;
     }
 }
+
+/**
+ * How many repositories are scanned at once — the same knob the fleet sweep
+ * reads, so raising it in one place does not leave the other serial.
+ */
+const SCAN_CONCURRENCY = Math.max(1, parseInt(process.env.SCAN_CONCURRENCY, 10) || 10);
 
 /** pg-boss hands the handler an array; every queue here takes one job at a time. */
 const one = handler => async ([job]) => handler(job);
@@ -89,13 +101,14 @@ export async function registerWorkers() {
         one(async job => {
             const progress = {
                 organizations: { total: 0, done: 0, current: null },
-                repositories: { total: 0, done: 0, current: null },
+                repositories: { total: 0, done: 0, current: null, inFlight: 0 },
                 dependencies: 0,
                 errors: [],
             };
 
             const result = await scanAllRepositories({
                 skipVendorLookup: job.data?.skipVendorLookup ?? false,
+                concurrency: job.data?.concurrency,
                 onProgress: async event => {
                     applyEvent(progress, event);
                     await writeProgress(job.id, QUEUES.REPO_SCAN_ALL, progress);
@@ -107,12 +120,13 @@ export async function registerWorkers() {
         })
     );
 
-    // teamSize 1: deliberately one repository at a time, which is what kept the
-    // GitHub rate limit and the log readable when this was a sequential loop.
-    // The difference is that the queue now remembers where it got to.
+    // One-off scans, queued from the console or the CLI. They run as many at a
+    // time as a fleet sweep does, from the same setting: the limit that matters
+    // is somebody else's rate limit, and it does not care which queue the work
+    // arrived on.
     await boss.work(
         QUEUES.REPO_SCAN,
-        { batchSize: 1, teamSize: 1, teamConcurrency: 1 },
+        { batchSize: 1, teamSize: SCAN_CONCURRENCY, teamConcurrency: SCAN_CONCURRENCY },
         one(async job => {
             const { repositoryId, skipVendorLookup } = job.data;
 

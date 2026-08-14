@@ -292,7 +292,11 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
             {(scan.progress.organizations?.total ?? 0) > 1
               ? ` · organization ${(scan.progress.organizations?.done ?? 0) + 1}/${scan.progress.organizations?.total}`
               : ''}
-            {scan.progress.repositories.current ? ` · now: ${scan.progress.repositories.current}` : ''}
+            {(scan.progress.repositories.concurrency ?? 1) > 1
+              ? ` · ${scan.progress.repositories.inFlight ?? 0} of ${scan.progress.repositories.concurrency} in flight`
+              : scan.progress.repositories.current
+                ? ` · now: ${scan.progress.repositories.current}`
+                : ''}
             {' · '}
             {scan.progress.dependencies ?? 0} dependencies so far
             {scan.progress.errors?.length ? ` · ${scan.progress.errors.length} failed` : ''}

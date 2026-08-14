@@ -53,8 +53,13 @@ export const QUEUE_DEFINITIONS = [
         policy: 'exclusive',
         retryLimit: 0,
         retryDelay: 0,
-        expireInSeconds: 3600,
-        why: 'A fleet sweep is a fan-out; running two would enqueue every repository twice. No retry: the per-repository jobs retry themselves.',
+        // Sized for the sweep it actually is: several hundred repositories, ten
+        // at a time, is minutes. It was an hour when the sweep was sequential,
+        // and that hour was how long an exclusive queue stayed blocked after a
+        // worker was killed mid-sweep — pg-boss only reclaims an abandoned
+        // active job when its window passes.
+        expireInSeconds: 1800,
+        why: 'One sweep at a time: two would walk the same organizations and scan everything twice.',
     },
     {
         name: QUEUES.REPO_SCAN,
@@ -62,7 +67,7 @@ export const QUEUE_DEFINITIONS = [
         retryLimit: 2,
         retryDelay: 30,
         expireInSeconds: 600,
-        why: 'One repository at a time is enforced by the worker\'s concurrency, not by the queue: the jobs must be allowed to queue up.',
+        why: 'How many run at once is the worker\'s concurrency (SCAN_CONCURRENCY), not the queue\'s: the jobs must be allowed to queue up.',
     },
     {
         name: QUEUES.DEPS_VERSIONS,

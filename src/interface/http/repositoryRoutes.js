@@ -13,7 +13,7 @@ import {
 } from '../../application/repositoryTechnologies.js';
 import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.js';
 import { listRepositoriesPage } from '../../application/listRepositories.js';
-import { enqueue, queueState } from '../../infrastructure/queue/boss.js';
+import { enqueue, queueState, cancelQueued } from '../../infrastructure/queue/boss.js';
 import { QUEUES } from '../../infrastructure/queue/jobs.js';
 import { compareVersions } from '../../application/versionComparison.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
@@ -55,6 +55,17 @@ export function createRepositoryRoutes() {
         res.json(state);
     });
 
+    // DELETE /repositories/scan-all — stop the sweep.
+    //
+    // Also the way out of "one is already running" when nothing is: a worker
+    // killed mid-sweep leaves its job active until the expiry window passes, and
+    // an exclusive queue refuses new work until then.
+    router.delete('/scan-all', async (_req, res) => {
+        const { cancelled } = await cancelQueued(QUEUES.REPO_SCAN_ALL);
+        logger.info({ cancelled }, 'Fleet scan cancelled via API');
+        res.json({ cancelled });
+    });
+
     // POST /repositories/scan-all — starts it and returns immediately.
     //
     // Scanning a hundred repositories takes far longer than any HTTP client
@@ -62,6 +73,8 @@ export function createRepositoryRoutes() {
     router.post('/scan-all', async (req, res) => {
         const { accepted, jobId } = await enqueue(QUEUES.REPO_SCAN_ALL, {
             skipVendorLookup: req.body?.skipVendorLookup === true,
+            // Per-run override; otherwise SCAN_CONCURRENCY, otherwise ten.
+            concurrency: req.body?.concurrency,
         });
 
         if (!accepted) {

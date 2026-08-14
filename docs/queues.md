@@ -20,7 +20,9 @@ Defined once in `src/infrastructure/queue/jobs.js`, which the API, the worker an
 
 `deps.versions` is exclusive *per repository*, through a `singletonKey` of `repo:<id>`: two repositories may be checked at once, the same one may not.
 
-`repo.scan` is deliberately not exclusive — the jobs must be free to queue up. One-at-a-time is enforced by the worker's concurrency instead, which is what kept the GitHub rate limit and the log readable when this was a sequential loop.
+`repo.scan` is deliberately not exclusive — the jobs must be free to queue up. How many run at once is the worker's concurrency, `SCAN_CONCURRENCY` (default 10), the same number a fleet sweep uses inside its own job: the limit that matters is somebody else's rate limit, and it does not care which queue the work arrived on.
+
+**Concurrency.** A sweep of four hundred repositories at ten seconds each is over an hour one at a time, so repositories are scanned in parallel — ten by default. Each one is an independent read of the provider followed by a write of its own rows, so they do not contend with each other; what they share is the GitHub token's 5000 requests an hour, which parallelism spends faster rather than differently. Set `SCAN_CONCURRENCY`, or pass `{"concurrency": N}` to `POST /api/v1/repositories/scan-all` for one run (`atalaia repo scan --all --concurrency N`).
 
 ## Schedules
 
@@ -46,6 +48,7 @@ The HTTP contract the console polls did not change:
 | `GET /api/v1/scan` | `running`, `jobId`, `progress`, `lastRun` |
 | `POST /api/v1/repositories/scan-all` | `202`, or `409` |
 | `GET /api/v1/repositories/scan-all` | fleet progress: organizations and repositories done, which one is current, errors |
+| `DELETE /api/v1/repositories/scan-all` | Cancel the sweep, and unstick the queue when it thinks one is running |
 | `POST /api/v1/repositories/:id/scan` | `202` for one repository |
 | `POST /api/v1/repositories/:id/versions` | `202`, or `409` if that repository is already being checked |
 
@@ -81,3 +84,11 @@ atalaia repo scan-status    # follow it
 The job stays in the queue. It is not lost — which is the whole point of the change — but it is not instantly retried either: pg-boss notices an abandoned `active` job when its `expireInSeconds` window passes, and only then hands it to someone else. That window is per queue (15 minutes for a monitoring cycle, an hour for a fleet sweep) and it is a trade: shorter means faster recovery, longer means a slow-but-alive job is not killed and restarted underneath itself.
 
 A clean `docker stop` is different — the worker finishes the job in hand if it can, and stops taking new ones.
+
+Rebuilding the containers mid-sweep is the case that bites: the worker is replaced, its job stays `active`, and an exclusive queue refuses new work until the window passes. When that happens:
+
+```bash
+atalaia repo scan-cancel      # or: DELETE /api/v1/repositories/scan-all
+```
+
+The windows are sized for the work: 15 minutes for a monitoring cycle, 30 for a fleet sweep — which is generous now that a sweep of four hundred repositories is minutes rather than an hour.

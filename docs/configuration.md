@@ -62,6 +62,7 @@ Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `co
 | `REDHAT_PAGE_SIZE` | `100` | CVEs per Red Hat Security Data page. |
 | `USN_LIMIT` | `10` | Ubuntu notices per cycle. A single kernel notice can carry hundreds of CVEs. |
 | `REGISTRY_CONCURRENCY` | `6` | Registry lookups at once during a freshness check. |
+| `SCAN_CONCURRENCY` | `10` | Repositories scanned at once — by a fleet sweep and by one-off scan jobs alike. Parallelism does not reduce the number of GitHub requests, only the rate, and a token allows 5000 an hour: raise it for a fleet in the tens, lower it if GitHub starts refusing. |
 
 ## LLM summaries
 
