@@ -4,7 +4,12 @@ import dotenv from "dotenv";
 import pino from "pino";
 
 // quiet: dotenv v17 otherwise prints a banner that breaks the structured log stream
-dotenv.config({ quiet: true });
+//
+// Not under test, though. A developer's .env would otherwise decide how the
+// suite behaves: leave SLACK_SIGNING_SECRET or SMTP_HOST set in it and tests
+// about "the console can still write this" fail on that machine and pass on
+// every other. A test declares the environment it needs.
+if (process.env.NODE_ENV !== 'test') dotenv.config({ quiet: true });
 
 const configPath = path.resolve("config.json");
 let rawConfig = {};
