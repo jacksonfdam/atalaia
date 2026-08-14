@@ -22,6 +22,7 @@ const { initializeDatabase, getDb } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
 const { resetFleetScanState } = await import('#app/application/repositoryScanRunner.js');
 const { compareVersions } = await import('#app/application/versionComparison.js');
+const { buildTeamsCard } = await import('#app/infrastructure/notifiers/notifyTeams.js');
 
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
@@ -689,5 +690,106 @@ describe('LLM settings', () => {
 
         expect(res.status).toBe(409);
         expect(res.body.error).toMatch(/LLM_PROVIDER/);
+    });
+});
+
+describe('Teams settings', () => {
+    beforeEach(() => {
+        getDb().exec('DELETE FROM teams_config;');
+        delete process.env.TEAMS_WEBHOOK_URL;
+        delete process.env.TEAMS_ENABLED;
+    });
+
+    test('stores the webhook and reports it as ready', async () => {
+        const res = await request(app)
+            .put('/api/v1/settings/teams')
+            .set(KEY)
+            .send({
+                webhookUrl: 'https://prod-12.westeurope.logic.azure.com/workflows/x/triggers/manual/paths/invoke?sig=SECRET9999',
+                enabled: true,
+            });
+
+        expect(res.body.config).toMatchObject({ hasWebhook: true, webhookHint: '••••9999', enabled: true });
+        expect(res.body.status).toMatchObject({ ready: true, source: 'database' });
+    });
+
+    test('never returns the URL, and never stores it in the clear', async () => {
+        await request(app)
+            .put('/api/v1/settings/teams')
+            .set(KEY)
+            .send({ webhookUrl: 'https://outlook.office.com/webhook/SECRET9999', enabled: true });
+
+        const res = await request(app).get('/api/v1/settings/teams').set(KEY);
+        expect(JSON.stringify(res.body)).not.toContain('SECRET9999');
+
+        const row = getDb().prepare('SELECT webhook_cipher FROM teams_config').get();
+        expect(row.webhook_cipher).not.toContain('office.com');
+    });
+
+    test('rejects a URL that is not a Teams webhook', async () => {
+        const res = await request(app)
+            .put('/api/v1/settings/teams')
+            .set(KEY)
+            .send({ webhookUrl: 'https://evil.example.com/hook' });
+
+        expect(res.status).toBe(400);
+    });
+
+    test('is not ready while switched off', async () => {
+        const res = await request(app)
+            .put('/api/v1/settings/teams')
+            .set(KEY)
+            .send({ webhookUrl: 'https://prod.logic.azure.com/workflows/x', enabled: false });
+
+        expect(res.body.status.ready).toBe(false);
+        expect(res.body.status.reason).toContain('switched off');
+    });
+
+    test('refuses to write while TEAMS_WEBHOOK_URL is set', async () => {
+        process.env.TEAMS_WEBHOOK_URL = 'https://prod.logic.azure.com/workflows/env';
+
+        const res = await request(app).put('/api/v1/settings/teams').set(KEY).send({ enabled: true });
+        expect(res.status).toBe(409);
+    });
+});
+
+describe('the Teams card', () => {
+    const vuln = {
+        cveId: 'CVE-2026-9999',
+        title: 'Remote code execution in thing',
+        severity: 'CRITICAL',
+        cvssScore: 9.8,
+        source: 'ghsa',
+        exploited: true,
+        affectedTechnologies: ['express'],
+        description: 'A description.',
+        link: 'https://example.com/advisory',
+    };
+
+    test('is an adaptive card in the envelope a workflow webhook expects', () => {
+        const card = buildTeamsCard(vuln);
+
+        expect(card.type).toBe('message');
+        expect(card.attachments[0].contentType).toBe('application/vnd.microsoft.card.adaptive');
+        expect(card.attachments[0].content.type).toBe('AdaptiveCard');
+    });
+
+    test('carries the correlation when there is one', () => {
+        const card = buildTeamsCard(vuln, {
+            affectedRepositories: [{ name: 'acme/api' }],
+            owners: [{ name: 'Ana' }],
+        });
+        const text = JSON.stringify(card.attachments[0].content.body);
+
+        expect(text).toContain('acme/api');
+        expect(text).toContain('Ana');
+    });
+
+    test('links to the advisory when the feed gave one', () => {
+        expect(buildTeamsCard(vuln).attachments[0].content.actions[0]).toMatchObject({
+            type: 'Action.OpenUrl',
+            url: 'https://example.com/advisory',
+        });
+        expect(buildTeamsCard({ ...vuln, link: null }).attachments[0].content.actions).toEqual([]);
     });
 });
