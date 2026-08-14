@@ -56,7 +56,7 @@ async function requireOrg(key) {
  */
 export async function previewOrgRepositories(key) {
     const org = await requireOrg(key);
-    const provider = providerForOrg(key);
+    const provider = await providerForOrg(key);
 
     logger.info({ org: key, login: org.login }, 'Listing repositories for selection');
 
@@ -105,7 +105,7 @@ export async function importOrgRepositories(key, options = {}) {
 
     const withLanguages = options.withLanguages !== false;
     const selection = Array.isArray(options.only) && options.only.length > 0 ? options.only : null;
-    const provider = providerForOrg(key);
+    const provider = await providerForOrg(key);
 
     logger.info({ org: key, login: org.login, selected: selection?.length ?? 'all' }, 'Importing repositories');
 

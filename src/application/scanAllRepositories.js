@@ -98,7 +98,7 @@ async function scanProvider(providerConfig, options, report = () => {}) {
     }
 
     // Resolves the organization's own token first, then config.json, then env.
-    const provider = providerForOrg(key);
+    const provider = await providerForOrg(key);
 
     // 1. Discover repositories from the provider
     const remoteRepos = await provider.listRepositories(org);

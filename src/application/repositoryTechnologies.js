@@ -66,7 +66,7 @@ export async function refreshRepositoryLanguages(repositoryId) {
     const repo = await getRepository(repositoryId);
     if (!repo) throw new Error(`Repository ${repositoryId} not found`);
 
-    const provider = providerForOrg(repo.org_key);
+    const provider = await providerForOrg(repo.org_key);
     const languages = await provider.listLanguages(repo.url);
 
     // The endpoint's ordering is not part of its contract, so the primary

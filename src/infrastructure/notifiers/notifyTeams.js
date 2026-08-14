@@ -106,7 +106,7 @@ export function buildTeamsCard(vuln, correlation = {}) {
  * @param {{ affectedRepositories?: object[], owners?: object[] }} [correlation]
  */
 export async function notifyTeams(vuln, _highlight = false, correlation = {}) {
-    const config = resolveTeamsConfig();
+    const config = await resolveTeamsConfig();
 
     if (!config.ready) {
         logger.debug({ cveId: vuln.cveId, reason: config.reason }, 'Teams alert skipped');
@@ -127,7 +127,7 @@ export async function notifyTeams(vuln, _highlight = false, correlation = {}) {
 
 /** @returns {Promise<{ ok: boolean, error?: string }>} */
 export async function sendTeamsTestMessage() {
-    const config = resolveTeamsConfig();
+    const config = await resolveTeamsConfig();
     if (!config.ready) return { ok: false, error: config.reason ?? 'Teams is not configured' };
 
     const card = {

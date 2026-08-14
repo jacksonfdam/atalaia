@@ -37,7 +37,22 @@ export function createRepositoryRoutes() {
     // GET /repositories/scan-all — progress of the running scan, or the last one.
     // Declared before /:idOrUrl so "scan-all" is not parsed as an identifier.
     router.get('/scan-all', async (_req, res) => {
-        res.json(await queueState(QUEUES.REPO_SCAN_ALL));
+        const state = await queueState(QUEUES.REPO_SCAN_ALL);
+
+        // The counts live in the job's return value; the console has always been
+        // promised them on lastRun, and a missing field there is a blank page.
+        if (state.lastRun) {
+            const output = state.lastRun.output ?? {};
+            state.lastRun = {
+                ...state.lastRun,
+                repositories: output.totalRepos ?? 0,
+                dependencies: output.totalDeps ?? 0,
+                errors: output.errors ?? [],
+            };
+            delete state.lastRun.output;
+        }
+
+        res.json(state);
     });
 
     // POST /repositories/scan-all — starts it and returns immediately.

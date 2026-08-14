@@ -285,25 +285,25 @@ export function Repositories({ onAuthLost }: { onAuthLost: () => void }) {
         {message ? <Notice kind={message.kind}>{message.text}</Notice> : null}
         {list.error ? <Notice kind="error">{list.error}</Notice> : null}
 
-        {scan?.running && scan.progress ? (
+        {scan?.running && scan.progress?.repositories ? (
           <Notice>
             Scanning {scan.progress.repositories.done}/{scan.progress.repositories.total || '…'}{' '}
             repositories
-            {scan.progress.organizations.total > 1
-              ? ` · organization ${scan.progress.organizations.done + 1}/${scan.progress.organizations.total}`
+            {(scan.progress.organizations?.total ?? 0) > 1
+              ? ` · organization ${(scan.progress.organizations?.done ?? 0) + 1}/${scan.progress.organizations?.total}`
               : ''}
             {scan.progress.repositories.current ? ` · now: ${scan.progress.repositories.current}` : ''}
             {' · '}
-            {scan.progress.dependencies} dependencies so far
-            {scan.progress.errors.length ? ` · ${scan.progress.errors.length} failed` : ''}
+            {scan.progress.dependencies ?? 0} dependencies so far
+            {scan.progress.errors?.length ? ` · ${scan.progress.errors.length} failed` : ''}
           </Notice>
         ) : null}
 
         {!scan?.running && scan?.lastRun ? (
           <p className="muted">
-            Last scan {relativeTime(scan.lastRun.finishedAt)}: {scan.lastRun.repositories} repositories,{' '}
-            {scan.lastRun.dependencies} dependencies
-            {scan.lastRun.errors.length ? `, ${scan.lastRun.errors.length} failed` : ''}.
+            Last scan {relativeTime(scan.lastRun.finishedAt)}: {scan.lastRun.repositories ?? 0} repositories,{' '}
+            {scan.lastRun.dependencies ?? 0} dependencies
+            {scan.lastRun.errors?.length ? `, ${scan.lastRun.errors.length} failed` : ''}.
           </p>
         ) : null}
         {list.loading ? <Loading what="repositories" /> : null}

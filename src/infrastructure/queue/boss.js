@@ -117,6 +117,10 @@ export async function queueState(queue, singletonKey = null) {
                   finishedAt: last.completed_on,
                   ok: last.state === 'completed',
                   error: last.state === 'completed' ? null : errorFrom(last.output),
+                  // Whatever the handler returned. A caller that promises its
+                  // clients more than jobId and ok — the fleet scan reports
+                  // counts — reads it from here.
+                  output: last.state === 'completed' ? last.output ?? null : null,
               }
             : null,
     };

@@ -59,25 +59,66 @@ export function getPool() {
  * pg binds positionally ($1); this codebase reads better with names. Translate
  * once, here, reusing a placeholder when the same name appears twice.
  *
- * Only identifiers after @ are rewritten, so an email address in a *value* is
- * untouched — values never travel through here as literals.
+ * String literals are skipped, because `@` is an ordinary character inside one:
+ * `WHERE email = 'sec@acme.com'` would otherwise be read as a parameter called
+ * `acme` and throw. Doubled quotes ('') are the SQL escape and stay inside the
+ * literal.
  */
 function toPositional(sql, params) {
     const values = [];
     const seen = new Map();
+    const out = [];
 
-    const text = sql.replace(/@([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
-        if (!(name in params)) {
-            throw new Error(`Missing bind parameter @${name}`);
-        }
-        if (!seen.has(name)) {
-            values.push(params[name]);
-            seen.set(name, values.length);
-        }
-        return `$${seen.get(name)}`;
-    });
+    let i = 0;
+    let inLiteral = false;
 
-    return { text, values };
+    while (i < sql.length) {
+        const char = sql[i];
+
+        if (inLiteral) {
+            out.push(char);
+            if (char === "'") {
+                // '' is an escaped quote, not the end of the literal.
+                if (sql[i + 1] === "'") {
+                    out.push("'");
+                    i += 2;
+                    continue;
+                }
+                inLiteral = false;
+            }
+            i++;
+            continue;
+        }
+
+        if (char === "'") {
+            inLiteral = true;
+            out.push(char);
+            i++;
+            continue;
+        }
+
+        if (char === '@') {
+            const match = /^@([a-zA-Z_][a-zA-Z0-9_]*)/.exec(sql.slice(i));
+            if (match) {
+                const name = match[1];
+                if (!(name in params)) {
+                    throw new Error(`Missing bind parameter @${name}`);
+                }
+                if (!seen.has(name)) {
+                    values.push(params[name]);
+                    seen.set(name, values.length);
+                }
+                out.push(`$${seen.get(name)}`);
+                i += match[0].length;
+                continue;
+            }
+        }
+
+        out.push(char);
+        i++;
+    }
+
+    return { text: out.join(''), values };
 }
 
 /**

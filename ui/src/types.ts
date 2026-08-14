@@ -373,20 +373,29 @@ export interface EmailPayload {
 
 export interface FleetScanState {
   running: boolean;
+  /** The queue's job id, once there is one. */
+  jobId?: string | null;
   startedAt: string | null;
+  /**
+   * Written by the worker as it goes, so a field can be missing simply because
+   * the sweep has not reached that stage yet. Optional on purpose: reading
+   * `.length` off an absent array blanked this whole page once.
+   */
   progress: {
-    organizations: { total: number; done: number; current: string | null };
-    repositories: { total: number; done: number; current: string | null };
-    dependencies: number;
-    errors: string[];
+    organizations?: { total: number; done: number; current: string | null };
+    repositories?: { total: number; done: number; current: string | null };
+    dependencies?: number;
+    errors?: string[];
   } | null;
   lastRun: {
+    jobId?: string;
     startedAt: string;
     finishedAt: string;
     ok: boolean;
-    repositories: number;
-    dependencies: number;
-    errors: string[];
+    error?: string | null;
+    repositories?: number;
+    dependencies?: number;
+    errors?: string[];
   } | null;
 }
 
