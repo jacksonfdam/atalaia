@@ -90,7 +90,12 @@ export function createSettingsRoutes(cache) {
         // can still be managed here.
         const pinned = [];
         const pins = (value, envVar) => {
-            if (value !== undefined && process.env[envVar] !== undefined) pinned.push(envVar);
+            // Empty is not a pin. `SLACK_SIGNING_SECRET=` in a .env leaves the
+            // variable defined but carrying nothing, and everywhere else in the
+            // product that reads as unset — including the field the console
+            // renders. Refusing the write on it made the guard disagree with
+            // the form: enabled, editable, and 409 on save.
+            if (value !== undefined && Boolean(process.env[envVar])) pinned.push(envVar);
         };
 
         if (isSlackEnvConfigured()) {

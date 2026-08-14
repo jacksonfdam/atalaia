@@ -1,0 +1,79 @@
+# Organizations and repositories
+
+Atalaia correlates CVEs against the code you actually ship, which means knowing your repositories. Register a GitHub organization (or user) with a read-only token under **Settings → Organizations** and import them; several organizations with different tokens is the normal case, and each token is stored encrypted and never returned by the API.
+
+```bash
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"login":"my-company","token":"ghp_…"}' \
+  http://localhost:3000/api/v1/organizations
+
+curl -X POST -H "X-API-Key: $API_KEY" \
+  http://localhost:3000/api/v1/organizations/my-company/import
+```
+
+**Everything Atalaia does against GitHub is read-only.** It lists repositories, reads their language breakdown and reads manifest files. Every request in the provider goes through one GET helper; nothing is ever written back — no issues, no commits, no status checks.
+
+**One repository at a time.** Clicking a repository's name opens its own page — exposure, dependencies and technologies as tabs, each panel loading independently so nothing blocks the rest. The ↗ next to the name leaves for GitHub. Table headers sort: click one to sort by it, click it again to flip the direction.
+
+**Are we behind?** The Dependencies tab shows the declared version next to the **latest published one**, asked of each ecosystem's own registry — npm, PyPI, crates.io, RubyGems, Packagist, NuGet, the Go module proxy, Maven Central, and GitHub releases for actions. The lookups run detached, a few at a time, and each row is written the moment its own answer arrives, so the table fills in while you watch and an interrupted check keeps everything it already resolved. Answers are cached for a day; **Re-check all** ignores the cache. Docker, Terraform and Helm are listed as not checkable — their versions depend on which registry the artifact came from.
+
+Manifests do not declare versions, they declare *constraints* — `^4.17.0`, `~> 6.1`, `==2.28.0`, `v3`, a commit SHA — so each one is translated into a semver range and asked whether it already allows the newest release. `^5.0.0` against 5.2.1 is **current**; `^4.17.1` against it is **behind** by a major. Anything untranslatable — a digest pin, a Maven interval — answers *unknown* with the reason rather than guessing, because a false "up to date" is worse than an admitted gap. Each row shows how far behind it is: major, minor or patch.
+
+Dependencies are **grouped by ecosystem**, since one repository routinely carries several: an Android project shows Gradle, GitHub Actions, its Fastlane gems and npm as separate tables, each with its own counts.
+
+**Finding one among many.** `GET /api/v1/repositories` takes `search`, `org`, `language`, `enabled`, `archived` and `exposure` (`affected` / `exploited` / `clean`), sorts by `name`, `exposure`, `last_scanned_at`, `primary_language`, `org_key` or `updated_at` in either direction, and pages with `limit` (25 by default, 200 at most) and `offset`. The response carries the totals behind the page and the values the console needs for its filter menus. The console exposes all of it in the toolbar above the table.
+
+**Personal accounts.** A token only ever exposes the private repositories of *its own* account, so registering someone else's login lists their public repositories and nothing more. The picker says so when that happens instead of quietly showing a short list.
+
+**Importing a subset.** "Choose repos" lists everything the token can see — with a filter, and each row marked *new*, *tracked* or *removed here* — and imports only what is ticked. Whole-organization import stays one click away. From the terminal that is `atalaia org repos <key>` to list and `atalaia org import <key> --only org/a,org/b` to pick.
+
+What the importer does:
+
+- Lists every repository the token can see, including archived ones, which are imported **switched off** rather than skipped.
+- Records the primary language, the language breakdown, topics and description.
+- Leaves repositories you removed removed — a re-import does not resurrect them.
+- Leaves your enable/disable choice alone — a re-import does not flip it back.
+
+Per repository you get two independent views of its technologies: **languages and topics** as reported by GitHub, and **ecosystems** derived from the manifests found by a dependency scan. A repository can report "TypeScript" and still carry its risk inside a Dockerfile, so the two are shown separately.
+
+Removing an organization also removes the repositories imported under it — they would otherwise be left with no credential that reaches them.
+
+Tokens need read access only: `public_repo` (or `repo` for private ones) on a classic token, or *Contents: read-only* and *Metadata: read-only* on a fine-grained one.
+
+## Only what touches you
+
+The feeds carry everything published anywhere. On a real fleet the numbers look like this:
+
+```
+2025 collected · 27 name something we use · 21 of those are a container image or a CI action
+```
+
+So the console leads with the ones that land: **Vulnerabilities** defaults to *Affects our code* — the CVE names a dependency of an enabled, tracked repository. The other two positions are *Containers & CI only*, narrowed to Docker images, GitHub Actions, Terraform and Helm, and *Everything collected*, which is the raw feed. The same filter is on the API as `?relevance=affecting|infrastructure`, and every response carries the three counts so a header can say "27 of 2025" without a second request.
+
+One definition backs both the filter and the counters, so the number in the header can never disagree with the rows beneath it. It depends on scans: a repository nobody scanned has no dependencies, and a CVE cannot be matched to it.
+
+## When a vulnerability reaches a repository
+
+A CVE only matters here if it lands in something you ship, so Atalaia answers that in both directions:
+
+- **The alert says so.** The Slack message lists the affected repositories and the owners responsible, alongside the CVE itself.
+- **The repository says so.** Repositories carry an **Exposure** column — worst severity, how many open CVEs, and a 🚨 when one of them is known-exploited. Expanding a row lists each CVE with the dependency and the manifest file it arrives through, which is the file you actually have to open.
+- **The overview says so.** `EXPOSED_REPOS.LST` ranks the repositories carrying the most open CVEs.
+- **The CVE says so.** A vulnerability's detail page lists the repositories it touches.
+
+The link is computed, never stored: dependencies change with every scan and a CVE's technology list can be enriched after the fact, so a stored join would go quietly stale.
+
+Coverage depends on a scan having run — `Scan all`, or the nightly schedule (`repositories.autoScan`). A fleet scan walks repositories **one at a time**, which keeps the GitHub rate limit and the log readable but takes roughly ten seconds per repository, so it runs detached from the request that started it: `POST` answers `202` immediately, a second trigger gets `409`, and `GET /api/v1/repositories/scan-all` reports how many are done, which one is being scanned right now, and what failed. The console polls it and shows the same line. Passing `{"skipVendorLookup": true}` drops the per-dependency OpenCVE lookup, which is most of the time.
+
+Manifests parsed include npm, pip, Go, Cargo, Maven, Gradle — build files **and `gradle/libs.versions.toml` version catalogs, where a modern Android or Kotlin Multiplatform project actually declares everything** — RubyGems (`Gemfile` and `fastlane/Pluginfile`), NuGet, Composer, Terraform, Dockerfiles and **GitHub Actions workflows** — CI pulls third-party actions and container images by tag, and a tag nobody upgrades on purpose is exactly where an old vulnerable dependency hides.
+
+## What Atalaia does not do
+
+Atalaia reports. Every team keeps ownership of its own upgrades, and of whether an upgrade is compatible with the rest of what it ships.
+
+- **It never writes to GitHub.** No pull requests, no branches, no commits, no issues, no status checks. Every request in the provider goes through one GET helper, and a test fails the build if a write call appears in that file.
+- **It never changes a manifest.** Nothing bumps a version, edits a lockfile or opens an upgrade.
+- **It does not judge compatibility.** "Behind by a major" means the registry has a newer release than the manifest allows — not that upgrading is safe, wanted, or anyone's priority. Whether that major breaks you is a question about your code, and your code is where it gets answered.
+- **It does not gate anything.** There is no build to fail and no threshold to enforce.
+
+What it does instead: watch the public sources, work out which of your repositories a finding actually reaches, and tell the right people through Slack, email or the console.

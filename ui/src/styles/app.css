@@ -658,6 +658,56 @@ a {
   color: var(--title-active);
 }
 
+/* ---------------------------------------------------------------- tabs */
+
+/*
+ * Section tabs, for pages long enough that stacking their panels hid the
+ * bottom half. Same chrome as the sidebar nav, laid out horizontally, so a tab
+ * reads as the switch it is rather than as a second navigation.
+ */
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: var(--outer-pad);
+  background: var(--win-face);
+  border-top: 2px solid var(--win-hi);
+  border-left: 2px solid var(--win-hi);
+  border-right: 2px solid var(--win-dark);
+  border-bottom: 2px solid var(--win-dark);
+  box-shadow: var(--shadow) var(--shadow) 0 var(--win-black);
+}
+
+.tabs a {
+  padding: 0.35rem 0.7rem;
+  color: var(--win-black);
+  background: var(--win-face-light);
+  border-top: 2px solid var(--win-hi);
+  border-left: 2px solid var(--win-hi);
+  border-right: 2px solid var(--win-dark);
+  border-bottom: 2px solid var(--win-dark);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.tabs a:hover {
+  background: var(--lime);
+}
+
+.tabs a.active {
+  color: #fff;
+  background: var(--title-active);
+  border-top-color: var(--win-dark);
+  border-left-color: var(--win-dark);
+  border-right-color: var(--win-hi);
+  border-bottom-color: var(--win-hi);
+}
+
 /* ---------------------------------------------------------------- responsive */
 
 @media (max-width: 900px) {

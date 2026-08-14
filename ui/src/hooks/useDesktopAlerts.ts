@@ -65,6 +65,25 @@ let state: AlertState = {
 
 const listeners = new Set<() => void>();
 
+/**
+ * Permission can change without this page asking: the browser's own site
+ * settings, or another tab. Read once at module load it goes stale, and the
+ * panel then shows "Blocked" with no way forward long after the operator
+ * allowed notifications — which reads as the feature being broken.
+ */
+function watchPermission() {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) return;
+
+    navigator.permissions
+        .query({ name: 'notifications' as PermissionName })
+        .then(status => {
+            status.onchange = () => setState({ permission: currentPermission() });
+        })
+        .catch(() => {
+            // Safari refuses this query; the visibility listener below covers it.
+        });
+}
+
 function setState(patch: Partial<AlertState>) {
     state = { ...state, ...patch };
     for (const listener of listeners) listener();
@@ -77,6 +96,8 @@ function subscribe(listener: () => void) {
     };
 }
 
+watchPermission();
+
 function severityMark(severity: string): string {
     if (severity === 'CRITICAL') return '🔴';
     if (severity === 'HIGH') return '🟠';
@@ -85,13 +106,33 @@ function severityMark(severity: string): string {
     return '⚪';
 }
 
-function show(title: string, body: string, cveId?: string) {
-    const notification = new Notification(title, { body, tag: cveId, icon: '/favicon.ico' });
+/**
+ * Raise one notification, reporting a refusal instead of swallowing it.
+ *
+ * No `icon`: the console ships no favicon, and the SPA catch-all answers
+ * `/favicon.ico` with index.html, so the browser was handed an HTML document
+ * where an image belonged. Chrome decodes the icon before handing the
+ * notification to macOS, which is a way to lose the notification entirely for
+ * decoration nobody asked for.
+ *
+ * @returns {string|null} Why it failed, or null when it was raised
+ */
+function show(title: string, body: string, cveId?: string): string | null {
+    try {
+        const notification = new Notification(title, cveId ? { body, tag: cveId } : { body });
 
-    notification.onclick = () => {
-        window.focus();
-        if (cveId) window.location.href = `/vulnerabilities/${cveId}`;
-    };
+        notification.onclick = () => {
+            window.focus();
+            if (cveId) window.location.href = `/vulnerabilities/${cveId}`;
+        };
+
+        return null;
+    } catch (err) {
+        // The constructor throws where notifications must come from a service
+        // worker. Without this the click handler threw into nothing and the
+        // panel looked like it had simply ignored the button.
+        return (err as Error).message;
+    }
 }
 
 export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
@@ -121,9 +162,37 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
     }, []);
 
     const sendSample = useCallback(() => {
-        if (state.permission !== 'granted') return false;
-        show('🔴 Atalaia desktop alerts', 'This is what a new vulnerability will look like.');
-        return true;
+        // Read the permission fresh: it can have been revoked in site settings
+        // since this module loaded, and claiming to have sent something the
+        // browser refused is worse than saying so.
+        const permission = currentPermission();
+        if (permission !== 'granted') {
+            setState({ permission, lastError: `The browser will not show notifications (${permission})` });
+            return false;
+        }
+
+        const failure = show(
+            '🔴 Atalaia desktop alerts',
+            'This is what a new vulnerability will look like.'
+        );
+
+        setState({ lastError: failure });
+        return failure === null;
+    }, []);
+
+    // Re-read the permission whenever the operator comes back to the tab. This
+    // is the fallback for browsers that will not report a permission change,
+    // and it costs one synchronous property read.
+    useEffect(() => {
+        const sync = () => setState({ permission: currentPermission() });
+
+        document.addEventListener('visibilitychange', sync);
+        window.addEventListener('focus', sync);
+
+        return () => {
+            document.removeEventListener('visibilitychange', sync);
+            window.removeEventListener('focus', sync);
+        };
     }, []);
 
     useEffect(() => {
@@ -156,11 +225,15 @@ export function useDesktopAlerts({ active = true }: { active?: boolean } = {}) {
                 if (fresh.length === 0) return;
 
                 for (const vuln of fresh.slice(0, MAX_PER_ROUND)) {
-                    show(
+                    const failure = show(
                         `${severityMark(vuln.severity)} ${vuln.severity} · ${vuln.cve_id}`,
                         vuln.title ?? 'New vulnerability',
                         vuln.cve_id
                     );
+
+                    // A browser refusing to raise notifications is worth saying
+                    // once, not silently every minute.
+                    if (failure) setState({ lastError: failure });
                 }
 
                 // One summary instead of twenty notifications after a big cycle.
