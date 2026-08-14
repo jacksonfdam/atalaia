@@ -232,7 +232,7 @@ precedence** — setting `LLM_PROVIDER` turns the console section read-only.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | — | `ollama`, `lmstudio`, `openai`, `anthropic`, `openrouter`, `groq` or `custom`. Unset leaves it to the console. |
+| `LLM_PROVIDER` | — | `ollama`, `lmstudio`, `openai`, `anthropic`, `gemini`, `openrouter`, `groq` or `custom`. Unset leaves it to the console. |
 | `OPENAI_API_KEY` | — | Key for whichever hosted provider is selected. |
 | `OPENAI_MODEL` | per provider | Model name. |
 | `OLLAMA_URL` | `http://localhost:11434` | Local Ollama endpoint. |
@@ -568,15 +568,16 @@ Pick one under **Settings → LLM.CFG**. The split that matters is not the brand
 | | Providers | What it means |
 |---|---|---|
 | **Local** | Ollama, LM Studio | Runs on this machine. No vulnerability text leaves the network. |
-| **Hosted** | OpenAI, Anthropic, OpenRouter, Groq, any OpenAI-compatible endpoint | The title and description of every vulnerability explained are sent to that vendor. |
+| **Hosted** | OpenAI, Anthropic, Google Gemini, OpenRouter, Groq, any OpenAI-compatible endpoint | The title and description of every vulnerability explained are sent to that vendor. |
 
 The console says which one is selected in as many words, because sending your security findings to
 a third party is a decision, not a default. A local provider needs no key; a hosted one does, and it
 is encrypted at rest and never returned by the API. **Test model** sends one short prompt and shows
 the answer, so a wrong endpoint or model name surfaces immediately instead of at 3am.
 
-Everything except Anthropic speaks the OpenAI chat-completions shape, so `custom` covers vLLM,
-LiteLLM or a gateway of your own — give it a base URL and a model name.
+Everything except Anthropic speaks the OpenAI chat-completions shape — Gemini included, through
+Google's OpenAI-compatible surface — so `custom` covers vLLM, LiteLLM, Vertex AI behind a proxy, or
+a gateway of your own: give it a base URL and a model name.
 
 The explanation is written once, when the vulnerability is first stored, and travels with the Slack
 alert and the weekly report. Changing provider takes effect on the next cycle; there is no restart.

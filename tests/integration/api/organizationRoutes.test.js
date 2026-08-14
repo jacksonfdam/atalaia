@@ -601,6 +601,7 @@ describe('LLM settings', () => {
             'lmstudio',
             'openai',
             'anthropic',
+            'gemini',
             'openrouter',
             'groq',
             'custom',

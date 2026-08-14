@@ -67,6 +67,19 @@ export const LLM_PROVIDERS = [
         docsUrl: 'https://docs.anthropic.com/en/api/messages',
     },
     {
+        id: 'gemini',
+        label: 'Google Gemini',
+        kind: 'hosted',
+        api: 'openai',
+        // Google serves an OpenAI-compatible surface next to its own API, which
+        // is why this needs no client of its own.
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+        defaultModel: 'gemini-2.5-flash',
+        requiresKey: true,
+        docsUrl: 'https://ai.google.dev/gemini-api/docs/openai',
+        note: 'Key from Google AI Studio. Vertex AI is a different endpoint and authenticates with Google credentials — point "custom" at it if that is what you run.',
+    },
+    {
         id: 'openrouter',
         label: 'OpenRouter',
         kind: 'hosted',
