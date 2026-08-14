@@ -129,3 +129,13 @@ curl -X PUT -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 
 curl -X POST -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/llm/test
 ```
+
+### The endpoint, and two things that look like a broken model
+
+**Paste whatever URL you have.** Providers disagree about the path: Ollama serves `/api/generate` off the base, the OpenAI shape wants `/v1/chat/completions`, Gemini versions it as `/v1beta/openai`. Atalaia normalises the endpoint to the base each provider needs, so `http://localhost:11434/v1/chat/completions` and `http://localhost:11434` behave identically. The corrected value is what gets stored the next time you save.
+
+**`localhost` from inside a container is the container.** Atalaia runs in containers, so a model on the host is not at `localhost` from its point of view. When a loopback address refuses the connection, the request is retried against `host.docker.internal` — nothing to configure, and it works the same under Docker and Apple's runtime.
+
+**A base model is not an assistant.** `qwen2.5-coder:1.5b-base`, and any other name ending in `-base`, continues text rather than answering it: ask it to explain a CVE and it writes the next paragraph of the prompt. **Test model** succeeds and flags it, because the answer arrives — it is just not a reply. Use the instruct or chat variant (`qwen2.5-coder:1.5b-instruct`, `llama3.1:8b`).
+
+A test that fails now names the cause: which URL answered 404, that the key was rejected, that the model was never pulled and the `ollama pull` line to fix it, or that nothing is listening. `LLM_TIMEOUT_MS` raises the 30s limit for a large model on a cold start.

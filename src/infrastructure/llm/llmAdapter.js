@@ -54,16 +54,25 @@ export async function testLLM() {
 
     const started = Date.now();
     const adapter = await createLLMAdapter();
-    const answer = await adapter.complete(
-        'Reply with one short sentence confirming you can summarise security advisories.'
-    );
+
+    let answer;
+    try {
+        answer = await adapter.complete(
+            'Reply with one short sentence confirming you can summarise security advisories.'
+        );
+    } catch (error) {
+        // The provider knows what went wrong — a 404 on the path, a refused
+        // connection, a model that was never pulled. Saying "returned nothing"
+        // for all of them sent people checking the wrong thing.
+        return { ok: false, provider: config.provider, model: config.model, error: error.message };
+    }
 
     if (!answer) {
         return {
             ok: false,
             provider: config.provider,
             model: config.model,
-            error: 'The model returned nothing — check the endpoint, the key and the model name.',
+            error: baseModelWarning(config.model) ?? 'The model answered with nothing at all.',
         };
     }
 
@@ -73,7 +82,23 @@ export async function testLLM() {
         model: config.model,
         durationMs: Date.now() - started,
         sample: answer.slice(0, 200),
+        // A base model does answer — with a continuation of the prompt rather
+        // than a reply. The sample above shows it, and this says why.
+        warning: baseModelWarning(config.model),
     };
+}
+
+/**
+ * A base model is not an assistant.
+ *
+ * `qwen2.5-coder:1.5b-base` and friends continue text rather than answering it,
+ * so an explanation prompt comes back as rambling or empty. The name is the only
+ * signal available before the output is read, and it is a reliable one.
+ */
+function baseModelWarning(model) {
+    if (!/[-:.]base$/i.test(String(model ?? ''))) return null;
+
+    return `"${model}" is a base model: it continues text rather than answering it, so explanations will read as nonsense. Use an instruct or chat variant.`;
 }
 
 /**

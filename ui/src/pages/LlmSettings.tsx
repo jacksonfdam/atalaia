@@ -74,10 +74,15 @@ export function LlmSettings({ onAuthLost }: { onAuthLost: () => void }) {
                   ok: boolean;
                   sample?: string;
                   error?: string;
+                  warning?: string | null;
                   durationMs?: number;
                 }>('/settings/llm/test');
                 if (!result.ok) throw new Error(result.error ?? 'Test failed');
-                return `Answered in ${result.durationMs}ms: “${result.sample}”`;
+                // A base model answers — with nonsense. Showing the answer next
+                // to why it reads that way is the whole point of the test.
+                return `Answered in ${result.durationMs}ms: “${result.sample}”${
+                  result.warning ? ` — ${result.warning}` : ''
+                }`;
               })
             }
           >

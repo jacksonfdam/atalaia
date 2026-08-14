@@ -12,6 +12,9 @@
 | A console section is read-only and **Save** answers `409` | Something in `.env` pins it — the environment always wins. `./scripts/atalaia.sh doctor` lists every value still equal to the `.env.example` placeholder, which is the usual cause. |
 | Desktop notifications never appear although the browser says *Allowed* | The operating system also has to let the browser through: macOS System Settings → Notifications, and Do Not Disturb / Focus off. The browser reports success for a notification the OS then swallows. |
 | The console shows *Blocked* after you allowed notifications in site settings | Come back to the tab — the console re-reads the permission on focus. If it still says blocked, the site permission was not actually changed. |
+| **Test model** answers gibberish, or nothing at all | The model name ends in `-base`. A base model continues text instead of answering it; the test says so next to the sample. Switch to the instruct or chat variant. |
+| **Test model** reports a 404 on the endpoint | The URL is a chat path, not a base. Atalaia strips the usual ones, but a path it does not recognise is sent as given — use the provider's base URL. |
+| The model works in `curl` but not from Atalaia | Atalaia runs in a container, where `localhost` is the container. A refused loopback is retried against `host.docker.internal` automatically; if the model listens on `127.0.0.1` only, bind it to all interfaces. |
 | Feed shows as failing under Sources | Upstream scraping target changed or is rate-limiting. The cycle continues; other feeds are unaffected. Disable it from the Sources page if it stays broken. |
 | GHSA returns 403 | Unauthenticated GitHub calls get 60 requests/hour per IP. Set `GITHUB_TOKEN`. |
 | `Cannot decrypt the token for "…"` | `TOKEN_ENCRYPTION_KEY` (or `API_KEY`, when it is the fallback) is not the value the token was stored with. Save the token again. |
