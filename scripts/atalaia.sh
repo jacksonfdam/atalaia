@@ -69,6 +69,49 @@ env_get() {
     ' "$ENV_FILE" | tail -n 1
 }
 
+# Read a key from .env.example, commented lines included — a documented
+# placeholder is what we compare a real .env against.
+example_get() {
+    [ -f "$ENV_EXAMPLE" ] || return 0
+    awk -v key="$1" '
+        {
+            line = $0
+            sub(/^[[:space:]]*#[[:space:]]*/, "", line)
+            sub(/^[[:space:]]*(export[[:space:]]+)?/, "", line)
+            eq = index(line, "=")
+            if (eq == 0) next
+            k = substr(line, 1, eq - 1)
+            v = substr(line, eq + 1)
+            sub(/[[:space:]]+$/, "", k)
+            if (k != key) next
+            sub(/^[[:space:]]+/, "", v)
+            sub(/[[:space:]]+$/, "", v)
+            if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
+            print v
+        }
+    ' "$ENV_EXAMPLE" | tail -n 1
+}
+
+# Every key .env assigns a non-empty value to.
+env_keys() {
+    [ -f "$ENV_FILE" ] || return 0
+    awk '
+        /^[[:space:]]*#/ { next }
+        {
+            line = $0
+            sub(/^[[:space:]]*(export[[:space:]]+)?/, "", line)
+            eq = index(line, "=")
+            if (eq == 0) next
+            k = substr(line, 1, eq - 1)
+            v = substr(line, eq + 1)
+            sub(/[[:space:]]+$/, "", k)
+            sub(/^[[:space:]]+/, "", v)
+            if (v == "") next
+            print k
+        }
+    ' "$ENV_FILE" | sort -u
+}
+
 # Write a key, replacing an existing assignment or appending a new one.
 env_set() {
     local key="$1" value="$2" tmp
@@ -372,6 +415,31 @@ cmd_doctor() {
             fi
         done
         [ -n "$(env_get SLACK_WEBHOOK_URL)" ] || dim "SLACK_WEBHOOK_URL not set — Slack alerts disabled"
+
+        # A value copied straight out of .env.example is not configuration, but
+        # the API cannot know that: the environment beats the console, so a
+        # placeholder webhook or SMTP host greys out its console section and
+        # fails every "Send test" against it. Compare and say so.
+        local leftovers=0 key value
+        for key in $(env_keys); do
+            value="$(env_get "$key")"
+            [ -n "$value" ] || continue
+            [ "$value" = "$(example_get "$key")" ] || continue
+            case "$key" in
+                API_KEY|UI_PASSWORD|UI_SESSION_SECRET) continue ;;  # reported above
+                PORT|NODE_ENV|LOG_LEVEL|DB_PATH|CRON_SCHEDULE|WEEKLY_REPORT_CRON|CORS_ORIGINS) continue ;;
+                # These are the keys that pin a whole integration on their own.
+                SLACK_WEBHOOK_URL|SLACK_SIGNING_SECRET|SLACK_APP_TOKEN|SLACK_APP_ID|SLACK_ENABLED|\
+                TEAMS_WEBHOOK_URL|TEAMS_ENABLED|SMTP_HOST|LLM_PROVIDER)
+                    warn "$key is still the .env.example placeholder — it pins the integration, so its console section is read-only and Send test fails against it"
+                    ;;
+                *)
+                    dim "$key is still the .env.example placeholder"
+                    ;;
+            esac
+            leftovers=$((leftovers + 1))
+        done
+        [ "$leftovers" -eq 0 ] || dim "Comment those out (or give them real values) to configure them from the console instead"
     else
         warn ".env is missing — run: $0 init"
     fi
