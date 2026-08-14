@@ -44,8 +44,12 @@ export function addRepository({
             deleted_at = NULL
             -- The enabled column is intentionally absent: it is the operator's
             -- switch, and a re-import must not flip it back.
+        RETURNING *
     `);
-    const result = stmt.run({
+    // RETURNING rather than lastInsertRowid: on the conflict path the upsert
+    // updates an existing row and lastInsertRowid still points at whatever was
+    // inserted last, which is a different repository.
+    const row = stmt.get({
         name,
         url,
         provider,
@@ -58,8 +62,9 @@ export function addRepository({
         archived: archived ? 1 : 0,
         enabled: enabled ? 1 : 0,
     });
-    logger.info({ url, id: result.lastInsertRowid }, 'Repository added/restored');
-    return getRepository(result.lastInsertRowid) || getRepositoryByUrl(url);
+
+    logger.info({ url, id: row?.id }, 'Repository added/restored');
+    return row ?? getRepositoryByUrl(url);
 }
 
 export function softDeleteRepository(id) {
@@ -217,10 +222,13 @@ export function addOwner({ name, email, slackUserId = null }) {
             slack_user_id = excluded.slack_user_id,
             updated_at = ${NOW},
             deleted_at = NULL
+        RETURNING *
     `);
-    const result = stmt.run({ name, email, slackUserId });
-    logger.info({ email, id: result.lastInsertRowid }, 'Owner added/restored');
-    return getOwner(result.lastInsertRowid) || getOwnerByEmail(email);
+
+    // See addRepository: lastInsertRowid lies on the conflict path.
+    const row = stmt.get({ name, email, slackUserId });
+    logger.info({ email, id: row?.id }, 'Owner added/restored');
+    return row ?? getOwnerByEmail(email);
 }
 
 export function softDeleteOwner(id) {
@@ -267,10 +275,12 @@ export function addAssignment({ ownerId, targetType, targetValue }) {
         VALUES (@ownerId, @targetType, @targetValue)
         ON CONFLICT(owner_id, target_type, target_value) DO UPDATE SET
             deleted_at = NULL
+        RETURNING *
     `);
-    const result = stmt.run({ ownerId, targetType, targetValue });
+
+    const row = stmt.get({ ownerId, targetType, targetValue });
     logger.info({ ownerId, targetType, targetValue }, 'Assignment added/restored');
-    return getDb().prepare('SELECT * FROM owner_assignments WHERE id = ?').get(result.lastInsertRowid);
+    return row;
 }
 
 export function softDeleteAssignment(assignmentId) {

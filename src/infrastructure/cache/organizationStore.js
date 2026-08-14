@@ -52,12 +52,13 @@ export function addOrganization({ key, login, name = null, provider = 'github', 
                 token_cipher = COALESCE(excluded.token_cipher, organizations.token_cipher),
                 token_hint = COALESCE(excluded.token_hint, organizations.token_hint),
                 updated_at = ${NOW},
-                deleted_at = NULL`
+                deleted_at = NULL
+             RETURNING *`
         )
-        .run({ key, login, name, provider, cipher, hint });
+        .get({ key, login, name, provider, cipher, hint });
 
-    logger.info({ key, login, id: result.lastInsertRowid }, 'Organization added/restored');
-    return getOrganizationByKey(key);
+    logger.info({ key, login, id: result?.id }, 'Organization added/restored');
+    return result ?? getOrganizationByKey(key);
 }
 
 export function getOrganizationByKey(key) {
