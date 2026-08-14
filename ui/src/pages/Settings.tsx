@@ -1,153 +1,69 @@
-import { useEffect, useState } from 'react';
-import { api } from '../api/client';
-import { useApi } from '../hooks/useApi';
-import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
+import type { ReactNode } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { GeneralSettings } from './GeneralSettings';
+import { Organizations } from './Organizations';
 import { EmailSettings } from './EmailSettings';
 import { LlmSettings } from './LlmSettings';
 import { SlackSettings } from './SlackSettings';
 import { TeamsSettings } from './TeamsSettings';
 import { DesktopAlerts } from './DesktopAlerts';
-import type { SettingsPayload } from '../types';
+
+/**
+ * Everything configurable, one tab at a time.
+ *
+ * Stacking every integration on a single page made it long enough that the
+ * bottom of it was never seen, so each one gets its own tab and its own URL —
+ * `/settings/slack` is a link you can send someone.
+ */
+type TabId = 'general' | 'organizations' | 'slack' | 'teams' | 'email' | 'desktop' | 'model';
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'organizations', label: 'Organizations' },
+  { id: 'slack', label: 'Slack' },
+  { id: 'teams', label: 'Teams' },
+  { id: 'email', label: 'Email' },
+  { id: 'desktop', label: 'Desktop' },
+  { id: 'model', label: 'Model' },
+];
+
+const DEFAULT_TAB: TabId = 'general';
+
+function isTab(value: string | undefined): value is TabId {
+  return TABS.some(tab => tab.id === value);
+}
 
 export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
-  const payload = useApi<SettingsPayload>('/settings', onAuthLost);
-  const [draft, setDraft] = useState<Record<string, boolean | string | number>>({});
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const { tab } = useParams();
+  // An unknown tab in the URL falls back rather than rendering nothing.
+  const active: TabId = isTab(tab) ? tab : DEFAULT_TAB;
 
-  useEffect(() => {
-    if (payload.data) {
-      setDraft(Object.fromEntries(payload.data.settings.map(s => [s.key, s.value])));
-    }
-  }, [payload.data]);
-
-  const dirty = payload.data
-    ? payload.data.settings.filter(s => s.editable && draft[s.key] !== s.value)
-    : [];
-
-  async function save() {
-    setBusy(true);
-    setMessage(null);
-    try {
-      const changes = Object.fromEntries(dirty.map(s => [s.key, draft[s.key]]));
-      await api.put('/settings', { settings: changes, changedBy: 'console' });
-      setMessage({ kind: 'ok', text: `Saved ${dirty.length} setting${dirty.length === 1 ? '' : 's'}` });
-      payload.reload();
-    } catch (err) {
-      setMessage({ kind: 'error', text: (err as Error).message });
-    } finally {
-      setBusy(false);
-    }
-  }
+  const panels: Record<TabId, ReactNode> = {
+    general: <GeneralSettings onAuthLost={onAuthLost} />,
+    organizations: <Organizations onAuthLost={onAuthLost} />,
+    slack: <SlackSettings onAuthLost={onAuthLost} />,
+    teams: <TeamsSettings onAuthLost={onAuthLost} />,
+    email: <EmailSettings onAuthLost={onAuthLost} />,
+    desktop: <DesktopAlerts onAuthLost={onAuthLost} />,
+    model: <LlmSettings onAuthLost={onAuthLost} />,
+  };
 
   return (
     <>
-      <Window
-        title="SETTINGS.INI"
-        note={dirty.length ? `${dirty.length} unsaved` : undefined}
-        accent="var(--violet)"
-        actions={
-          <button className="primary" disabled={busy || dirty.length === 0} onClick={save}>
-            Save
-          </button>
-        }
-      >
-        <Body>
-          {payload.loading ? <Loading what="settings" /> : null}
-          {payload.error ? <Notice kind="error">{payload.error}</Notice> : null}
-          {message ? <Notice kind={message.kind}>{message.text}</Notice> : null}
+      <nav className="tabs" aria-label="Settings sections">
+        {TABS.map(item => (
+          <Link
+            key={item.id}
+            to={`/settings/${item.id}`}
+            className={item.id === active ? 'active' : ''}
+            aria-current={item.id === active ? 'page' : undefined}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
 
-          {payload.data
-            ? payload.data.settings.map(setting => (
-                <div
-                  key={setting.key}
-                  style={{
-                    padding: '0.5rem 0',
-                    borderBottom: '1px solid rgba(0,0,0,0.15)',
-                  }}
-                >
-                  <div className="row">
-                    <strong style={{ fontSize: '0.8rem' }}>{setting.label}</strong>
-                    <span className="badge" style={{ background: 'var(--win-mid)' }}>
-                      {setting.source}
-                    </span>
-                    <span className="spacer" style={{ flex: 1 }} />
-
-                    {setting.type === 'boolean' ? (
-                      <label className="row" style={{ gap: '0.3rem' }}>
-                        <input
-                          type="checkbox"
-                          disabled={!setting.editable}
-                          checked={Boolean(draft[setting.key])}
-                          onChange={e => setDraft({ ...draft, [setting.key]: e.target.checked })}
-                        />
-                        {draft[setting.key] ? 'On' : 'Off'}
-                      </label>
-                    ) : (
-                      <input
-                        disabled={!setting.editable}
-                        value={String(draft[setting.key] ?? '')}
-                        onChange={e => setDraft({ ...draft, [setting.key]: e.target.value })}
-                        size={26}
-                      />
-                    )}
-                  </div>
-
-                  <p className="muted" style={{ marginTop: '0.2rem' }}>
-                    <code className="mono">{setting.key}</code>
-                    {setting.help ? ` — ${setting.help}` : ''}
-                  </p>
-
-                  {!setting.editable ? (
-                    <p className="muted">
-                      Pinned by <code className="mono">{setting.envVar}</code> in the environment.
-                      Unset it to manage this here.
-                    </p>
-                  ) : null}
-
-                  {setting.updatedAt ? (
-                    <p className="muted">
-                      Changed {formatDate(setting.updatedAt)} by {setting.updatedBy ?? 'unknown'}
-                    </p>
-                  ) : null}
-                </div>
-              ))
-            : null}
-        </Body>
-      </Window>
-
-      <SlackSettings onAuthLost={onAuthLost} />
-      <TeamsSettings onAuthLost={onAuthLost} />
-      <EmailSettings onAuthLost={onAuthLost} />
-      <DesktopAlerts onAuthLost={onAuthLost} />
-      <LlmSettings onAuthLost={onAuthLost} />
-
-      <Window title="CREDENTIALS.SYS" accent="var(--severity-high)">
-        <Body cool>
-          <p className="muted" style={{ marginBottom: '0.5rem' }}>
-            Secrets are environment-only. The console can tell you whether one is present, never
-            what it is, and cannot change it.
-          </p>
-
-          <div className="grid cols-2">
-            {payload.data?.credentials.map(credential => (
-              <div className="row" key={credential.key}>
-                <span
-                  className="badge"
-                  style={{
-                    background: credential.configured ? 'var(--green)' : 'var(--win-mid)',
-                    color: credential.configured ? 'var(--win-black)' : '#fff',
-                  }}
-                >
-                  {credential.configured ? 'SET' : 'MISSING'}
-                </span>
-                <span style={{ fontSize: '0.76rem' }}>{credential.label}</span>
-                <span className="muted mono">{credential.envVar}</span>
-              </div>
-            ))}
-          </div>
-        </Body>
-      </Window>
+      {panels[active]}
     </>
   );
 }

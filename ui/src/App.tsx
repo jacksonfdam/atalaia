@@ -8,7 +8,6 @@ import { Overview } from './pages/Overview';
 import { Vulnerabilities } from './pages/Vulnerabilities';
 import { VulnDetail } from './pages/VulnDetail';
 import { Feeds } from './pages/Feeds';
-import { Organizations } from './pages/Organizations';
 import { Repositories } from './pages/Repositories';
 import { RepositoryDetail } from './pages/RepositoryDetail';
 import { Settings } from './pages/Settings';
@@ -18,7 +17,6 @@ const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/vulnerabilities', label: 'Vulnerabilities' },
   { to: '/feeds', label: 'Sources' },
-  { to: '/organizations', label: 'Organizations' },
   { to: '/repositories', label: 'Repositories' },
   { to: '/settings', label: 'Settings' },
 ];
@@ -82,13 +80,14 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
           <Route path="/vulnerabilities" element={<Vulnerabilities onAuthLost={onAuthLost} />} />
           <Route path="/vulnerabilities/:cveId" element={<VulnDetail onAuthLost={onAuthLost} />} />
           <Route path="/feeds" element={<Feeds onAuthLost={onAuthLost} />} />
-          <Route path="/organizations" element={<Organizations onAuthLost={onAuthLost} />} />
           <Route path="/repositories" element={<Repositories onAuthLost={onAuthLost} />} />
           <Route path="/repositories/:id" element={<RepositoryDetail onAuthLost={onAuthLost} />} />
-          {/* Owners moved inside the Slack settings; the old link still lands
-              somewhere useful. */}
-          <Route path="/owners" element={<Navigate to="/settings" replace />} />
+          {/* Organizations and owners are configuration: they live in Settings
+              now, and the old links still land where they moved to. */}
+          <Route path="/organizations" element={<Navigate to="/settings/organizations" replace />} />
+          <Route path="/owners" element={<Navigate to="/settings/slack" replace />} />
           <Route path="/settings" element={<Settings onAuthLost={onAuthLost} />} />
+          <Route path="/settings/:tab" element={<Settings onAuthLost={onAuthLost} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
