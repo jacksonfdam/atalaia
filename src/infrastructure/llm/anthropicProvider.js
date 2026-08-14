@@ -1,5 +1,6 @@
 import axios from 'axios';
 import logger from '../logger.js';
+import { normalizeVersionedBaseUrl } from './endpoint.js';
 
 const VERSION = '2023-06-01';
 
@@ -11,7 +12,7 @@ export class AnthropicProvider {
     constructor({ apiKey, model, baseUrl = 'https://api.anthropic.com/v1', timeoutMs = 20_000 }) {
         this.apiKey = apiKey;
         this.model = model;
-        this.baseUrl = baseUrl.replace(/\/$/, '');
+        this.baseUrl = normalizeVersionedBaseUrl(baseUrl) || 'https://api.anthropic.com/v1';
         this.timeoutMs = timeoutMs;
     }
 
@@ -50,10 +51,31 @@ export class AnthropicProvider {
             return text || null;
         } catch (error) {
             logger.error(
-                { provider: 'anthropic', err: error.message, durationMs: Date.now() - start },
+                { provider: 'anthropic', model: this.model, err: error.message, durationMs: Date.now() - start },
                 'LLM request failed'
             );
-            return null;
+
+            // Thrown, not swallowed: a rejected key and an unknown model are
+            // different problems, and the console reported both as "the model
+            // returned nothing".
+            throw new Error(describeFailure(error, this.baseUrl, this.model, this.timeoutMs));
         }
     }
+}
+
+/** Say what Anthropic actually answered, and what to do about it. */
+function describeFailure(error, url, model, timeoutMs) {
+    const status = error.response?.status;
+    const code = error.code ?? error.cause?.code;
+    const detail = error.response?.data?.error?.message ?? '';
+
+    if (status === 401 || status === 403) return `${url} rejected the key${detail ? `: ${detail}` : '.'}`;
+    if (status === 404) return `${url} does not have "${model}"${detail ? `: ${detail}` : '.'}`;
+    if (status === 429) return `${url} is rate limiting this key. Try again shortly.`;
+
+    if (code === 'ECONNABORTED' || /timeout/i.test(error.message)) {
+        return `${model} did not answer within ${timeoutMs / 1000}s.`;
+    }
+
+    return detail ? `${error.message}: ${detail}` : error.message;
 }

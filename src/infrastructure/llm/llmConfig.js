@@ -1,6 +1,7 @@
 import { query, queryOne } from '../db/pool.js';
 import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import { getLlmProvider, listLlmProviders } from './llmProviders.js';
+import { normalizeBaseUrl, normalizeVersionedBaseUrl } from './endpoint.js';
 import config from '../config.js';
 import logger from '../logger.js';
 
@@ -215,7 +216,7 @@ export async function saveLlmConfig(input, changedBy) {
         {
             provider: descriptor.id,
             model: input.model || descriptor.defaultModel || null,
-            baseUrl: input.baseUrl || descriptor.baseUrl || null,
+            baseUrl: endpointFor(descriptor, input.baseUrl),
             cipher,
             hint,
             enabled: input.enabled === undefined ? Boolean(current?.enabled) : Boolean(input.enabled),
@@ -225,4 +226,18 @@ export async function saveLlmConfig(input, changedBy) {
 
     logger.info({ provider: descriptor.id, changedBy }, 'LLM configuration saved');
     return await describeLlmConfig();
+}
+
+/**
+ * The endpoint as the provider needs it, not as it was pasted.
+ *
+ * People paste the URL their other tools want — usually one ending in
+ * /v1/chat/completions — and each API then appends its own path to it. Storing
+ * the corrected value means the console shows what is actually being called.
+ */
+function endpointFor(descriptor, pasted) {
+    const url = pasted || descriptor.baseUrl;
+    if (!url) return null;
+
+    return descriptor.api === 'ollama' ? normalizeBaseUrl(url) : normalizeVersionedBaseUrl(url);
 }
