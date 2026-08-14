@@ -5,21 +5,25 @@
  * here touches GitHub: the import path is covered by asserting that the
  * provider is only ever asked to read, which is done in a unit test.
  */
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import request from 'supertest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import {
+    describeWithDatabase as describe,
+    hasDatabase,
+    useSchema,
+    setUpSchema,
+    tearDownSchema,
+    truncateAll,
+} from '../../helpers/postgres.js';
 
-const TMP_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atalaia-orgs-')), 'test.db');
-
-process.env.DB_PATH = TMP_DB;
+const { schema } = useSchema('organization_routes');
 process.env.API_KEY = 'test-api-key';
 process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
-const cache = await import('#app/infrastructure/cache/sqliteCache.js');
-const { initializeDatabase, getDb } = cache;
+const cache = await import('#app/infrastructure/cache/postgresCache.js');
+const { initializeDatabase } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
+const { query, queryOne } = await import('#app/infrastructure/db/pool.js');
 const { resetFleetScanState } = await import('#app/application/repositoryScanRunner.js');
 const { compareVersions } = await import('#app/application/versionComparison.js');
 const { buildTeamsCard } = await import('#app/infrastructure/notifiers/notifyTeams.js');
@@ -27,17 +31,21 @@ const { buildTeamsCard } = await import('#app/infrastructure/notifiers/notifyTea
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
 
-beforeAll(() => {
-    initializeDatabase();
+beforeAll(async () => {
+    if (!hasDatabase) return;
+    await setUpSchema(schema);
+    await initializeDatabase();
     app = createApp(cache);
 });
 
-afterAll(() => {
-    fs.rmSync(path.dirname(TMP_DB), { recursive: true, force: true });
+afterAll(async () => {
+    if (!hasDatabase) return;
+    await tearDownSchema(schema);
 });
 
-beforeEach(() => {
-    getDb().exec('DELETE FROM repository_dependencies; DELETE FROM repositories; DELETE FROM organizations; DELETE FROM feed_state;');
+beforeEach(async () => {
+    if (!hasDatabase) return;
+    await truncateAll();
 });
 
 describe('POST /api/v1/organizations', () => {
@@ -61,7 +69,7 @@ describe('POST /api/v1/organizations', () => {
         const listed = await request(app).get('/api/v1/organizations').set(KEY);
         expect(JSON.stringify(listed.body)).not.toContain('ghp_supersecret9999');
 
-        const stored = getDb().prepare('SELECT token_cipher FROM organizations').get();
+        const stored = await queryOne('SELECT token_cipher FROM organizations');
         expect(stored.token_cipher).not.toContain('ghp_supersecret');
     });
 
@@ -156,7 +164,7 @@ describe('repository management', () => {
         const res = await request(app).patch(`/api/v1/repositories/${repoId}`).set(KEY).send({ enabled: false });
 
         expect(res.status).toBe(200);
-        expect(res.body.enabled).toBe(0);
+        expect(res.body.enabled).toBe(false);
 
         const list = await request(app).get('/api/v1/repositories').set(KEY);
         expect(list.body.count).toBe(1);
@@ -178,16 +186,16 @@ describe('repository management', () => {
     });
 
     test('reports technologies from both the provider and the manifests', async () => {
-        getDb()
-            .prepare('UPDATE repositories SET primary_language = ?, languages = ?, topics = ? WHERE id = ?')
-            .run('TypeScript', JSON.stringify({ TypeScript: 750, CSS: 250 }), JSON.stringify(['api']), repoId);
+        await query(
+            'UPDATE repositories SET primary_language = $1, languages = $2, topics = $3 WHERE id = $4',
+                ['TypeScript', JSON.stringify({ TypeScript: 750, CSS: 250 }), JSON.stringify(['api']), repoId]
+        );
 
-        getDb()
-            .prepare(
-                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, version, manifest_file)
-                 VALUES (?, 'NPM', 'express', '5.0.0', 'package.json')`
-            )
-            .run(repoId);
+        await query(
+            `INSERT INTO repository_dependencies (repository_id, ecosystem, name, version, manifest_file)
+                 VALUES ($1, 'NPM', 'express', '5.0.0', 'package.json')`,
+                [repoId]
+        );
 
         const res = await request(app).get(`/api/v1/repositories/${repoId}/technologies`).set(KEY);
 
@@ -247,7 +255,7 @@ describe('repository exposure', () => {
     let repoId;
 
     beforeEach(async () => {
-        getDb().exec("DELETE FROM vulnerabilities;");
+        await query('DELETE FROM vulnerabilities');
 
         const created = await request(app)
             .post('/api/v1/repositories')
@@ -255,23 +263,20 @@ describe('repository exposure', () => {
             .send({ url: 'https://github.com/acme/pipeline' });
         repoId = created.body.id;
 
-        getDb()
-            .prepare(
-                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, version, manifest_file)
-                 VALUES (?, 'GITHUB_ACTIONS', 'actions/checkout', 'v3', '.github/workflows/ci.yml'),
-                        (?, 'NPM', 'express', '4.0.0', 'package.json')`
-            )
-            .run(repoId, repoId);
+        await query(
+            `INSERT INTO repository_dependencies (repository_id, ecosystem, name, version, manifest_file)
+                 VALUES ($1, 'GITHUB_ACTIONS', 'actions/checkout', 'v3', '.github/workflows/ci.yml'),
+                        ($2, 'NPM', 'express', '4.0.0', 'package.json')`,
+                [repoId, repoId]
+        );
 
-        getDb()
-            .prepare(
-                `INSERT INTO vulnerabilities (cve_id, title, severity, cvss_score, exploited, source, affected_technologies, status)
-                 VALUES ('CVE-2026-1000', 'Bad action', 'CRITICAL', 9.8, 1, 'ghsa', '["actions/checkout"]', 'OPEN'),
-                        ('CVE-2026-1001', 'Old express', 'MEDIUM', 5.3, 0, 'ghsa', '["express"]', 'OPEN'),
-                        ('CVE-2026-1002', 'Fixed already', 'HIGH', 7.5, 0, 'nvd', '["express"]', 'RESOLVED'),
-                        ('CVE-2026-1003', 'Unrelated', 'HIGH', 7.1, 0, 'nvd', '["kubernetes"]', 'OPEN')`
-            )
-            .run();
+        await query(
+            `INSERT INTO vulnerabilities (cve_id, title, severity, cvss_score, exploited, source, affected_technologies, status)
+                 VALUES ('CVE-2026-1000', 'Bad action', 'CRITICAL', 9.8, true, 'ghsa', '["actions/checkout"]', 'OPEN'),
+                        ('CVE-2026-1001', 'Old express', 'MEDIUM', 5.3, false, 'ghsa', '["express"]', 'OPEN'),
+                        ('CVE-2026-1002', 'Fixed already', 'HIGH', 7.5, false, 'nvd', '["express"]', 'RESOLVED'),
+                        ('CVE-2026-1003', 'Unrelated', 'HIGH', 7.1, false, 'nvd', '["kubernetes"]', 'OPEN')`
+        );
     });
 
     test('lists what reaches the repository, and through which dependency', async () => {
@@ -355,35 +360,34 @@ describe('fleet scan', () => {
 
 describe('repository list: filters, sorting and pagination', () => {
     beforeEach(async () => {
-        getDb().exec('DELETE FROM repositories; DELETE FROM repository_dependencies; DELETE FROM vulnerabilities;');
+        await truncateAll(); // was: DELETE FROM repositories; DELETE FROM repository_dependencies; DELETE FROM vulnerabilities;
 
-        const insert = getDb().prepare(
-            `INSERT INTO repositories (name, url, provider, org_key, primary_language, description, enabled, archived)
-             VALUES (@name, @url, 'github', @org, @language, @description, @enabled, @archived)`
+        const insert = row =>
+            query(
+                `INSERT INTO repositories (name, url, provider, org_key, primary_language, description, enabled, archived)
+                 VALUES (@name, @url, 'github', @org, @language, @description, @enabled, @archived)`,
+                row
         );
 
-        insert.run({ name: 'acme/api', url: 'https://github.com/acme/api', org: 'acme', language: 'TypeScript', description: 'public api', enabled: 1, archived: 0 });
-        insert.run({ name: 'acme/web', url: 'https://github.com/acme/web', org: 'acme', language: 'TypeScript', description: 'storefront', enabled: 1, archived: 0 });
-        insert.run({ name: 'acme/legacy', url: 'https://github.com/acme/legacy', org: 'acme', language: 'Perl', description: 'old thing', enabled: 0, archived: 1 });
-        insert.run({ name: 'other/tool', url: 'https://github.com/other/tool', org: 'other', language: 'Go', description: 'cli', enabled: 1, archived: 0 });
+        await insert({ name: 'acme/api', url: 'https://github.com/acme/api', org: 'acme', language: 'TypeScript', description: 'public api', enabled: true, archived: false });
+        await insert({ name: 'acme/web', url: 'https://github.com/acme/web', org: 'acme', language: 'TypeScript', description: 'storefront', enabled: true, archived: false });
+        await insert({ name: 'acme/legacy', url: 'https://github.com/acme/legacy', org: 'acme', language: 'Perl', description: 'old thing', enabled: false, archived: true });
+        await insert({ name: 'other/tool', url: 'https://github.com/other/tool', org: 'other', language: 'Go', description: 'cli', enabled: true, archived: false });
 
         // Only acme/api is exposed, and by a known-exploited CVE.
-        const apiId = getDb().prepare("SELECT id FROM repositories WHERE name = 'acme/api'").get().id;
-        getDb()
-            .prepare(
-                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
-                 VALUES (?, 'NPM', 'express', 'package.json')`
-            )
-            .run(apiId);
-        getDb()
-            .prepare(
-                `INSERT INTO vulnerabilities (cve_id, title, severity, exploited, source, affected_technologies, status)
-                 VALUES ('CVE-2026-2000', 'Express', 'HIGH', 1, 'ghsa', '["express"]', 'OPEN')`
-            )
-            .run();
+        const apiId = (await queryOne("SELECT id FROM repositories WHERE name = 'acme/api'")).id;
+        await query(
+            `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
+                 VALUES ($1, 'NPM', 'express', 'package.json')`,
+                [apiId]
+        );
+        await query(
+            `INSERT INTO vulnerabilities (cve_id, title, severity, exploited, source, affected_technologies, status)
+                 VALUES ('CVE-2026-2000', 'Express', 'HIGH', true, 'ghsa', '["express"]', 'OPEN')`
+        );
     });
 
-    const get = query => request(app).get(`/api/v1/repositories${query}`).set(KEY);
+    const get = search => request(app).get(`/api/v1/repositories${search}`).set(KEY);
 
     test('paginates and reports the total behind the page', async () => {
         const res = await get('?limit=2&offset=0&sort=name&order=asc');
@@ -444,7 +448,7 @@ describe('dependency freshness', () => {
     let repoId;
 
     beforeEach(async () => {
-        getDb().exec('DELETE FROM repositories; DELETE FROM repository_dependencies;');
+        await truncateAll(); // was: DELETE FROM repositories; DELETE FROM repository_dependencies;
 
         const created = await request(app)
             .post('/api/v1/repositories')
@@ -452,15 +456,14 @@ describe('dependency freshness', () => {
             .send({ url: 'https://github.com/acme/api' });
         repoId = created.body.id;
 
-        getDb()
-            .prepare(
-                `INSERT INTO repository_dependencies
+        await query(
+            `INSERT INTO repository_dependencies
                     (repository_id, ecosystem, name, version, manifest_file, latest_version, latest_checked_at)
-                 VALUES (?, 'NPM', 'express', '^4.17.1', 'package.json', '5.2.1', datetime('now')),
-                        (?, 'NPM', 'lodash', '4.17.21', 'package.json', '4.17.21', datetime('now')),
-                        (?, 'DOCKER', 'node', '18-alpine', 'Dockerfile', NULL, NULL)`
-            )
-            .run(repoId, repoId, repoId);
+                 VALUES ($1, 'NPM', 'express', '^4.17.1', 'package.json', '5.2.1', now()),
+                        ($2, 'NPM', 'lodash', '4.17.21', 'package.json', '4.17.21', now()),
+                        ($3, 'DOCKER', 'node', '18-alpine', 'Dockerfile', NULL, NULL)`,
+                [repoId, repoId, repoId]
+        );
     });
 
     test('reports which dependencies are behind their registry', async () => {
@@ -524,32 +527,29 @@ describe('version comparison', () => {
 
 describe('vulnerability relevance', () => {
     beforeEach(async () => {
-        getDb().exec('DELETE FROM repositories; DELETE FROM repository_dependencies; DELETE FROM vulnerabilities;');
+        await truncateAll(); // was: DELETE FROM repositories; DELETE FROM repository_dependencies; DELETE FROM vulnerabilities;
 
         const created = await request(app)
             .post('/api/v1/repositories')
             .set(KEY)
             .send({ url: 'https://github.com/acme/api' });
 
-        getDb()
-            .prepare(
-                `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
-                 VALUES (?, 'NPM', 'express', 'package.json'),
-                        (?, 'GITHUB_ACTIONS', 'actions/checkout', '.github/workflows/ci.yml'),
-                        (?, 'DOCKER', 'node', 'Dockerfile')`
-            )
-            .run(created.body.id, created.body.id, created.body.id);
+        await query(
+            `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
+                 VALUES ($1, 'NPM', 'express', 'package.json'),
+                        ($2, 'GITHUB_ACTIONS', 'actions/checkout', '.github/workflows/ci.yml'),
+                        ($3, 'DOCKER', 'node', 'Dockerfile')`,
+                [created.body.id, created.body.id, created.body.id]
+        );
 
-        getDb()
-            .prepare(
-                `INSERT INTO vulnerabilities (cve_id, title, severity, exploited, source, affected_technologies, status)
-                 VALUES ('CVE-2026-3000', 'Express', 'HIGH', 0, 'ghsa', '["express"]', 'OPEN'),
-                        ('CVE-2026-3001', 'Checkout', 'HIGH', 0, 'ghsa', '["actions/checkout"]', 'OPEN'),
-                        ('CVE-2026-3002', 'Node image', 'MEDIUM', 0, 'nvd', '["node"]', 'OPEN'),
-                        ('CVE-2026-3003', 'Something in Wordpress', 'CRITICAL', 0, 'nvd', '["wordpress"]', 'OPEN'),
-                        ('CVE-2026-3004', 'Kubernetes', 'HIGH', 0, 'nvd', '["kubernetes"]', 'OPEN')`
-            )
-            .run();
+        await query(
+            `INSERT INTO vulnerabilities (cve_id, title, severity, exploited, source, affected_technologies, status)
+                 VALUES ('CVE-2026-3000', 'Express', 'HIGH', false, 'ghsa', '["express"]', 'OPEN'),
+                        ('CVE-2026-3001', 'Checkout', 'HIGH', false, 'ghsa', '["actions/checkout"]', 'OPEN'),
+                        ('CVE-2026-3002', 'Node image', 'MEDIUM', false, 'nvd', '["node"]', 'OPEN'),
+                        ('CVE-2026-3003', 'Something in Wordpress', 'CRITICAL', false, 'nvd', '["wordpress"]', 'OPEN'),
+                        ('CVE-2026-3004', 'Kubernetes', 'HIGH', false, 'nvd', '["kubernetes"]', 'OPEN')`
+        );
     });
 
     const ids = body => body.vulnerabilities.map(v => v.cve_id).sort();
@@ -579,7 +579,7 @@ describe('vulnerability relevance', () => {
     });
 
     test('a disabled repository stops counting', async () => {
-        getDb().prepare('UPDATE repositories SET enabled = 0').run();
+        await query('UPDATE repositories SET enabled = false');
 
         const res = await request(app).get('/api/v1/vulnerabilities?relevance=affecting').set(KEY);
         expect(res.body.total).toBe(0);
@@ -589,8 +589,8 @@ describe('vulnerability relevance', () => {
 describe('LLM settings', () => {
     const LLM_ENV = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'OLLAMA_URL', 'OLLAMA_MODEL'];
 
-    beforeEach(() => {
-        getDb().exec('DELETE FROM llm_config;');
+    beforeEach(async () => {
+        await truncateAll(); // was: DELETE FROM llm_config;
         for (const key of LLM_ENV) delete process.env[key];
     });
 
@@ -642,7 +642,7 @@ describe('LLM settings', () => {
         const res = await request(app).get('/api/v1/settings/llm').set(KEY);
         expect(JSON.stringify(res.body)).not.toContain('sk-test-ABCD1234');
 
-        const row = getDb().prepare('SELECT api_key_cipher FROM llm_config').get();
+        const row = await queryOne('SELECT api_key_cipher FROM llm_config');
         expect(row.api_key_cipher).not.toContain('sk-test');
     });
 
@@ -694,8 +694,8 @@ describe('LLM settings', () => {
 });
 
 describe('Teams settings', () => {
-    beforeEach(() => {
-        getDb().exec('DELETE FROM teams_config;');
+    beforeEach(async () => {
+        await truncateAll(); // was: DELETE FROM teams_config;
         delete process.env.TEAMS_WEBHOOK_URL;
         delete process.env.TEAMS_ENABLED;
     });
@@ -722,7 +722,7 @@ describe('Teams settings', () => {
         const res = await request(app).get('/api/v1/settings/teams').set(KEY);
         expect(JSON.stringify(res.body)).not.toContain('SECRET9999');
 
-        const row = getDb().prepare('SELECT webhook_cipher FROM teams_config').get();
+        const row = await queryOne('SELECT webhook_cipher FROM teams_config');
         expect(row.webhook_cipher).not.toContain('office.com');
     });
 

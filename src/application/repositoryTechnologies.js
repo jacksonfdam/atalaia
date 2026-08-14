@@ -16,15 +16,6 @@ import {
  * in a Dockerfile.
  */
 
-function parseJson(value, fallback) {
-    if (!value) return fallback;
-    try {
-        return JSON.parse(value);
-    } catch {
-        return fallback;
-    }
-}
-
 /**
  * @param {number} repositoryId
  * @returns {object|null}
@@ -33,7 +24,8 @@ export async function getRepositoryTechnologies(repositoryId) {
     const repo = await getRepository(repositoryId);
     if (!repo) return null;
 
-    const languageBytes = parseJson(repo.languages, {});
+    // jsonb, so the driver has already parsed it.
+    const languageBytes = repo.languages ?? {};
     const totalBytes = Object.values(languageBytes).reduce((total, bytes) => total + bytes, 0);
 
     const languages = Object.entries(languageBytes)
@@ -57,7 +49,7 @@ export async function getRepositoryTechnologies(repositoryId) {
         repository: { id: repo.id, name: repo.name, url: repo.url },
         primaryLanguage: repo.primary_language,
         languages,
-        topics: parseJson(repo.topics, []),
+        topics: repo.topics ?? [],
         ecosystems: [...byEcosystem.values()].sort((a, b) => b.packages - a.packages),
         dependencyCount: dependencies.length,
         lastScannedAt: repo.last_scanned_at,

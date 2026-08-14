@@ -5,21 +5,25 @@
  * and the rules around the credential. The transport itself is exercised by the
  * console's "Test connection" button, which needs a real provider.
  */
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import request from 'supertest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import {
+    describeWithDatabase as describe,
+    hasDatabase,
+    useSchema,
+    setUpSchema,
+    tearDownSchema,
+    truncateAll,
+} from '../../helpers/postgres.js';
 
-const TMP_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atalaia-email-')), 'test.db');
-
-process.env.DB_PATH = TMP_DB;
+const { schema } = useSchema('email_settings');
 process.env.API_KEY = 'test-api-key';
 process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
-const cache = await import('#app/infrastructure/cache/sqliteCache.js');
-const { initializeDatabase, getDb } = cache;
+const cache = await import('#app/infrastructure/cache/postgresCache.js');
+const { initializeDatabase } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
+const { query, queryOne } = await import('#app/infrastructure/db/pool.js');
 
 // Cleared *after* the imports: config.js calls dotenv.config(), which would
 // otherwise repopulate these from the developer's .env and make every
@@ -30,17 +34,20 @@ for (const key of ENV_KEYS) delete process.env[key];
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
 
-beforeAll(() => {
-    initializeDatabase();
+beforeAll(async () => {
+    if (!hasDatabase) return;
+    await setUpSchema(schema);
+    await initializeDatabase();
     app = createApp(cache);
 });
 
-afterAll(() => {
-    fs.rmSync(path.dirname(TMP_DB), { recursive: true, force: true });
+afterAll(async () => {
+    if (!hasDatabase) return;
+    await tearDownSchema(schema);
 });
 
-beforeEach(() => {
-    getDb().exec('DELETE FROM email_config;');
+beforeEach(async () => {
+    await truncateAll(); // was: DELETE FROM email_config;
     for (const key of ENV_KEYS) delete process.env[key];
 });
 
@@ -107,7 +114,7 @@ describe('PUT /api/v1/settings/email', () => {
         const res = await request(app).get('/api/v1/settings/email').set(KEY);
         expect(JSON.stringify(res.body)).not.toContain('re_live_ABCD1234');
 
-        const row = getDb().prepare('SELECT secret_cipher FROM email_config').get();
+        const row = await queryOne('SELECT secret_cipher FROM email_config');
         expect(row.secret_cipher).not.toContain('re_live');
     });
 

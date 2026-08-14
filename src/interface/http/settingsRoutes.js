@@ -89,7 +89,7 @@ export function createSettingsRoutes(cache) {
         // alerts are delivered, but the signing secret and the app credentials
         // can still be managed here.
         const pinned = [];
-        const pins = async (value, envVar) => {
+        const pins = (value, envVar) => {
             // Empty is not a pin. `SLACK_SIGNING_SECRET=` in a .env leaves the
             // variable defined but carrying nothing, and everywhere else in the
             // product that reads as unset — including the field the console
@@ -254,7 +254,7 @@ export function createSettingsRoutes(cache) {
     });
 
     // PUT /settings — partial update of the writable whitelist
-    router.put('/', (req, res) => {
+    router.put('/', async (req, res) => {
         const { settings, changedBy } = req.body ?? {};
 
         if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
@@ -288,11 +288,16 @@ export function createSettingsRoutes(cache) {
         try {
             const applied = {};
             for (const [key, value] of Object.entries(settings)) {
-                applied[key] = value === null ? (clearSetting(key), null) : setSetting(key, value, changedBy ?? 'api');
+                if (value === null) {
+                    await clearSetting(key);
+                    applied[key] = null;
+                } else {
+                    applied[key] = await setSetting(key, value, changedBy ?? 'api');
+                }
             }
 
             logger.info({ keys: Object.keys(applied), changedBy }, 'Settings updated via API');
-            res.json({ applied, ...describeSettings() });
+            res.json({ applied, ...(await describeSettings()) });
         } catch (error) {
             logger.warn({ err: error }, 'Settings update failed');
             res.status(400).json({ error: error.message });
