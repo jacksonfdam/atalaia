@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from '../logger.js';
 import { resolveTeamsConfig } from './teamsConfig.js';
+import { describeWebhookFailure } from './webhookError.js';
 
 const TIMEOUT_MS = 10_000;
 
@@ -117,7 +118,10 @@ export async function notifyTeams(vuln, _highlight = false, correlation = {}) {
         logger.info({ cveId: vuln.cveId }, 'Sent Teams alert');
     } catch (err) {
         // Inside a monitoring cycle: log and carry on, never reject.
-        logger.error({ err: err.message, cveId: vuln.cveId }, 'Failed to send Teams message');
+        logger.error(
+            { err: describeWebhookFailure(err), cveId: vuln.cveId },
+            'Failed to send Teams message'
+        );
     }
 }
 
@@ -148,7 +152,8 @@ export async function sendTeamsTestMessage() {
         await axios.post(config.webhookUrl, card, { timeout: TIMEOUT_MS });
         return { ok: true };
     } catch (err) {
-        logger.warn({ err: err.message }, 'Teams test message failed');
-        return { ok: false, error: err.message };
+        const reason = describeWebhookFailure(err);
+        logger.warn({ err: reason }, 'Teams test message failed');
+        return { ok: false, error: `Teams webhook failed — ${reason}` };
     }
 }

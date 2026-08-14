@@ -1,6 +1,7 @@
 import axios from "axios";
 import logger from "./logger.js";
 import { resolveSlackConfig, describeDestination } from "./notifiers/slackConfig.js";
+import { describeWebhookFailure } from "./notifiers/webhookError.js";
 
 const SLACK_API = "https://slack.com/api/chat.postMessage";
 const TIMEOUT_MS = 10_000;
@@ -150,7 +151,15 @@ export async function deliver(config, message, destination) {
 
     if (!config.webhookUrl) throw new Error('No webhook URL configured');
 
-    await axios.post(config.webhookUrl, message, { timeout: TIMEOUT_MS });
+    try {
+        await axios.post(config.webhookUrl, message, { timeout: TIMEOUT_MS });
+    } catch (err) {
+        // Slack's reason for refusing lives in the response body, not in the
+        // status line, so it has to be lifted out or the operator is left with
+        // "status code 404" and nothing to act on.
+        throw new Error(`Slack webhook failed — ${describeWebhookFailure(err)}`);
+    }
+
     return { channel: 'webhook' };
 }
 
