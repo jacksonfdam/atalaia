@@ -80,3 +80,39 @@ describe('parseGitHubUrl', () => {
         expect(parseGitHubUrl(url)).toEqual(expected);
     });
 });
+
+describe('throttling', () => {
+    const provider = new GitHubProvider('token', 'test');
+
+    /** A rejected axios call, shaped the way axios shapes it. */
+    const refusal = (status, headers = {}) =>
+        Object.assign(new Error(`Request failed with status code ${status}`), {
+            response: { status, headers },
+        });
+
+    test('a tree that does not exist is genuinely empty', async () => {
+        provider._get = async () => {
+            throw refusal(404);
+        };
+
+        await expect(provider.listFiles('https://github.com/a/b')).resolves.toEqual([]);
+    });
+
+    test('a refused read is thrown, not reported as an empty repository', async () => {
+        provider._get = async () => {
+            throw refusal(403);
+        };
+
+        // Returning [] here made a throttled scan look like a repository with no
+        // manifests: 0 dependencies, no error, sweep reported success.
+        await expect(provider.listFiles('https://github.com/a/b')).rejects.toThrow('Cannot read a/b');
+    });
+
+    test('the message points at the setting that causes it', async () => {
+        provider._get = async () => {
+            throw refusal(429);
+        };
+
+        await expect(provider.listFiles('https://github.com/a/b')).rejects.toThrow(/SCAN_CONCURRENCY/);
+    });
+});

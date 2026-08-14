@@ -20,6 +20,8 @@ export function VulnDetail({ onAuthLost }: { onAuthLost: () => void }) {
   const detail = useApi<VulnerabilityDetail>(cveId ? `/vulnerabilities/${cveId}` : null, onAuthLost);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
 
   async function changeStatus(status: 'ACKNOWLEDGED' | 'RESOLVED') {
     if (!cveId) return;
@@ -37,6 +39,22 @@ export function VulnDetail({ onAuthLost }: { onAuthLost: () => void }) {
       setMessage((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function explain() {
+    if (!cveId) return;
+    setExplaining(true);
+    setExplainError(null);
+    try {
+      await api.post(`/vulnerabilities/${cveId}/explain`);
+      detail.reload();
+    } catch (err) {
+      // The model's own reason, not a generic failure — a wrong endpoint and a
+      // base model that answered nothing are different problems.
+      setExplainError((err as Error).message);
+    } finally {
+      setExplaining(false);
     }
   }
 
@@ -109,13 +127,24 @@ export function VulnDetail({ onAuthLost }: { onAuthLost: () => void }) {
           </Body>
         </Window>
 
-        <Window title="EXPLANATION.AI" accent="var(--accent-primary)">
+        <Window
+          title="EXPLANATION.AI"
+          accent="var(--accent-primary)"
+          actions={
+            <button disabled={explaining} onClick={explain}>
+              {explaining ? 'Writing…' : vuln.client_explanation ? 'Rewrite' : 'Explain'}
+            </button>
+          }
+        >
           <Body cool>
+            {explainError ? <Notice kind="error">{explainError}</Notice> : null}
+
             {vuln.client_explanation ? (
               <p className="prose">{vuln.client_explanation}</p>
             ) : (
               <Empty>
-                No generated explanation. Set an LLM provider in settings, then acknowledge this CVE.
+                No explanation yet. It is written when a CVE first arrives, so anything collected
+                before a model was configured has none — <strong>Explain</strong> writes it now.
               </Empty>
             )}
           </Body>

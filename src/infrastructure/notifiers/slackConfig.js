@@ -1,4 +1,4 @@
-import { getDb } from '../cache/sqliteCache.js';
+import { query, queryOne } from '../db/pool.js';
 import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import config from '../config.js';
 import logger from '../logger.js';
@@ -17,9 +17,9 @@ export const SLACK_MODES = ['webhook', 'bot'];
 const CHANNEL_ID = /^[CGD][A-Z0-9]{6,}$/;
 const USER_ID = /^[UW][A-Z0-9]{6,}$/;
 
-function readRow() {
+async function readRow() {
     try {
-        return getDb().prepare('SELECT * FROM slack_config WHERE id = 1').get() ?? null;
+        return await queryOne('SELECT * FROM slack_config WHERE id = 1');
     } catch (err) {
         logger.warn({ err }, 'Failed to read Slack configuration');
         return null;
@@ -51,11 +51,11 @@ export function describeDestination(destination) {
 /**
  * The effective configuration, credentials included. Only the notifier uses it.
  *
- * @returns {{ ready: boolean, reason?: string, source: 'env'|'database'|'config'|'none',
+ * @returns {Promise<{ ready: boolean, reason?: string, source: 'env'|'database'|'config'|'none',
  *             mode: string, webhookUrl?: string, botToken?: string,
- *             destination?: string, notifyOwners: boolean }}
+ *             destination?: string, notifyOwners: boolean }>}
  */
-export function resolveSlackConfig() {
+export async function resolveSlackConfig() {
     // One switch, not two: the row's `enabled` is the truth, and SLACK_ENABLED
     // can still force it either way from the environment.
     const envSwitch =
@@ -75,7 +75,7 @@ export function resolveSlackConfig() {
         };
     }
 
-    const row = readRow();
+    const row = await readRow();
 
     if (!row) {
         // config.json may still carry a webhook from before this table existed.
@@ -114,13 +114,13 @@ export function resolveSlackConfig() {
             reason: 'Stored credential cannot be decrypted — TOKEN_ENCRYPTION_KEY (or API_KEY) changed',
             source: 'database',
             mode: row.mode,
-            notifyOwners: row.notify_owners === 1,
+            notifyOwners: Boolean(row.notify_owners),
         };
     }
 
     const missing = [];
     if (envSwitch === false) missing.push('SLACK_ENABLED=false in the environment');
-    else if (row.enabled !== 1) missing.push('Slack notifications are switched off');
+    else if (!row.enabled) missing.push('Slack notifications are switched off');
     if (row.mode === 'webhook' && !webhookUrl) missing.push('no webhook URL');
     if (row.mode === 'bot' && !botToken) missing.push('no bot token');
     if (row.mode === 'bot' && !row.destination) missing.push('no channel or user to post to');
@@ -133,7 +133,7 @@ export function resolveSlackConfig() {
         webhookUrl,
         botToken,
         destination: row.destination,
-        notifyOwners: row.notify_owners === 1,
+        notifyOwners: Boolean(row.notify_owners),
     };
 }
 
@@ -141,10 +141,10 @@ export function resolveSlackConfig() {
  * The signing secret used to verify inbound interactive callbacks.
  * Environment first, then the console's value.
  */
-export function resolveSigningSecret() {
+export async function resolveSigningSecret() {
     if (process.env.SLACK_SIGNING_SECRET) return process.env.SLACK_SIGNING_SECRET;
 
-    const row = readRow();
+    const row = await readRow();
     if (!row?.signing_cipher) return null;
 
     try {
@@ -158,10 +158,10 @@ export function resolveSigningSecret() {
 /**
  * App token and ID, used in development to point the app's Request URL at the
  * current tunnel.
- * @returns {{ appToken: string|null, appId: string|null }}
+ * @returns {Promise<{ appToken: string|null, appId: string|null }>}
  */
-export function resolveAppCredentials() {
-    const row = readRow();
+export async function resolveAppCredentials() {
+    const row = await readRow();
     let appToken = process.env.SLACK_APP_TOKEN ?? null;
 
     if (!appToken && row?.app_token_cipher) {
@@ -176,10 +176,11 @@ export function resolveAppCredentials() {
 }
 
 /** Everything the console renders. Never a credential. */
-export function describeSlackConfig() {
-    const row = readRow();
-    const resolved = resolveSlackConfig();
+export async function describeSlackConfig() {
+    const row = await readRow();
+    const resolved = await resolveSlackConfig();
     const destination = describeDestination(row?.destination);
+    const signingSecret = await resolveSigningSecret();
 
     return {
         modes: SLACK_MODES,
@@ -196,8 +197,8 @@ export function describeSlackConfig() {
             hasAppToken: Boolean(row?.app_token_cipher),
             appTokenHint: row?.app_token_hint ?? null,
             appId: row?.app_id ?? null,
-            notifyOwners: row?.notify_owners === 1,
-            enabled: row?.enabled === 1,
+            notifyOwners: Boolean(row?.notify_owners),
+            enabled: Boolean(row?.enabled),
             updatedAt: row?.updated_at ?? null,
             updatedBy: row?.updated_by ?? null,
         },
@@ -215,7 +216,7 @@ export function describeSlackConfig() {
         // Interactive buttons need the signing secret to verify what Slack
         // sends back; without it every click is rejected.
         interactivity: {
-            configured: Boolean(resolveSigningSecret()),
+            configured: Boolean(signingSecret),
             source: process.env.SLACK_SIGNING_SECRET ? 'env' : row?.signing_cipher ? 'database' : 'none',
             envVar: 'SLACK_SIGNING_SECRET',
         },
@@ -240,7 +241,7 @@ export function describeSlackConfig() {
  * @param {boolean} [input.enabled]
  * @param {string} [changedBy]
  */
-export function saveSlackConfig(input, changedBy) {
+export async function saveSlackConfig(input, changedBy) {
     if (!SLACK_MODES.includes(input.mode)) {
         throw new Error(`mode must be one of: ${SLACK_MODES.join(', ')}`);
     }
@@ -259,7 +260,7 @@ export function saveSlackConfig(input, changedBy) {
         throw new Error('An app-level token starts with xapp-');
     }
 
-    const current = readRow();
+    const current = await readRow();
 
     const secret = (value, currentCipher, currentHint) => {
         if (value === undefined) return { cipher: currentCipher ?? null, hint: currentHint ?? null };
@@ -282,17 +283,16 @@ export function saveSlackConfig(input, changedBy) {
             ? current?.destination ?? null
             : describeDestination(input.destination).value;
 
-    getDb()
-        .prepare(
-            `INSERT INTO slack_config
+    await query(
+        `INSERT INTO slack_config
                 (id, mode, webhook_cipher, webhook_hint, bot_cipher, bot_hint,
                  signing_cipher, signing_hint, app_token_cipher, app_token_hint, app_id,
                  destination, notify_owners, enabled, updated_at, updated_by)
              VALUES
                 (1, @mode, @webhookCipher, @webhookHint, @botCipher, @botHint,
                  @signingCipher, @signingHint, @appTokenCipher, @appTokenHint, @appId,
-                 @destination, @notifyOwners, @enabled, datetime('now'), @changedBy)
-             ON CONFLICT(id) DO UPDATE SET
+              @destination, @notifyOwners, @enabled, now(), @changedBy)
+         ON CONFLICT (id) DO UPDATE SET
                 mode = excluded.mode,
                 webhook_cipher = excluded.webhook_cipher,
                 webhook_hint = excluded.webhook_hint,
@@ -307,9 +307,8 @@ export function saveSlackConfig(input, changedBy) {
                 notify_owners = excluded.notify_owners,
                 enabled = excluded.enabled,
                 updated_at = excluded.updated_at,
-                updated_by = excluded.updated_by`
-        )
-        .run({
+                updated_by = excluded.updated_by`,
+        {
             mode: input.mode,
             webhookCipher: webhook.cipher,
             webhookHint: webhook.hint,
@@ -321,11 +320,12 @@ export function saveSlackConfig(input, changedBy) {
             appTokenHint: appToken.hint,
             appId: input.appId === undefined ? current?.app_id ?? null : input.appId || null,
             destination,
-            notifyOwners: input.notifyOwners ? 1 : 0,
-            enabled: input.enabled === undefined ? current?.enabled ?? 0 : input.enabled ? 1 : 0,
+            notifyOwners: Boolean(input.notifyOwners),
+            enabled: input.enabled === undefined ? Boolean(current?.enabled) : Boolean(input.enabled),
             changedBy: changedBy ?? null,
-        });
+        }
+    );
 
     logger.info({ mode: input.mode, destination, changedBy }, 'Slack configuration saved');
-    return describeSlackConfig();
+    return await describeSlackConfig();
 }

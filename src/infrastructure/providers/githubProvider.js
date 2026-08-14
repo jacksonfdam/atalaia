@@ -6,6 +6,49 @@ const GITHUB_API = 'https://api.github.com';
 const PER_PAGE = 100;
 const TIMEOUT_MS = parseInt(process.env.FEED_TIMEOUT_MS, 10) || 15000;
 
+/** Attempts per request when GitHub is throttling, the first one included. */
+const THROTTLE_ATTEMPTS = 3;
+
+/** How long to wait before an exhausted primary quota is treated as fatal. */
+const MAX_WAIT_MS = 60_000;
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * How long to wait before retrying, or null when this is not throttling.
+ *
+ * GitHub says "slow down" in three different ways, and the difference matters:
+ *
+ *   Retry-After          — it told us exactly how long. Believe it.
+ *   remaining: 0         — the hourly quota is gone. The reset can be most of an
+ *                          hour away, which is not a wait, it is a failure: the
+ *                          job should say so rather than hold a queue slot.
+ *   403/429, no headers  — the secondary limit, which is about concurrency
+ *                          rather than volume. Short backoff, and it clears.
+ */
+function throttleDelayMs(error, attempt) {
+    const status = error?.response?.status;
+    if (status !== 403 && status !== 429) return null;
+
+    const headers = error.response.headers ?? {};
+
+    const retryAfter = parseInt(headers['retry-after'], 10);
+    if (!Number.isNaN(retryAfter)) {
+        return retryAfter * 1000 <= MAX_WAIT_MS ? retryAfter * 1000 : null;
+    }
+
+    if (headers['x-ratelimit-remaining'] === '0') {
+        const reset = parseInt(headers['x-ratelimit-reset'], 10);
+        if (Number.isNaN(reset)) return null;
+
+        const wait = reset * 1000 - Date.now();
+        return wait > 0 && wait <= MAX_WAIT_MS ? wait : null;
+    }
+
+    // The secondary limit. Grows with each attempt: 1s, 4s.
+    return attempt * attempt * 1000;
+}
+
 /**
  * GitHub repository provider.
  * One instance per organization (each with its own token).
@@ -87,14 +130,35 @@ export class GitHubProvider {
         };
     }
 
-    /** The single outbound request path. GET only, deliberately. */
+    /**
+     * The single outbound request path. GET only, deliberately.
+     *
+     * Retries while GitHub is throttling. Scanning several repositories at once
+     * runs into the secondary rate limit — which is about concurrency, not
+     * volume, and clears in seconds — and dropping the repository over it loses
+     * data that a short wait would have got.
+     */
     async _get(url, params = {}) {
-        const { data } = await axios.get(url, {
-            headers: this.headers,
-            timeout: TIMEOUT_MS,
-            params,
-        });
-        return data;
+        for (let attempt = 1; ; attempt++) {
+            try {
+                const { data } = await axios.get(url, {
+                    headers: this.headers,
+                    timeout: TIMEOUT_MS,
+                    params,
+                });
+                return data;
+            } catch (error) {
+                const wait = throttleDelayMs(error, attempt);
+
+                if (wait === null || attempt >= THROTTLE_ATTEMPTS) throw error;
+
+                logger.warn(
+                    { url, attempt, waitMs: wait, status: error.response?.status },
+                    'GitHub is throttling; backing off'
+                );
+                await sleep(wait);
+            }
+        }
     }
 
     /** Map a GitHub repository object onto the domain entity. */
@@ -233,8 +297,26 @@ export class GitHubProvider {
                 .filter(item => item.type === 'blob')
                 .map(item => item.path);
         } catch (error) {
-            logger.error({ repoUrl, err: error.message }, 'GitHub listFiles failed');
-            return [];
+            const status = error.response?.status;
+
+            // A repository with no commits has no tree. That is genuinely empty,
+            // and it is the only case where an empty list is the truth.
+            if (status === 404 || status === 409) {
+                logger.info({ repoUrl, status }, 'Repository has no tree to read');
+                return [];
+            }
+
+            // Everything else is thrown. Swallowing it returned [] to the
+            // scanner, which recorded "0 dependencies" and reported success — so
+            // a whole fleet could be throttled and the sweep would say it was
+            // fine, with a fraction of the dependencies and no errors.
+            const detail =
+                status === 403 || status === 429
+                    ? `${error.message} — GitHub is refusing reads. If this is a large fleet, lower SCAN_CONCURRENCY.`
+                    : error.message;
+
+            logger.error({ repoUrl, status, err: error.message }, 'GitHub listFiles failed');
+            throw new Error(`Cannot read ${owner}/${repo}: ${detail}`);
         }
     }
 

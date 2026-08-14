@@ -39,9 +39,39 @@ Alerts arrive as an Adaptive Card carrying the severity, the affected repositori
 
 A workflow webhook is bound to the channel it was created in, so there is no destination to choose — one webhook, one channel. The URL is a credential (anyone holding it can post there), so it is encrypted at rest and never returned by the API. `TEAMS_WEBHOOK_URL` and `TEAMS_ENABLED` pin it from the environment, same as everywhere else.
 
+## Subscribing to a repository
+
+A vulnerability that reaches a repository is emailed to the people who asked about it, the moment it is detected. A dependency that fell behind is not an incident — a freshness check can mark dozens at once — so those wait for that subscriber's weekly digest.
+
+There is no separate subscriber list: **an owner assigned to a repository is the subscription**. The same rows Slack already direct-messages, so there is one answer to "who cares about this repository" rather than two that drift apart.
+
+Subscribe from the repository's own page, under **NOTIFY.CFG**: pick an owner and press Subscribe. Owners themselves are managed under **Settings → Slack**, where the Slack member id also lives.
+
+| What happens | When | Where it goes |
+|---|---|---|
+| A CVE reaches a subscribed repository | immediately, in the cycle that found it | one email per subscriber, naming the repositories of theirs it reaches and the manifest file it arrives through |
+| A dependency falls behind its registry | the weekly digest | that subscriber's digest, scoped to their repositories |
+
+One email per person per finding, however many of their repositories it reaches: a CVE in a package six of your repositories share is one problem, not six.
+
 ## Weekly email report
 
 Every Monday at 09:00 (`WEEKLY_REPORT_CRON`) Atalaia emails a digest of **what it detected in the last seven days**, with the running total of everything still open shown alongside it. A quiet week reads as "nothing new, 113 open" instead of re-sending the whole backlog. Unrated findings — Ubuntu USN and the CERT feeds publish no CVSS — get their own bucket rather than being dropped.
+
+It is split the way the console splits it, because a report that disagrees with the screen is worse than no report:
+
+| Section | What is in it |
+|---------|---------------|
+| **Affects your code** | The CVE names a dependency of a tracked, enabled repository. Grouped by repository, each finding with the dependency and manifest file it arrives through, and a short explanation. |
+| **Containers & CI only** | It reaches a container image, a GitHub Action, Terraform or Helm — not application code. Capped at 25 rows, with the full count. |
+| **Everything else collected** | Published somewhere, naming nothing this fleet ships. Capped at 25 rows: this is thousands on a real install, and an email that lists them is a database dump. |
+| **Dependencies behind** | Per repository, where the registry has a newer release than the manifest allows. |
+
+The short explanation is the model's when one is configured (**Settings → Model**), otherwise the advisory text trimmed to a paragraph — the same fallback the Slack alert uses.
+
+The header states both numbers a reader might be looking for: what arrived this week, and what is still open. The console's *Affects our code* count folds containers and CI in, so it equals this report's first two sections added together.
+
+**Reading it without waiting for Monday:** the console's **Reports** page renders exactly this payload — `GET /api/v1/reports/weekly`, the same one the email is built from — with a *Send now* button beside it.
 
 Pick a provider under **Settings → Email**, fill in its credential, and save:
 
@@ -90,6 +120,8 @@ Everything except Anthropic speaks the OpenAI chat-completions shape — Gemini 
 
 The explanation is written once, when the vulnerability is first stored, and travels with the Slack alert and the weekly report. Changing provider takes effect on the next cycle; there is no restart.
 
+Anything collected before a model was configured therefore has none. **Explain**, on the CVE's page, writes it on demand — and rewrites it, if a better model is configured since.
+
 ```bash
 curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/llm
 
@@ -99,3 +131,13 @@ curl -X PUT -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 
 curl -X POST -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/llm/test
 ```
+
+### The endpoint, and two things that look like a broken model
+
+**Paste whatever URL you have.** Providers disagree about the path: Ollama serves `/api/generate` off the base, the OpenAI shape wants `/v1/chat/completions`, Gemini versions it as `/v1beta/openai`. Atalaia normalises the endpoint to the base each provider needs, so `http://localhost:11434/v1/chat/completions` and `http://localhost:11434` behave identically. The corrected value is what gets stored the next time you save.
+
+**`localhost` from inside a container is the container.** Atalaia runs in containers, so a model on the host is not at `localhost` from its point of view. When a loopback address refuses the connection, the request is retried against `host.docker.internal` — nothing to configure, and it works the same under Docker and Apple's runtime.
+
+**A base model is not an assistant.** `qwen2.5-coder:1.5b-base`, and any other name ending in `-base`, continues text rather than answering it: ask it to explain a CVE and it writes the next paragraph of the prompt. **Test model** succeeds and flags it, because the answer arrives — it is just not a reply. Use the instruct or chat variant (`qwen2.5-coder:1.5b-instruct`, `llama3.1:8b`).
+
+A test that fails now names the cause: which URL answered 404, that the key was rejected, that the model was never pulled and the `ollama pull` line to fix it, or that nothing is listening. `LLM_TIMEOUT_MS` raises the 30s limit for a large model on a cold start.

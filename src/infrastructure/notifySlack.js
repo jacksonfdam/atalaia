@@ -171,7 +171,7 @@ export async function deliver(config, message, destination) {
  * @param {{ affectedRepositories?: object[], owners?: object[] }} [correlation]
  */
 async function notifySlack(vuln, highlight = false, correlation = {}) {
-    const config = resolveSlackConfig();
+    const config = await resolveSlackConfig();
 
     if (!config.ready) {
         logger.debug({ cveId: vuln.cveId, reason: config.reason }, 'Slack alert skipped');
@@ -209,7 +209,7 @@ async function notifySlack(vuln, highlight = false, correlation = {}) {
  * @returns {Promise<{ ok: boolean, mode?: string, channel?: string, error?: string }>}
  */
 export async function sendTestMessage() {
-    const config = resolveSlackConfig();
+    const config = await resolveSlackConfig();
     if (!config.ready) {
         return { ok: false, error: config.reason ?? 'Slack is not configured' };
     }

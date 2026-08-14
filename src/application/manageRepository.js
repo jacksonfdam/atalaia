@@ -38,12 +38,12 @@ function extractName(url) {
  * @param {{ name?: string, provider?: string, orgKey?: string, defaultBranch?: string }} [options]
  * @returns {object}
  */
-export function addRepo(url, options = {}) {
+export async function addRepo(url, options = {}) {
     const normalizedUrl = url.replace(/\.git$/, '').replace(/\/$/, '');
     const provider = options.provider || detectProvider(normalizedUrl);
     const name = options.name || extractName(normalizedUrl);
 
-    const repo = storeAdd({
+    const repo = await storeAdd({
         name,
         url: normalizedUrl,
         provider,
@@ -60,17 +60,17 @@ export function addRepo(url, options = {}) {
  * @param {string|number} idOrUrl
  * @returns {boolean}
  */
-export function removeRepo(idOrUrl) {
+export async function removeRepo(idOrUrl) {
     const repo = typeof idOrUrl === 'number'
-        ? storeGet(idOrUrl)
-        : storeGetByUrl(idOrUrl);
+        ? await storeGet(idOrUrl)
+        : await storeGetByUrl(idOrUrl);
 
     if (!repo) {
         logger.warn({ idOrUrl }, 'Repository not found');
         return false;
     }
 
-    storeSoftDelete(repo.id);
+    await storeSoftDelete(repo.id);
     return true;
 }
 
@@ -79,8 +79,8 @@ export function removeRepo(idOrUrl) {
  * @param {{ includeDeleted?: boolean }} [options]
  * @returns {object[]}
  */
-export function listRepos(options = {}) {
-    return storeList(options);
+export async function listRepos(options = {}) {
+    return await storeList(options);
 }
 
 /**
@@ -88,8 +88,8 @@ export function listRepos(options = {}) {
  * @param {number} id
  * @returns {object|null}
  */
-export function getRepo(id) {
-    return storeGet(id);
+export async function getRepo(id) {
+    return await storeGet(id);
 }
 
 /**
@@ -97,8 +97,8 @@ export function getRepo(id) {
  * @param {string} url
  * @returns {object|null}
  */
-export function getRepoByUrl(url) {
-    return storeGetByUrl(url.replace(/\.git$/, '').replace(/\/$/, ''));
+export async function getRepoByUrl(url) {
+    return await storeGetByUrl(url.replace(/\.git$/, '').replace(/\/$/, ''));
 }
 
 /**
@@ -106,11 +106,11 @@ export function getRepoByUrl(url) {
  * @param {number|string} idOrUrl
  * @returns {object|null}
  */
-export function restoreRepo(idOrUrl) {
-    const repo = typeof idOrUrl === 'number' ? storeGet(idOrUrl) : storeGetAnyByUrl(idOrUrl);
+export async function restoreRepo(idOrUrl) {
+    const repo = typeof idOrUrl === 'number' ? await storeGet(idOrUrl) : await storeGetAnyByUrl(idOrUrl);
     if (!repo) return null;
 
-    return storeRestore(repo.id);
+    return await storeRestore(repo.id);
 }
 
 /**
@@ -121,11 +121,11 @@ export function restoreRepo(idOrUrl) {
  * @param {boolean} enabled
  * @returns {object|null}
  */
-export function setRepoEnabled(id, enabled) {
-    const repo = storeGet(id);
+export async function setRepoEnabled(id, enabled) {
+    const repo = await storeGet(id);
     if (!repo) return null;
 
-    storeUpdate(id, { enabled });
+    await storeUpdate(id, { enabled });
     logger.info({ id, enabled }, 'Repository enablement changed');
-    return storeGet(id);
+    return await storeGet(id);
 }

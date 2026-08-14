@@ -1,11 +1,45 @@
-import { getDb } from './sqliteCache.js';
+import { query, queryAll, queryOne, withTransaction } from '../db/pool.js';
 import logger from '../logger.js';
 
-const NOW = "datetime('now')";
+/**
+ * "Which CVE names which dependency."
+ *
+ * One row per (vulnerability, lowercased technology it names), to be joined
+ * against the fleet on equality. It was a correlated EXISTS that re-unrolled
+ * each vulnerability's jsonb array once per candidate dependency — thirteen
+ * million comparisons on a fleet of four hundred repositories, and a request
+ * that took the best part of a minute. Unrolling once and hash-joining is the
+ * same answer in a fraction of the time.
+ *
+ * Written here and in postgresCache.js, where the same question drives the
+ * relevance counters: the two must agree, and hiding it behind a shared fragment
+ * would make it easy to change one and not the other.
+ */
+const TECHNOLOGY_ROWS = `
+    SELECT v.id, v.cve_id, lower(element) AS name
+    FROM vulnerabilities v,
+         jsonb_array_elements_text(v.affected_technologies) AS element
+`;
+
+/**
+ * One row per (repository, dependency, lowercased name we ship). A CVE can name
+ * the dependency itself or the vendor's product name for it, so both are here.
+ */
+const FLEET_ROWS = `
+    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version,
+           d.manifest_file, lower(d.name) AS match_name
+    FROM repository_dependencies d
+    WHERE d.deleted_at IS NULL
+    UNION ALL
+    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version,
+           d.manifest_file, lower(d.opencve_product) AS match_name
+    FROM repository_dependencies d
+    WHERE d.deleted_at IS NULL AND d.opencve_product IS NOT NULL
+`;
 
 // ── Repositories ──
 
-export function addRepository({
+export async function addRepository({
     name,
     url,
     provider,
@@ -18,108 +52,119 @@ export function addRepository({
     archived = false,
     enabled = true,
 }) {
-    const db = getDb();
-    const stmt = db.prepare(`
-        INSERT INTO repositories (
-            name, url, provider, org_key, default_branch,
-            primary_language, languages, topics, description, archived, enabled
-        )
-        VALUES (
-            @name, @url, @provider, @orgKey, @defaultBranch,
-            @primaryLanguage, @languages, @topics, @description, @archived, @enabled
-        )
-        ON CONFLICT(url) DO UPDATE SET
-            name = excluded.name,
-            provider = excluded.provider,
-            org_key = excluded.org_key,
-            default_branch = excluded.default_branch,
-            primary_language = excluded.primary_language,
-            -- A re-import without a language breakdown must not erase the one
-            -- already stored.
-            languages = COALESCE(excluded.languages, repositories.languages),
-            topics = COALESCE(excluded.topics, repositories.topics),
-            description = excluded.description,
-            archived = excluded.archived,
-            updated_at = ${NOW},
-            deleted_at = NULL
-            -- The enabled column is intentionally absent: it is the operator's
-            -- switch, and a re-import must not flip it back.
-        RETURNING *
-    `);
-    // RETURNING rather than lastInsertRowid: on the conflict path the upsert
-    // updates an existing row and lastInsertRowid still points at whatever was
-    // inserted last, which is a different repository.
-    const row = stmt.get({
-        name,
-        url,
-        provider,
-        orgKey,
-        defaultBranch,
-        primaryLanguage,
-        languages: languages ? JSON.stringify(languages) : null,
-        topics: topics ? JSON.stringify(topics) : null,
-        description,
-        archived: archived ? 1 : 0,
-        enabled: enabled ? 1 : 0,
-    });
+    // RETURNING rather than a follow-up read: on the conflict path the upsert
+    // updates an existing row, and there is no insert id to look up.
+    const row = await queryOne(
+        `INSERT INTO repositories (
+             name, url, provider, org_key, default_branch,
+             primary_language, languages, topics, description, archived, enabled
+         )
+         VALUES (
+             @name, @url, @provider, @orgKey, @defaultBranch,
+             @primaryLanguage, @languages, @topics, @description, @archived, @enabled
+         )
+         ON CONFLICT (url) DO UPDATE SET
+             name = excluded.name,
+             provider = excluded.provider,
+             org_key = excluded.org_key,
+             default_branch = excluded.default_branch,
+             primary_language = excluded.primary_language,
+             -- A re-import without a language breakdown must not erase the one
+             -- already stored.
+             languages = COALESCE(excluded.languages, repositories.languages),
+             topics = COALESCE(excluded.topics, repositories.topics),
+             description = excluded.description,
+             archived = excluded.archived,
+             updated_at = now(),
+             deleted_at = NULL
+             -- The enabled column is intentionally absent: it is the operator's
+             -- switch, and a re-import must not flip it back.
+         RETURNING *`,
+        {
+            name,
+            url,
+            provider,
+            orgKey,
+            defaultBranch,
+            primaryLanguage,
+            languages: languages ? JSON.stringify(languages) : null,
+            topics: topics ? JSON.stringify(topics) : null,
+            description,
+            archived: Boolean(archived),
+            enabled: Boolean(enabled),
+        }
+    );
 
     logger.info({ url, id: row?.id }, 'Repository added/restored');
-    return row ?? getRepositoryByUrl(url);
+    return row ?? await getRepositoryByUrl(url);
 }
 
-export function softDeleteRepository(id) {
-    const db = getDb();
-    const deleteRepo = db.prepare(`UPDATE repositories SET deleted_at = ${NOW}, updated_at = ${NOW} WHERE id = ? AND deleted_at IS NULL`);
-    const deleteDeps = db.prepare(`UPDATE repository_dependencies SET deleted_at = ${NOW}, updated_at = ${NOW} WHERE repository_id = ? AND deleted_at IS NULL`);
-
-    db.transaction(() => {
-        deleteRepo.run(id);
-        deleteDeps.run(id);
-    })();
+export async function softDeleteRepository(id) {
+    await withTransaction(async client => {
+        await query(
+            `UPDATE repositories SET deleted_at = now(), updated_at = now()
+             WHERE id = @id AND deleted_at IS NULL`,
+            { id },
+            client
+        );
+        await query(
+            `UPDATE repository_dependencies SET deleted_at = now(), updated_at = now()
+             WHERE repository_id = @id AND deleted_at IS NULL`,
+            { id },
+            client
+        );
+    });
 
     logger.info({ id }, 'Repository soft-deleted with dependencies');
 }
 
-export function getRepository(id) {
-    return getDb().prepare('SELECT * FROM repositories WHERE id = ?').get(id) || null;
+export async function getRepository(id) {
+    return queryOne('SELECT * FROM repositories WHERE id = @id', { id });
 }
 
-export function getRepositoryByUrl(url) {
-    return getDb().prepare('SELECT * FROM repositories WHERE url = ? AND deleted_at IS NULL').get(url) || null;
+export async function getRepositoryByUrl(url) {
+    return queryOne('SELECT * FROM repositories WHERE url = @url AND deleted_at IS NULL', { url });
 }
 
 /**
  * Including the soft-deleted ones, which the importer needs: a repository the
  * operator removed must not come back on the next import.
  */
-export function getAnyRepositoryByUrl(url) {
-    return getDb().prepare('SELECT * FROM repositories WHERE url = ?').get(url) || null;
+export async function getAnyRepositoryByUrl(url) {
+    return queryOne('SELECT * FROM repositories WHERE url = @url', { url });
 }
 
 /** Restore a soft-deleted repository. */
-export function restoreRepository(id) {
-    const db = getDb();
-    db.transaction(() => {
-        db.prepare(`UPDATE repositories SET deleted_at = NULL, updated_at = ${NOW} WHERE id = ?`).run(id);
-        db.prepare(
-            `UPDATE repository_dependencies SET deleted_at = NULL, updated_at = ${NOW} WHERE repository_id = ?`
-        ).run(id);
-    })();
+export async function restoreRepository(id) {
+    await withTransaction(async client => {
+        await query(
+            'UPDATE repositories SET deleted_at = NULL, updated_at = now() WHERE id = @id',
+            { id },
+            client
+        );
+        await query(
+            `UPDATE repository_dependencies SET deleted_at = NULL, updated_at = now()
+             WHERE repository_id = @id`,
+            { id },
+            client
+        );
+    });
+
     logger.info({ id }, 'Repository restored');
-    return getRepository(id);
+    return await getRepository(id);
 }
 
-export function listRepositories({ includeDeleted = false } = {}) {
+export async function listRepositories({ includeDeleted = false } = {}) {
     const where = includeDeleted ? '' : 'WHERE deleted_at IS NULL';
-    return getDb().prepare(`SELECT * FROM repositories ${where} ORDER BY name`).all();
+    return queryAll(`SELECT * FROM repositories ${where} ORDER BY name`);
 }
 
-export function updateRepository(id, updates) {
+export async function updateRepository(id, updates) {
     const fields = [];
     const values = { id };
 
     if (updates.name !== undefined) { fields.push('name = @name'); values.name = updates.name; }
-    if (updates.enabled !== undefined) { fields.push('enabled = @enabled'); values.enabled = updates.enabled ? 1 : 0; }
+    if (updates.enabled !== undefined) { fields.push('enabled = @enabled'); values.enabled = Boolean(updates.enabled); }
     if (updates.lastScannedAt !== undefined) { fields.push('last_scanned_at = @lastScannedAt'); values.lastScannedAt = updates.lastScannedAt; }
     if (updates.defaultBranch !== undefined) { fields.push('default_branch = @defaultBranch'); values.defaultBranch = updates.defaultBranch; }
     if (updates.languages !== undefined) { fields.push('languages = @languages'); values.languages = updates.languages ? JSON.stringify(updates.languages) : null; }
@@ -128,132 +173,145 @@ export function updateRepository(id, updates) {
 
     if (fields.length === 0) return;
 
-    fields.push(`updated_at = ${NOW}`);
-    const sql = `UPDATE repositories SET ${fields.join(', ')} WHERE id = @id`;
-    getDb().prepare(sql).run(values);
+    fields.push('updated_at = now()');
+    await query(`UPDATE repositories SET ${fields.join(', ')} WHERE id = @id`, values);
 }
 
 // ── Dependencies ──
 
-export function replaceDependencies(repoId, deps) {
-    const db = getDb();
-
-    db.transaction(() => {
-        // Soft-delete all existing non-deleted deps for this repo
-        db.prepare(`
-            UPDATE repository_dependencies
-            SET deleted_at = ${NOW}, updated_at = ${NOW}
-            WHERE repository_id = ? AND deleted_at IS NULL
-        `).run(repoId);
-
-        // Upsert each dependency (restores soft-deleted ones if they match)
-        const upsert = db.prepare(`
-            INSERT INTO repository_dependencies
-                (repository_id, ecosystem, name, version, manifest_file, opencve_vendor, opencve_product)
-            VALUES (@repositoryId, @ecosystem, @name, @version, @manifestFile, @opencveVendor, @opencveProduct)
-            ON CONFLICT(repository_id, ecosystem, name, manifest_file) DO UPDATE SET
-                version = excluded.version,
-                opencve_vendor = excluded.opencve_vendor,
-                opencve_product = excluded.opencve_product,
-                updated_at = ${NOW},
-                deleted_at = NULL
-        `);
+export async function replaceDependencies(repoId, deps) {
+    await withTransaction(async client => {
+        // Soft-delete every current dependency, then upsert the ones the scan
+        // found: a dependency that is still there is restored by its own upsert,
+        // and one that is gone stays deleted.
+        await query(
+            `UPDATE repository_dependencies
+             SET deleted_at = now(), updated_at = now()
+             WHERE repository_id = @repoId AND deleted_at IS NULL`,
+            { repoId },
+            client
+        );
 
         for (const dep of deps) {
-            upsert.run({
-                repositoryId: repoId,
-                ecosystem: dep.ecosystem,
-                name: dep.name,
-                version: dep.version || null,
-                manifestFile: dep.manifestFile || null,
-                opencveVendor: dep.opencveVendor || null,
-                opencveProduct: dep.opencveProduct || null,
-            });
+            await query(
+                `INSERT INTO repository_dependencies
+                     (repository_id, ecosystem, name, version, manifest_file, opencve_vendor, opencve_product)
+                 VALUES (@repositoryId, @ecosystem, @name, @version, @manifestFile, @opencveVendor, @opencveProduct)
+                 ON CONFLICT (repository_id, ecosystem, name, manifest_file) DO UPDATE SET
+                     version = excluded.version,
+                     opencve_vendor = excluded.opencve_vendor,
+                     opencve_product = excluded.opencve_product,
+                     updated_at = now(),
+                     deleted_at = NULL`,
+                {
+                    repositoryId: repoId,
+                    ecosystem: dep.ecosystem,
+                    name: dep.name,
+                    version: dep.version || null,
+                    manifestFile: dep.manifestFile || null,
+                    opencveVendor: dep.opencveVendor || null,
+                    opencveProduct: dep.opencveProduct || null,
+                },
+                client
+            );
         }
-    })();
+    });
 
     logger.info({ repoId, count: deps.length }, 'Dependencies replaced');
 }
 
-export function getDependenciesByRepo(repoId, { includeDeleted = false } = {}) {
+export async function getDependenciesByRepo(repoId, { includeDeleted = false } = {}) {
     const where = includeDeleted
-        ? 'WHERE repository_id = ?'
-        : 'WHERE repository_id = ? AND deleted_at IS NULL';
-    return getDb().prepare(`SELECT * FROM repository_dependencies ${where} ORDER BY ecosystem, name`).all(repoId);
+        ? 'WHERE repository_id = @repoId'
+        : 'WHERE repository_id = @repoId AND deleted_at IS NULL';
+
+    return queryAll(
+        `SELECT * FROM repository_dependencies ${where} ORDER BY ecosystem, name`,
+        { repoId }
+    );
 }
 
-export function findAffectedRepositories(vendor, product) {
-    return getDb().prepare(`
-        SELECT DISTINCT r.*
-        FROM repositories r
-        JOIN repository_dependencies d ON d.repository_id = r.id
-        WHERE d.opencve_vendor = ? AND d.opencve_product = ?
-          AND d.deleted_at IS NULL
-          AND r.deleted_at IS NULL
-          AND r.enabled = 1
-    `).all(vendor, product);
+export async function findAffectedRepositories(vendor, product) {
+    return queryAll(
+        `SELECT DISTINCT r.*
+         FROM repositories r
+         JOIN repository_dependencies d ON d.repository_id = r.id
+         WHERE d.opencve_vendor = @vendor AND d.opencve_product = @product
+           AND d.deleted_at IS NULL
+           AND r.deleted_at IS NULL
+           AND r.enabled`,
+        { vendor, product }
+    );
 }
 
 /**
- * Find affected repos by dependency name (substring match against dep name).
- * Useful when we don't have vendor/product mapping but have a tech name.
+ * Affected repositories by dependency name, for when there is no vendor/product
+ * mapping but there is a technology name.
  */
-export function findAffectedRepositoriesByDepName(depName) {
-    return getDb().prepare(`
-        SELECT DISTINCT r.*
-        FROM repositories r
-        JOIN repository_dependencies d ON d.repository_id = r.id
-        WHERE LOWER(d.name) = LOWER(?)
-          AND d.deleted_at IS NULL
-          AND r.deleted_at IS NULL
-          AND r.enabled = 1
-    `).all(depName);
+export async function findAffectedRepositoriesByDepName(depName) {
+    return queryAll(
+        `SELECT DISTINCT r.*
+         FROM repositories r
+         JOIN repository_dependencies d ON d.repository_id = r.id
+         WHERE lower(d.name) = lower(@depName)
+           AND d.deleted_at IS NULL
+           AND r.deleted_at IS NULL
+           AND r.enabled`,
+        { depName }
+    );
 }
 
-// ── System Owners ──
+// ── System owners ──
 
-export function addOwner({ name, email, slackUserId = null }) {
-    const db = getDb();
-    const stmt = db.prepare(`
-        INSERT INTO system_owners (name, email, slack_user_id)
-        VALUES (@name, @email, @slackUserId)
-        ON CONFLICT(email) DO UPDATE SET
-            name = excluded.name,
-            slack_user_id = excluded.slack_user_id,
-            updated_at = ${NOW},
-            deleted_at = NULL
-        RETURNING *
-    `);
+export async function addOwner({ name, email, slackUserId = null }) {
+    const row = await queryOne(
+        `INSERT INTO system_owners (name, email, slack_user_id)
+         VALUES (@name, @email, @slackUserId)
+         ON CONFLICT (email) DO UPDATE SET
+             name = excluded.name,
+             slack_user_id = excluded.slack_user_id,
+             updated_at = now(),
+             deleted_at = NULL
+         RETURNING *`,
+        { name, email, slackUserId }
+    );
 
-    // See addRepository: lastInsertRowid lies on the conflict path.
-    const row = stmt.get({ name, email, slackUserId });
     logger.info({ email, id: row?.id }, 'Owner added/restored');
-    return row ?? getOwnerByEmail(email);
+    return row ?? await getOwnerByEmail(email);
 }
 
-export function softDeleteOwner(id) {
-    const db = getDb();
-    db.transaction(() => {
-        db.prepare(`UPDATE system_owners SET deleted_at = ${NOW}, updated_at = ${NOW} WHERE id = ? AND deleted_at IS NULL`).run(id);
-        db.prepare(`UPDATE owner_assignments SET deleted_at = ${NOW} WHERE owner_id = ? AND deleted_at IS NULL`).run(id);
-    })();
+export async function softDeleteOwner(id) {
+    await withTransaction(async client => {
+        await query(
+            `UPDATE system_owners SET deleted_at = now(), updated_at = now()
+             WHERE id = @id AND deleted_at IS NULL`,
+            { id },
+            client
+        );
+        await query(
+            'UPDATE owner_assignments SET deleted_at = now() WHERE owner_id = @id AND deleted_at IS NULL',
+            { id },
+            client
+        );
+    });
+
     logger.info({ id }, 'Owner soft-deleted with assignments');
 }
 
-export function getOwner(id) {
-    return getDb().prepare('SELECT * FROM system_owners WHERE id = ? AND deleted_at IS NULL').get(id) || null;
+export async function getOwner(id) {
+    return queryOne('SELECT * FROM system_owners WHERE id = @id AND deleted_at IS NULL', { id });
 }
 
-export function getOwnerByEmail(email) {
-    return getDb().prepare('SELECT * FROM system_owners WHERE email = ? AND deleted_at IS NULL').get(email) || null;
+export async function getOwnerByEmail(email) {
+    return queryOne('SELECT * FROM system_owners WHERE email = @email AND deleted_at IS NULL', { email });
 }
 
-export function listOwners({ includeDeleted = false } = {}) {
+export async function listOwners({ includeDeleted = false } = {}) {
     const where = includeDeleted ? '' : 'WHERE deleted_at IS NULL';
-    return getDb().prepare(`SELECT * FROM system_owners ${where} ORDER BY name`).all();
+    return queryAll(`SELECT * FROM system_owners ${where} ORDER BY name`);
 }
 
-export function updateOwner(id, updates) {
+export async function updateOwner(id, updates) {
     const fields = [];
     const values = { id };
 
@@ -263,58 +321,59 @@ export function updateOwner(id, updates) {
 
     if (fields.length === 0) return;
 
-    fields.push(`updated_at = ${NOW}`);
-    getDb().prepare(`UPDATE system_owners SET ${fields.join(', ')} WHERE id = @id`).run(values);
+    fields.push('updated_at = now()');
+    await query(`UPDATE system_owners SET ${fields.join(', ')} WHERE id = @id`, values);
 }
 
-// ── Owner Assignments ──
+// ── Owner assignments ──
 
-export function addAssignment({ ownerId, targetType, targetValue }) {
-    const stmt = getDb().prepare(`
-        INSERT INTO owner_assignments (owner_id, target_type, target_value)
-        VALUES (@ownerId, @targetType, @targetValue)
-        ON CONFLICT(owner_id, target_type, target_value) DO UPDATE SET
-            deleted_at = NULL
-        RETURNING *
-    `);
+export async function addAssignment({ ownerId, targetType, targetValue }) {
+    const row = await queryOne(
+        `INSERT INTO owner_assignments (owner_id, target_type, target_value)
+         VALUES (@ownerId, @targetType, @targetValue)
+         ON CONFLICT (owner_id, target_type, target_value) DO UPDATE SET
+             deleted_at = NULL
+         RETURNING *`,
+        { ownerId, targetType, targetValue }
+    );
 
-    const row = stmt.get({ ownerId, targetType, targetValue });
     logger.info({ ownerId, targetType, targetValue }, 'Assignment added/restored');
     return row;
 }
 
-export function softDeleteAssignment(assignmentId) {
-    getDb().prepare(`UPDATE owner_assignments SET deleted_at = ${NOW} WHERE id = ? AND deleted_at IS NULL`).run(assignmentId);
+export async function softDeleteAssignment(assignmentId) {
+    await query(
+        'UPDATE owner_assignments SET deleted_at = now() WHERE id = @assignmentId AND deleted_at IS NULL',
+        { assignmentId }
+    );
 }
 
-export function getAssignmentsByOwner(ownerId) {
-    return getDb().prepare(
-        'SELECT * FROM owner_assignments WHERE owner_id = ? AND deleted_at IS NULL ORDER BY target_type, target_value'
-    ).all(ownerId);
+export async function getAssignmentsByOwner(ownerId) {
+    return queryAll(
+        `SELECT * FROM owner_assignments WHERE owner_id = @ownerId AND deleted_at IS NULL
+         ORDER BY target_type, target_value`,
+        { ownerId }
+    );
 }
 
 /**
- * Find owners responsible for a vulnerability based on matching assignments.
- * Matches against ecosystem, dependency name, or repository URLs.
+ * Owners responsible for a vulnerability, by matching assignments against its
+ * ecosystem, its dependency names, or the repositories it reaches.
  */
-export function findOwnersForVulnerability({ vendor, product, ecosystem, depNames = [], repoUrls = [] }) {
-    const db = getDb();
+export async function findOwnersForVulnerability({ vendor, product, ecosystem, depNames = [], repoUrls = [] }) {
     const conditions = [];
     const params = {};
 
-    // Match by ecosystem assignment
     if (ecosystem) {
-        conditions.push("(a.target_type = 'ecosystem' AND LOWER(a.target_value) = LOWER(@ecosystem))");
+        conditions.push("(a.target_type = 'ecosystem' AND lower(a.target_value) = lower(@ecosystem))");
         params.ecosystem = ecosystem;
     }
 
-    // Match by dependency name assignments
     for (let i = 0; i < depNames.length; i++) {
-        conditions.push(`(a.target_type = 'dependency' AND LOWER(a.target_value) = LOWER(@dep${i}))`);
+        conditions.push(`(a.target_type = 'dependency' AND lower(a.target_value) = lower(@dep${i}))`);
         params[`dep${i}`] = depNames[i];
     }
 
-    // Match by repository URL assignments
     for (let i = 0; i < repoUrls.length; i++) {
         conditions.push(`(a.target_type = 'repository' AND a.target_value = @repo${i})`);
         params[`repo${i}`] = repoUrls[i];
@@ -322,64 +381,66 @@ export function findOwnersForVulnerability({ vendor, product, ecosystem, depName
 
     if (conditions.length === 0) return [];
 
-    const sql = `
-        SELECT DISTINCT o.*
-        FROM system_owners o
-        JOIN owner_assignments a ON a.owner_id = o.id
-        WHERE (${conditions.join(' OR ')})
-          AND a.deleted_at IS NULL
-          AND o.deleted_at IS NULL
-    `;
-
-    return db.prepare(sql).all(params);
+    return queryAll(
+        `SELECT DISTINCT o.*
+         FROM system_owners o
+         JOIN owner_assignments a ON a.owner_id = o.id
+         WHERE (${conditions.join(' OR ')})
+           AND a.deleted_at IS NULL
+           AND o.deleted_at IS NULL`,
+        params
+    );
 }
 
-// ── Vendor/Product Mappings ──
+// ── Vendor/product mappings ──
 
-export function getVendorProductMapping(ecosystem, packageName) {
-    const row = getDb().prepare(
-        'SELECT opencve_vendor, opencve_product FROM vendor_product_mappings WHERE ecosystem = ? AND package_name = ?'
-    ).get(ecosystem, packageName);
+export async function getVendorProductMapping(ecosystem, packageName) {
+    const row = await queryOne(
+        `SELECT opencve_vendor, opencve_product FROM vendor_product_mappings
+         WHERE ecosystem = @ecosystem AND package_name = @packageName`,
+        { ecosystem, packageName }
+    );
+
     return row ? { vendor: row.opencve_vendor, product: row.opencve_product } : null;
 }
 
-export function setVendorProductMapping(ecosystem, packageName, vendor, product) {
-    getDb().prepare(`
-        INSERT INTO vendor_product_mappings (ecosystem, package_name, opencve_vendor, opencve_product)
-        VALUES (@ecosystem, @packageName, @vendor, @product)
-        ON CONFLICT(ecosystem, package_name) DO UPDATE SET
-            opencve_vendor = excluded.opencve_vendor,
-            opencve_product = excluded.opencve_product,
-            updated_at = ${NOW}
-    `).run({ ecosystem, packageName, vendor, product });
+export async function setVendorProductMapping(ecosystem, packageName, vendor, product) {
+    await query(
+        `INSERT INTO vendor_product_mappings (ecosystem, package_name, opencve_vendor, opencve_product)
+         VALUES (@ecosystem, @packageName, @vendor, @product)
+         ON CONFLICT (ecosystem, package_name) DO UPDATE SET
+             opencve_vendor = excluded.opencve_vendor,
+             opencve_product = excluded.opencve_product,
+             updated_at = now()`,
+        { ecosystem, packageName, vendor, product }
+    );
 }
 
-export function getAllUniqueDependencies() {
-    return getDb().prepare(`
-        SELECT DISTINCT name, ecosystem, opencve_vendor, opencve_product
-        FROM repository_dependencies
-        WHERE deleted_at IS NULL
-        ORDER BY ecosystem, name
-    `).all();
+export async function getAllUniqueDependencies() {
+    return queryAll(
+        `SELECT DISTINCT name, ecosystem, opencve_vendor, opencve_product
+         FROM repository_dependencies
+         WHERE deleted_at IS NULL
+         ORDER BY ecosystem, name`
+    );
 }
 
 /**
  * Seed vendor/product mappings from a JSON array.
  * @param {{ ecosystem: string, packageName: string, vendor: string, product: string }[]} mappings
  */
-export function seedVendorProductMappings(mappings) {
-    const db = getDb();
-    const stmt = db.prepare(`
-        INSERT INTO vendor_product_mappings (ecosystem, package_name, opencve_vendor, opencve_product)
-        VALUES (@ecosystem, @packageName, @vendor, @product)
-        ON CONFLICT(ecosystem, package_name) DO NOTHING
-    `);
-
-    db.transaction(() => {
+export async function seedVendorProductMappings(mappings) {
+    await withTransaction(async client => {
         for (const m of mappings) {
-            stmt.run(m);
+            await query(
+                `INSERT INTO vendor_product_mappings (ecosystem, package_name, opencve_vendor, opencve_product)
+                 VALUES (@ecosystem, @packageName, @vendor, @product)
+                 ON CONFLICT (ecosystem, package_name) DO NOTHING`,
+                m,
+                client
+            );
         }
-    })();
+    });
 
     logger.info({ count: mappings.length }, 'Seeded vendor/product mappings');
 }
@@ -397,27 +458,91 @@ export function seedVendorProductMappings(mappings) {
  * @param {number} repoId
  * @param {{ includeResolved?: boolean }} [options]
  */
-export function findVulnerabilitiesForRepository(repoId, { includeResolved = false } = {}) {
-    const statusClause = includeResolved ? '' : "AND v.status != 'RESOLVED'";
+export async function findVulnerabilitiesForRepository(repoId, { includeResolved = false } = {}) {
+    const statusClause = includeResolved ? '' : "AND v.status <> 'RESOLVED'";
 
-    return getDb()
-        .prepare(
-            `SELECT v.*,
-                    d.name AS matched_dependency,
-                    d.ecosystem AS matched_ecosystem,
-                    d.version AS matched_version,
-                    d.manifest_file AS matched_manifest
-             FROM repository_dependencies d
-             JOIN vulnerabilities v
-               ON lower(v.affected_technologies) LIKE '%"' || lower(d.name) || '"%'
-                  OR (d.opencve_product IS NOT NULL
-                      AND lower(v.affected_technologies) LIKE '%"' || lower(d.opencve_product) || '"%')
-             WHERE d.repository_id = @repoId
-               AND d.deleted_at IS NULL
-               ${statusClause}
-             ORDER BY v.cvss_score DESC, v.cve_id`
-        )
-        .all({ repoId });
+    return queryAll(
+        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
+         SELECT v.*,
+                fleet.name AS matched_dependency,
+                fleet.ecosystem AS matched_ecosystem,
+                fleet.version AS matched_version,
+                fleet.manifest_file AS matched_manifest
+         FROM fleet
+         JOIN tech ON tech.name = fleet.match_name
+         JOIN vulnerabilities v ON v.id = tech.id
+         WHERE fleet.repository_id = @repoId
+           ${statusClause}
+         ORDER BY v.cvss_score DESC NULLS LAST, v.cve_id`,
+        { repoId }
+    );
+}
+
+/**
+ * Which CVE reaches which repository, and through which dependency.
+ *
+ * The report's job: one row per (vulnerability, repository, dependency), so the
+ * caller can group by whichever of the three it wants. Same join as the exposure
+ * summary — the matching rule lives in one pair of fragments, not in three
+ * hand-written copies that would drift.
+ *
+ * @param {{ since?: string, includeResolved?: boolean }} [options]
+ *   `since` filters on first_seen_at, which is what makes a report weekly.
+ */
+export async function vulnerabilityRepositoryLinks({ since = null, includeResolved = false } = {}) {
+    const clauses = ["r.enabled", 'r.deleted_at IS NULL'];
+    if (!includeResolved) clauses.push("v.status <> 'RESOLVED'");
+    if (since) clauses.push('v.first_seen_at >= @since');
+
+    return queryAll(
+        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
+         SELECT v.cve_id,
+                v.title,
+                v.severity,
+                v.cvss_score,
+                v.exploited,
+                v.status,
+                v.description,
+                v.client_explanation,
+                v.source,
+                v.source_url,
+                v.first_seen_at,
+                r.id   AS repository_id,
+                r.name AS repository_name,
+                r.url  AS repository_url,
+                fleet.name AS dependency,
+                fleet.ecosystem AS ecosystem,
+                fleet.manifest_file AS manifest_file
+         FROM fleet
+         JOIN repositories r ON r.id = fleet.repository_id
+         JOIN tech ON tech.name = fleet.match_name
+         JOIN vulnerabilities v ON v.id = tech.id
+         WHERE ${clauses.join(' AND ')}
+         ORDER BY r.name, v.cvss_score DESC NULLS LAST, v.cve_id`,
+        { since }
+    );
+}
+
+/**
+ * Dependencies whose registry has something newer, per repository.
+ *
+ * The comparison itself is not SQL — a manifest declares a constraint, not a
+ * version, and `compareVersions()` is what knows the difference. This returns
+ * the rows worth comparing: checked, with an answer, and not obviously equal.
+ */
+export async function dependenciesWithLatest() {
+    return queryAll(
+        `SELECT r.id AS repository_id, r.name AS repository_name, r.url AS repository_url,
+                d.ecosystem, d.name, d.version, d.latest_version, d.manifest_file
+         FROM repository_dependencies d
+         JOIN repositories r ON r.id = d.repository_id
+         WHERE d.deleted_at IS NULL
+           AND r.deleted_at IS NULL
+           AND r.enabled
+           AND d.latest_version IS NOT NULL
+           AND d.latest_error IS NULL
+         ORDER BY r.name, d.ecosystem, d.name`
+    );
 }
 
 /**
@@ -425,34 +550,29 @@ export function findVulnerabilitiesForRepository(repoId, { includeResolved = fal
  * Used for the list view, where running the per-repository query N times would
  * mean N round trips for a column.
  *
- * @returns {Map<number, { total: number, bySeverity: Record<string, number>, exploited: number }>}
+ * @returns {Promise<Map<number, { total: number, bySeverity: Record<string, number>, exploited: boolean }>>}
  */
-export function summarizeRepositoryExposure() {
-    const rows = getDb()
-        .prepare(
-            `SELECT d.repository_id AS repositoryId,
-                    v.severity AS severity,
-                    MAX(v.exploited) AS exploited,
-                    COUNT(DISTINCT v.cve_id) AS total
-             FROM repository_dependencies d
-             JOIN repositories r ON r.id = d.repository_id AND r.deleted_at IS NULL
-             JOIN vulnerabilities v
-               ON lower(v.affected_technologies) LIKE '%"' || lower(d.name) || '"%'
-                  OR (d.opencve_product IS NOT NULL
-                      AND lower(v.affected_technologies) LIKE '%"' || lower(d.opencve_product) || '"%')
-             WHERE d.deleted_at IS NULL
-               AND v.status != 'RESOLVED'
-             GROUP BY d.repository_id, v.severity`
-        )
-        .all();
+export async function summarizeRepositoryExposure() {
+    const rows = await queryAll(
+        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
+         SELECT fleet.repository_id AS "repositoryId",
+                v.severity AS severity,
+                bool_or(v.exploited) AS exploited,
+                COUNT(DISTINCT v.cve_id) AS total
+         FROM fleet
+         JOIN repositories r ON r.id = fleet.repository_id AND r.deleted_at IS NULL
+         JOIN tech ON tech.name = fleet.match_name
+         JOIN vulnerabilities v ON v.id = tech.id AND v.status <> 'RESOLVED'
+         GROUP BY fleet.repository_id, v.severity`
+    );
 
     const byRepo = new Map();
 
     for (const row of rows) {
-        const entry = byRepo.get(row.repositoryId) ?? { total: 0, bySeverity: {}, exploited: 0 };
+        const entry = byRepo.get(row.repositoryId) ?? { total: 0, bySeverity: {}, exploited: false };
         entry.bySeverity[row.severity ?? 'UNKNOWN'] = row.total;
         entry.total += row.total;
-        entry.exploited = Math.max(entry.exploited, row.exploited ?? 0);
+        entry.exploited = entry.exploited || Boolean(row.exploited);
         byRepo.set(row.repositoryId, entry);
     }
 
@@ -491,7 +611,7 @@ export const REPOSITORY_LIMIT_MAX = 200;
  * @param {string} [filters.sort]
  * @param {'asc'|'desc'} [filters.order]
  */
-export function queryRepositories(filters = {}) {
+export async function queryRepositories(filters = {}) {
     const clauses = [];
     const params = {};
 
@@ -511,11 +631,11 @@ export function queryRepositories(filters = {}) {
     }
     if (filters.enabled !== undefined) {
         clauses.push('enabled = @enabled');
-        params.enabled = filters.enabled ? 1 : 0;
+        params.enabled = Boolean(filters.enabled);
     }
     if (filters.archived !== undefined) {
         clauses.push('archived = @archived');
-        params.archived = filters.archived ? 1 : 0;
+        params.archived = Boolean(filters.archived);
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -524,31 +644,28 @@ export function queryRepositories(filters = {}) {
 
     // NULLs last whichever way the sort runs: a repository that was never
     // scanned is not the most recently scanned one.
-    return getDb()
-        .prepare(`SELECT * FROM repositories ${where} ORDER BY ${sort} IS NULL, ${sort} ${order}, name ASC`)
-        .all(params);
+    return queryAll(
+        `SELECT * FROM repositories ${where} ORDER BY ${sort} ${order} NULLS LAST, name ASC`,
+        params
+    );
 }
 
 /** Values the console offers in its filter menus. */
-export function repositoryFacets() {
-    const db = getDb();
+export async function repositoryFacets() {
+    const [organizations, languages] = await Promise.all([
+        queryAll(
+            `SELECT org_key AS value, COUNT(*) AS count FROM repositories
+             WHERE deleted_at IS NULL AND org_key IS NOT NULL
+             GROUP BY org_key ORDER BY value`
+        ),
+        queryAll(
+            `SELECT primary_language AS value, COUNT(*) AS count FROM repositories
+             WHERE deleted_at IS NULL AND primary_language IS NOT NULL
+             GROUP BY primary_language ORDER BY count DESC, value`
+        ),
+    ]);
 
-    return {
-        organizations: db
-            .prepare(
-                `SELECT org_key AS value, COUNT(*) AS count FROM repositories
-                 WHERE deleted_at IS NULL AND org_key IS NOT NULL
-                 GROUP BY org_key ORDER BY value`
-            )
-            .all(),
-        languages: db
-            .prepare(
-                `SELECT primary_language AS value, COUNT(*) AS count FROM repositories
-                 WHERE deleted_at IS NULL AND primary_language IS NOT NULL
-                 GROUP BY primary_language ORDER BY count DESC, value`
-            )
-            .all(),
-    };
+    return { organizations, languages };
 }
 
 /**
@@ -558,14 +675,13 @@ export function repositoryFacets() {
  * leaves everything it already resolved, and the console can render partial
  * results while the rest is still in flight.
  */
-export function setDependencyLatestVersion(dependencyId, { latest = null, error = null }) {
-    getDb()
-        .prepare(
-            `UPDATE repository_dependencies
-             SET latest_version = @latest,
-                 latest_error = @error,
-                 latest_checked_at = ${NOW}
-             WHERE id = @id`
-        )
-        .run({ id: dependencyId, latest, error });
+export async function setDependencyLatestVersion(dependencyId, { latest = null, error = null }) {
+    await query(
+        `UPDATE repository_dependencies
+         SET latest_version = @latest,
+             latest_error = @error,
+             latest_checked_at = now()
+         WHERE id = @id`,
+        { id: dependencyId, latest, error }
+    );
 }

@@ -1,19 +1,38 @@
-interface AddOpts {
+import { createClient } from '../lib/api.js';
+
+/**
+ * Organization commands, over the API — the same endpoints the console's
+ * Settings → Organizations page uses. Tokens are sent, never read back: the API
+ * returns a four-character hint and nothing more.
+ */
+
+interface BaseOpts {
+  json?: boolean;
+  api?: string;
+}
+
+interface AddOpts extends BaseOpts {
   key?: string;
   name?: string;
   token?: string;
-  json?: boolean;
 }
 
-interface ListOpts {
-  json?: boolean;
-}
+type ListOpts = BaseOpts;
 
-interface ImportOpts {
+interface ImportOpts extends BaseOpts {
   all?: boolean;
   languages?: boolean;
   only?: string;
-  json?: boolean;
+}
+
+interface Org {
+  key: string;
+  login: string;
+  enabled: boolean;
+  hasToken: boolean;
+  tokenHint: string | null;
+  lastImportAt: string | null;
+  repositories?: { enabled: number; total: number };
 }
 
 function fail(err: unknown): void {
@@ -22,9 +41,14 @@ function fail(err: unknown): void {
 }
 
 export async function runOrgAdd(login: string, opts: AddOpts): Promise<void> {
-  const { addOrg } = await import('#app/application/manageOrganization.js');
   try {
-    const org = addOrg({ login, key: opts.key, name: opts.name, token: opts.token });
+    const api = createClient({ baseUrl: opts.api });
+    const org = await api.post<Org>('/organizations', {
+      login,
+      key: opts.key,
+      name: opts.name,
+      token: opts.token,
+    });
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(org, null, 2) + '\n');
@@ -39,9 +63,9 @@ export async function runOrgAdd(login: string, opts: AddOpts): Promise<void> {
 }
 
 export async function runOrgList(opts: ListOpts): Promise<void> {
-  const { listOrgs } = await import('#app/application/manageOrganization.js');
   try {
-    const orgs = listOrgs();
+    const api = createClient({ baseUrl: opts.api });
+    const { organizations: orgs } = await api.get<{ organizations: Org[] }>('/organizations');
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(orgs, null, 2) + '\n');
@@ -70,15 +94,10 @@ export async function runOrgList(opts: ListOpts): Promise<void> {
   }
 }
 
-export async function runOrgRemove(key: string): Promise<void> {
-  const { removeOrg } = await import('#app/application/manageOrganization.js');
+export async function runOrgRemove(key: string, opts: BaseOpts = {}): Promise<void> {
   try {
-    const removed = removeOrg(key);
-    if (!removed) {
-      process.stderr.write(`Organization not found: ${key}\n`);
-      process.exitCode = 1;
-      return;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    const removed = await api.del<{ repositories: number }>(`/organizations/${encodeURIComponent(key)}`);
     process.stdout.write(`Removed ${key} and ${removed.repositories} repositories\n`);
   } catch (err) {
     fail(err);
@@ -88,11 +107,12 @@ export async function runOrgRemove(key: string): Promise<void> {
 /** Enable, disable, or replace the token of an organization. */
 export async function runOrgUpdate(
   key: string,
-  updates: { enabled?: boolean; token?: string | null; name?: string }
+  updates: { enabled?: boolean; token?: string | null; name?: string },
+  opts: BaseOpts = {}
 ): Promise<void> {
-  const { updateOrg } = await import('#app/application/manageOrganization.js');
   try {
-    const org = updateOrg(key, updates);
+    const api = createClient({ baseUrl: opts.api });
+    const org = await api.patch<Org>(`/organizations/${encodeURIComponent(key)}`, updates);
     process.stdout.write(
       `${org.key}: ${org.enabled ? 'enabled' : 'disabled'}, token ${org.hasToken ? org.tokenHint : 'none'}\n`
     );
@@ -105,9 +125,13 @@ export async function runOrgImport(key: string | undefined, opts: ImportOpts): P
   try {
     const withLanguages = opts.languages !== false;
 
+    const api = createClient({ baseUrl: opts.api });
+
     if (opts.all || !key) {
-      const { importAllOrganizations } = await import('#app/application/importRepositories.js');
-      const result = await importAllOrganizations({ withLanguages });
+      const result = await api.post<{ organizations: number; imported: number; errors: { org: string; error: string }[] }>(
+        '/organizations/import',
+        { withLanguages }
+      );
 
       if (opts.json) {
         process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -121,12 +145,22 @@ export async function runOrgImport(key: string | undefined, opts: ImportOpts): P
       return;
     }
 
-    const { importOrgRepositories } = await import('#app/application/importRepositories.js');
     // --only takes full names or URLs, comma-separated.
     const only = opts.only
       ? opts.only.split(',').map(entry => entry.trim()).filter(Boolean)
       : undefined;
-    const result = await importOrgRepositories(key, { withLanguages, only });
+
+    const result = await api.post<{
+      login: string;
+      imported: number;
+      found: number;
+      archived: number;
+      skippedDeleted: string[];
+      notFound: string[];
+    }>(`/organizations/${encodeURIComponent(key)}/import`, {
+      withLanguages,
+      repositories: only,
+    });
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');
@@ -150,9 +184,19 @@ export async function runOrgImport(key: string | undefined, opts: ImportOpts): P
 
 /** List what the token can see, so a selection can be made before importing. */
 export async function runOrgRepos(key: string, opts: ListOpts): Promise<void> {
-  const { previewOrgRepositories } = await import('#app/application/importRepositories.js');
   try {
-    const preview = await previewOrgRepositories(key);
+    const api = createClient({ baseUrl: opts.api });
+    const preview = await api.get<{
+      login: string;
+      count: number;
+      repositories: {
+        name: string;
+        primaryLanguage: string | null;
+        defaultBranch: string;
+        state: string;
+        archived: boolean;
+      }[];
+    }>(`/organizations/${encodeURIComponent(key)}/repositories`);
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(preview, null, 2) + '\n');

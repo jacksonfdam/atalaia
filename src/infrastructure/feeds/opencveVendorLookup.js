@@ -16,7 +16,7 @@ const DEFAULT_API_URL = 'https://app.opencve.io/api';
  */
 export async function resolveVendorProduct(ecosystem, packageName) {
     // 1. Check local cache
-    const cached = getVendorProductMapping(ecosystem, packageName);
+    const cached = await getVendorProductMapping(ecosystem, packageName);
     if (cached) return cached;
 
     // 2. Try OpenCVE API lookup
@@ -29,7 +29,7 @@ export async function resolveVendorProduct(ecosystem, packageName) {
         const result = await searchOpenCVE(apiUrl, token, packageName);
         if (result) {
             // Cache for future use
-            setVendorProductMapping(ecosystem, packageName, result.vendor, result.product);
+            await setVendorProductMapping(ecosystem, packageName, result.vendor, result.product);
             return result;
         }
     } catch (error) {
@@ -119,7 +119,7 @@ export async function batchResolveVendorProducts(deps) {
         const key = `${dep.ecosystem}:${dep.name}`;
 
         // Check cache first (no API call needed)
-        const cached = getVendorProductMapping(dep.ecosystem, dep.name);
+        const cached = await getVendorProductMapping(dep.ecosystem, dep.name);
         if (cached) {
             results.set(key, cached);
             continue;

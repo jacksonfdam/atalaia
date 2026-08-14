@@ -1,6 +1,10 @@
 import nodemailer from 'nodemailer';
 import logger from '../logger.js';
-import { formatReportHtmlProfessional, formatReportHtmlMinimal } from './emailTemplates.js';
+import {
+    formatReportHtmlProfessional,
+    formatReportHtmlMinimal,
+    formatRepositoryAlertHtml,
+} from './emailTemplates.js';
 import { resolveEmailConfig } from './emailConfig.js';
 import { buildTransportOptions } from './emailProviders.js';
 
@@ -17,24 +21,33 @@ function renderReport(report, template) {
  * env-pinned deployment and one configured from the console.
  *
  * @param {object|null} report Report from generateWeeklyReport()
+ * @param {{ to?: string, subject?: string }} [override]
+ *   Who to send it to instead of the configured recipients. The per-repository
+ *   digests use this: same report machinery, one subscriber's address.
  */
-export async function sendWeeklyEmail(report) {
+export async function sendWeeklyEmail(report, override = {}) {
     if (!report) {
         logger.info('No vulnerabilities for weekly report, skipping email');
         return;
     }
 
-    const config = resolveEmailConfig();
+    const config = await resolveEmailConfig();
     if (!config.ready) {
         logger.warn({ reason: config.reason, source: config.source }, 'Email not configured, skipping weekly report');
         return;
     }
 
     const html = renderReport(report, config.template);
-    const to = config.recipients.join(',');
-    const stats = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']
-        .map(severity => `${severity}:${(report.vulnerabilities[severity] || []).length}`)
-        .join(', ');
+    const to = override.to ?? config.recipients.join(',');
+
+    if (!to) {
+        logger.warn('No recipient for the report, skipping');
+        return;
+    }
+
+    const subject =
+        override.subject ??
+        `Atalaia Weekly Report — ${report.affecting.count} affecting, ${report.totalCount} new in ${report.windowDays ?? 7} days`;
 
     try {
         const transporter = nodemailer.createTransport(buildTransportOptions(config));
@@ -42,12 +55,12 @@ export async function sendWeeklyEmail(report) {
         await transporter.sendMail({
             from: config.from,
             to,
-            subject: `Atalaia Weekly Report — ${report.totalCount} new in ${report.windowDays ?? 7} days [${stats}]`,
+            subject,
             html,
         });
         logger.info(
-            { count: report.totalCount, template: config.template, provider: config.provider, to },
-            'Weekly email sent'
+            { count: report.totalCount, affecting: report.affecting.count, provider: config.provider, to },
+            'Report email sent'
         );
     } catch (err) {
         // A scheduled send must not reject: this runs inside a cron callback,
@@ -63,7 +76,7 @@ export async function sendWeeklyEmail(report) {
  * @returns {Promise<{ ok: boolean, provider: string, host?: string, port?: number, error?: string }>}
  */
 export async function verifyEmailTransport() {
-    const config = resolveEmailConfig();
+    const config = await resolveEmailConfig();
 
     // A verify only needs a reachable server and valid credentials; missing
     // recipients would fail the readiness check but not the connection.
@@ -89,7 +102,7 @@ export async function verifyEmailTransport() {
  * @returns {Promise<{ ok: boolean, to?: string[], messageId?: string, error?: string }>}
  */
 export async function sendTestEmail(report = null) {
-    const config = resolveEmailConfig();
+    const config = await resolveEmailConfig();
     if (!config.ready) {
         return { ok: false, error: config.reason ?? 'Email is not configured' };
     }
@@ -122,37 +135,41 @@ export async function sendTestEmail(report = null) {
 }
 
 /**
- * Format a vulnerability report as HTML email content.
- * @param {object} report - Report object from generateWeeklyReport()
- * @returns {string} HTML content for email body
+ * Tell one subscriber that one CVE reached their repository.
+ *
+ * Not a digest: a digest is what Monday is for. This is the thing that happened
+ * in the repository they asked about, with the manifest file that carries it,
+ * because that is the file they have to open.
+ *
+ * @param {object} vulnerability
+ * @param {object[]} repositories The ones of theirs it reaches
+ * @param {{ email: string, name?: string }} owner
  */
-export function formatReportHtml(report) {
-    let html = `
-<h2>Weekly Vulnerability Report</h2>
-<p>Generated: ${report.generatedAt}</p>
-<p>Total open/acknowledged vulnerabilities: <strong>${report.totalCount}</strong></p>
-<hr/>`;
-
-    for (const [severity, vulns] of Object.entries(report.vulnerabilities)) {
-        if (vulns.length === 0) continue;
-
-        html += `<h3>${severity} (${vulns.length})</h3><table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;">`;
-        html += '<tr><th>CVE ID</th><th>Status</th><th>Source</th><th>Technologies</th></tr>';
-
-        for (const v of vulns) {
-            const techs = Array.isArray(v.affectedTechnologies)
-                ? v.affectedTechnologies.join(', ')
-                : v.affected_technologies || 'N/A';
-            html += `<tr>
-                <td>${v.cve_id || v.cveId || 'N/A'}</td>
-                <td>${v.status || 'OPEN'}</td>
-                <td>${v.source || 'N/A'}</td>
-                <td>${techs}</td>
-            </tr>`;
-        }
-
-        html += '</table>';
+export async function sendRepositoryAlert(vulnerability, repositories, owner) {
+    const config = await resolveEmailConfig();
+    if (!config.ready) {
+        logger.debug({ reason: config.reason }, 'Email not configured, skipping subscriber alert');
+        return { ok: false, error: config.reason };
     }
 
-    return html;
+    const severity = (vulnerability.severity || 'UNKNOWN').toUpperCase();
+    const names = repositories.map(repo => repo.name).join(', ');
+
+    const html = formatRepositoryAlertHtml(vulnerability, repositories, owner);
+
+    try {
+        const transporter = nodemailer.createTransport(buildTransportOptions(config));
+
+        await transporter.sendMail({
+            from: config.from,
+            to: owner.email,
+            subject: `[${severity}] ${vulnerability.cveId} in ${names}`,
+            html,
+        });
+
+        return { ok: true };
+    } catch (err) {
+        logger.error({ err, owner: owner.email }, 'Failed to send subscriber alert');
+        return { ok: false, error: err.message };
+    }
 }

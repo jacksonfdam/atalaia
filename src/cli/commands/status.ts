@@ -1,15 +1,17 @@
-import { openReadonly } from '../lib/db.js';
-import { summaryStats, countBySeverity } from '../lib/stats.js';
+import { createClient } from '../lib/api.js';
+import { fetchStats, summaryStats, countBySeverity } from '../lib/stats.js';
 
 interface Opts {
   json?: boolean;
+  api?: string;
 }
 
 export async function runStatus(opts: Opts): Promise<void> {
-  const db = openReadonly();
   try {
-    const summary = summaryStats(db);
-    const severityOpen = countBySeverity(db, true);
+    const api = createClient({ baseUrl: opts.api });
+    const stats = await fetchStats(api);
+    const summary = summaryStats(stats);
+    const severityOpen = countBySeverity(stats);
 
     if (opts.json) {
       const openCount = summary.open;
@@ -55,7 +57,8 @@ export async function runStatus(opts: Opts): Promise<void> {
         summary.lastSeenAt
       )} ago\n`
     );
-  } finally {
-    db.close();
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exitCode = 1;
   }
 }

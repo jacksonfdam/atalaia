@@ -1,10 +1,34 @@
-interface ListOpts {
+import { createClient } from '../lib/api.js';
+
+/** Source commands, over the same endpoints the console's Sources page uses. */
+
+interface BaseOpts {
   json?: boolean;
+  api?: string;
 }
 
-interface CatalogOpts {
+interface Feed {
+  name: string;
+  label: string;
+  enabled: boolean;
+  defaultEnabled: boolean;
+  overridden: boolean;
+  disabledReason: string | null;
+  catalog: { maintainer?: string } | null;
+}
+
+interface CatalogEntry {
+  abbreviation: string;
+  maintainer: string;
+  region: string;
+  free: boolean;
+  feed: string | null;
+}
+
+type ListOpts = BaseOpts;
+
+interface CatalogOpts extends BaseOpts {
   all?: boolean;
-  json?: boolean;
 }
 
 function fail(err: unknown): void {
@@ -13,9 +37,11 @@ function fail(err: unknown): void {
 }
 
 export async function runFeedList(opts: ListOpts): Promise<void> {
-  const { listFeeds } = await import('#app/infrastructure/feeds/feedRegistry.js');
   try {
-    const feeds = listFeeds().map(feed => ({
+    const api = createClient({ baseUrl: opts.api });
+    const body = await api.get<{ feeds: Feed[] }>('/feeds');
+
+    const feeds = (body.feeds ?? []).map(feed => ({
       name: feed.name,
       label: feed.label,
       enabled: feed.enabled,
@@ -46,20 +72,20 @@ export async function runFeedList(opts: ListOpts): Promise<void> {
   }
 }
 
-export async function runFeedToggle(name: string, enabled: boolean): Promise<void> {
-  const { setFeedEnabled } = await import('#app/infrastructure/feeds/feedRegistry.js');
+export async function runFeedToggle(name: string, enabled: boolean, opts: BaseOpts = {}): Promise<void> {
   try {
-    const feed = setFeedEnabled(name, enabled, 'cli');
+    const api = createClient({ baseUrl: opts.api });
+    const feed = await api.patch<Feed>(`/feeds/${encodeURIComponent(name)}`, { enabled });
     process.stdout.write(`${feed.name} is now ${feed.enabled ? 'enabled' : 'disabled'}\n`);
   } catch (err) {
     fail(err);
   }
 }
 
-export async function runFeedReset(name: string): Promise<void> {
-  const { resetFeed } = await import('#app/infrastructure/feeds/feedRegistry.js');
+export async function runFeedReset(name: string, opts: BaseOpts = {}): Promise<void> {
   try {
-    const feed = resetFeed(name);
+    const api = createClient({ baseUrl: opts.api });
+    const feed = await api.del<Feed>(`/feeds/${encodeURIComponent(name)}/override`);
     process.stdout.write(`${feed.name} follows its default again: ${feed.enabled ? 'enabled' : 'disabled'}\n`);
   } catch (err) {
     fail(err);
@@ -67,9 +93,10 @@ export async function runFeedReset(name: string): Promise<void> {
 }
 
 export async function runFeedCatalog(opts: CatalogOpts): Promise<void> {
-  const { listCatalog } = await import('#app/infrastructure/feeds/databaseCatalog.js');
   try {
-    const databases = listCatalog();
+    const api = createClient({ baseUrl: opts.api });
+    const body = await api.get<{ databases: CatalogEntry[] }>('/feeds/catalog');
+    const databases = body.databases ?? [];
     const shown = opts.all ? databases : databases.filter(entry => entry.free);
 
     if (opts.json) {

@@ -25,7 +25,7 @@ const KEY_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 /**
  * @param {{ key?: string, login: string, name?: string, token?: string }} data
  */
-export function addOrg({ key, login, name, token }) {
+export async function addOrg({ key, login, name, token }) {
     if (!login) throw new Error('login is required (the GitHub organization or user)');
 
     const resolvedKey = (key || login).toLowerCase();
@@ -39,31 +39,31 @@ export function addOrg({ key, login, name, token }) {
         );
     }
 
-    const org = storeAdd({ key: resolvedKey, login, name: name ?? login, token: token || null });
+    const org = await storeAdd({ key: resolvedKey, login, name: name ?? login, token: token || null });
     logger.info({ key: resolvedKey, login }, 'Organization saved');
     return present(org);
 }
 
 /** @param {{ includeDeleted?: boolean }} [options] */
-export function listOrgs(options = {}) {
-    const counts = countRepositoriesByOrg();
+export async function listOrgs(options = {}) {
+    const counts = await countRepositoriesByOrg();
 
-    return storeList(options).map(row => ({
+    return (await storeList(options)).map(row => ({
         ...present(row),
         repositories: counts.get(row.key) ?? { total: 0, enabled: 0 },
     }));
 }
 
-export function getOrg(key) {
-    return present(storeGet(key));
+export async function getOrg(key) {
+    return present(await storeGet(key));
 }
 
 /**
  * @param {string} key
  * @param {{ login?: string, name?: string, enabled?: boolean, token?: string|null }} updates
  */
-export function updateOrg(key, updates) {
-    if (!storeGet(key)) throw new Error(`Organization "${key}" not found`);
+export async function updateOrg(key, updates) {
+    if (!await storeGet(key)) throw new Error(`Organization "${key}" not found`);
 
     if (updates.token && !canEncrypt()) {
         throw new Error(
@@ -71,17 +71,17 @@ export function updateOrg(key, updates) {
         );
     }
 
-    return present(storeUpdate(key, updates));
+    return present(await storeUpdate(key, updates));
 }
 
 /**
  * Remove an organization and the repositories imported under it.
  * @param {string} key
  */
-export function removeOrg(key) {
-    if (!storeGet(key)) return null;
+export async function removeOrg(key) {
+    if (!await storeGet(key)) return null;
 
-    const { repositories } = storeSoftDelete(key);
+    const { repositories } = await storeSoftDelete(key);
     return { key, repositories };
 }
 
@@ -95,9 +95,9 @@ export function removeOrg(key) {
  * @param {string} orgKey
  * @returns {GitHubProvider}
  */
-export function providerForOrg(orgKey) {
+export async function providerForOrg(orgKey) {
     const token =
-        (orgKey ? storeToken(orgKey) : null) ||
+        (orgKey ? await storeToken(orgKey) : null) ||
         (config.providers || []).find(entry => entry.key === orgKey)?.token ||
         process.env.GITHUB_TOKEN ||
         '';

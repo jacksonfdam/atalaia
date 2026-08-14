@@ -10,10 +10,15 @@ import {
 /**
  * Look up the latest published version of every dependency in a repository.
  *
- * One request per dependency to somebody else's registry, so this never runs
- * inside a request: it is started, it reports progress, and each row is written
- * the moment its own answer arrives. The console renders what is already there
- * and fills in the rest as it lands.
+ * One request per dependency to somebody else's registry, so this is a queued
+ * job rather than something a request waits for. Each row is written the moment
+ * its own answer arrives, so a run that dies halfway leaves everything it had
+ * already resolved and the console can render partial results.
+ *
+ * "One check per repository at a time" and "how did the last one end" are the
+ * queue's business now (deps.versions is an exclusive queue keyed by repository)
+ * rather than a Map in this module, which a restart erased and a second
+ * container could not see.
  *
  * A few at a time — enough to not take a minute over three hundred packages,
  * few enough to stay a polite client of registries that are free to use.
@@ -21,36 +26,19 @@ import {
 
 const CONCURRENCY = parseInt(process.env.REGISTRY_CONCURRENCY, 10) || 6;
 
-/** One run per repository, keyed by id, so two tabs cannot double the traffic. */
-const runs = new Map();
-const lastRuns = new Map();
-
-export function versionCheckState(repositoryId) {
-    const current = runs.get(repositoryId);
-
-    return {
-        running: Boolean(current),
-        startedAt: current?.startedAt ?? null,
-        progress: current ? { ...current.progress } : null,
-        lastRun: lastRuns.get(repositoryId) ?? null,
-    };
-}
-
 /**
  * @param {number} repositoryId
- * @param {{ force?: boolean, maxAgeHours?: number }} [options]
- *   By default a dependency checked recently is left alone; `force` re-checks
- *   everything.
+ * @param {object} [options]
+ * @param {boolean} [options.force]        Re-check even recently checked rows
+ * @param {number} [options.maxAgeHours]   How old an answer may be before it is re-asked
+ * @param {(progress: object) => void|Promise<void>} [options.onProgress]
+ * @returns {Promise<{ total: number, done: number, outdated: number, failed: number }>}
  */
-export function startVersionCheck(repositoryId, options = {}) {
-    if (runs.has(repositoryId)) {
-        return { accepted: false, state: versionCheckState(repositoryId) };
-    }
-
-    const repo = getRepository(repositoryId);
+export async function checkDependencyVersions(repositoryId, options = {}) {
+    const repo = await getRepository(repositoryId);
     if (!repo) throw new Error(`Repository ${repositoryId} not found`);
 
-    const dependencies = getDependenciesByRepo(repositoryId);
+    const dependencies = await getDependenciesByRepo(repositoryId);
     const maxAgeMs = (options.maxAgeHours ?? 24) * 3_600_000;
 
     const pending = dependencies.filter(dependency => {
@@ -62,43 +50,13 @@ export function startVersionCheck(repositoryId, options = {}) {
         return Number.isNaN(checkedAt) || Date.now() - checkedAt > maxAgeMs;
     });
 
-    const startedAt = new Date().toISOString();
     const progress = { total: pending.length, done: 0, outdated: 0, failed: 0, current: null };
-    runs.set(repositoryId, { startedAt, progress });
+    const report = options.onProgress ?? (() => {});
 
-    // Not awaited: the caller gets an answer now and polls for the rest.
-    run(repositoryId, pending, progress)
-        .then(() => {
-            lastRuns.set(repositoryId, {
-                startedAt,
-                finishedAt: new Date().toISOString(),
-                ok: true,
-                checked: progress.done,
-                failed: progress.failed,
-            });
-        })
-        .catch(error => {
-            logger.error({ repoId: repositoryId, err: error }, 'Version check failed');
-            lastRuns.set(repositoryId, {
-                startedAt,
-                finishedAt: new Date().toISOString(),
-                ok: false,
-                checked: progress.done,
-                failed: progress.failed,
-                error: error.message,
-            });
-        })
-        .finally(() => {
-            runs.delete(repositoryId);
-        });
+    await report({ ...progress });
 
-    logger.info({ repoId: repositoryId, pending: pending.length }, 'Version check started');
-    return { accepted: true, startedAt, pending: pending.length };
-}
-
-async function run(repositoryId, dependencies, progress) {
-    for (let start = 0; start < dependencies.length; start += CONCURRENCY) {
-        const batch = dependencies.slice(start, start + CONCURRENCY);
+    for (let start = 0; start < pending.length; start += CONCURRENCY) {
+        const batch = pending.slice(start, start + CONCURRENCY);
         progress.current = batch[0]?.name ?? null;
 
         await Promise.all(
@@ -107,7 +65,7 @@ async function run(repositoryId, dependencies, progress) {
 
                 // Written here, one row at a time, rather than in a batch at the
                 // end: partial results are useful, a lost batch is not.
-                setDependencyLatestVersion(dependency.id, { latest, error });
+                await setDependencyLatestVersion(dependency.id, { latest, error });
 
                 progress.done += 1;
                 if (error) progress.failed += 1;
@@ -116,8 +74,14 @@ async function run(repositoryId, dependencies, progress) {
                 }
             })
         );
+
+        await report({ ...progress });
     }
 
     progress.current = null;
     logger.info({ repoId: repositoryId, ...progress }, 'Version check complete');
+
+    return { ...progress };
 }
+
+export default checkDependencyVersions;

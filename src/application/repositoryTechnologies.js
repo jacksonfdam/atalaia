@@ -16,24 +16,16 @@ import {
  * in a Dockerfile.
  */
 
-function parseJson(value, fallback) {
-    if (!value) return fallback;
-    try {
-        return JSON.parse(value);
-    } catch {
-        return fallback;
-    }
-}
-
 /**
  * @param {number} repositoryId
  * @returns {object|null}
  */
-export function getRepositoryTechnologies(repositoryId) {
-    const repo = getRepository(repositoryId);
+export async function getRepositoryTechnologies(repositoryId) {
+    const repo = await getRepository(repositoryId);
     if (!repo) return null;
 
-    const languageBytes = parseJson(repo.languages, {});
+    // jsonb, so the driver has already parsed it.
+    const languageBytes = repo.languages ?? {};
     const totalBytes = Object.values(languageBytes).reduce((total, bytes) => total + bytes, 0);
 
     const languages = Object.entries(languageBytes)
@@ -44,7 +36,7 @@ export function getRepositoryTechnologies(repositoryId) {
             share: totalBytes > 0 ? Math.round((bytes / totalBytes) * 1000) / 10 : null,
         }));
 
-    const dependencies = getDependenciesByRepo(repositoryId);
+    const dependencies = await getDependenciesByRepo(repositoryId);
     const byEcosystem = new Map();
 
     for (const dependency of dependencies) {
@@ -57,7 +49,7 @@ export function getRepositoryTechnologies(repositoryId) {
         repository: { id: repo.id, name: repo.name, url: repo.url },
         primaryLanguage: repo.primary_language,
         languages,
-        topics: parseJson(repo.topics, []),
+        topics: repo.topics ?? [],
         ecosystems: [...byEcosystem.values()].sort((a, b) => b.packages - a.packages),
         dependencyCount: dependencies.length,
         lastScannedAt: repo.last_scanned_at,
@@ -71,10 +63,10 @@ export function getRepositoryTechnologies(repositoryId) {
  * @param {number} repositoryId
  */
 export async function refreshRepositoryLanguages(repositoryId) {
-    const repo = getRepository(repositoryId);
+    const repo = await getRepository(repositoryId);
     if (!repo) throw new Error(`Repository ${repositoryId} not found`);
 
-    const provider = providerForOrg(repo.org_key);
+    const provider = await providerForOrg(repo.org_key);
     const languages = await provider.listLanguages(repo.url);
 
     // The endpoint's ordering is not part of its contract, so the primary
@@ -82,8 +74,8 @@ export async function refreshRepositoryLanguages(repositoryId) {
     const primaryLanguage =
         Object.entries(languages).sort((a, b) => b[1] - a[1])[0]?.[0] ?? repo.primary_language;
 
-    updateRepository(repositoryId, { languages, primaryLanguage });
+    await updateRepository(repositoryId, { languages, primaryLanguage });
 
     logger.info({ repoId: repositoryId, languages: Object.keys(languages).length }, 'Languages refreshed');
-    return getRepositoryTechnologies(repositoryId);
+    return await getRepositoryTechnologies(repositoryId);
 }

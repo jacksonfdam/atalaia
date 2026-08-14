@@ -1,8 +1,9 @@
-import { openReadonly } from '../lib/db.js';
+import { createClient } from '../lib/api.js';
 import { listVulns, type ListFilters } from '../lib/stats.js';
 
 interface Opts extends ListFilters {
   json?: boolean;
+  api?: string;
 }
 
 function truncate(s: string | null, n: number): string {
@@ -11,9 +12,9 @@ function truncate(s: string | null, n: number): string {
 }
 
 export async function runList(opts: Opts): Promise<void> {
-  const db = openReadonly();
   try {
-    const rows = listVulns(db, {
+    const api = createClient({ baseUrl: opts.api });
+    const rows = await listVulns(api, {
       severity: opts.severity,
       status: opts.status,
       source: opts.source,
@@ -55,7 +56,8 @@ export async function runList(opts: Opts): Promise<void> {
     if (rows.length === (opts.limit ?? 50)) {
       process.stdout.write(`(showing first ${rows.length}; use --limit to see more)\n`);
     }
-  } finally {
-    db.close();
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exitCode = 1;
   }
 }

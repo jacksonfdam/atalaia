@@ -1,4 +1,4 @@
-import { getDb } from '../cache/sqliteCache.js';
+import { query, queryOne } from '../db/pool.js';
 import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import { getProvider, listProviders } from './emailProviders.js';
 import logger from '../logger.js';
@@ -15,9 +15,9 @@ import logger from '../logger.js';
 /** Environment variables that pin the whole configuration. */
 const ENV_KEYS = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'EMAIL_FROM', 'EMAIL_RECIPIENTS', 'EMAIL_TEMPLATE'];
 
-function readRow() {
+async function readRow() {
     try {
-        return getDb().prepare('SELECT * FROM email_config WHERE id = 1').get() ?? null;
+        return await queryOne('SELECT * FROM email_config WHERE id = 1');
     } catch (err) {
         // An un-migrated database must not take the monitoring cycle down.
         logger.warn({ err }, 'Failed to read email configuration');
@@ -44,7 +44,7 @@ export function isEnvConfigured() {
  *             provider: string, host?: string, port?: number, username?: string,
  *             password?: string, from: string, recipients: string[], template: string }}
  */
-export function resolveEmailConfig() {
+export async function resolveEmailConfig() {
     if (isEnvConfigured()) {
         const recipients = splitRecipients(process.env.EMAIL_RECIPIENTS);
 
@@ -63,7 +63,7 @@ export function resolveEmailConfig() {
         };
     }
 
-    const row = readRow();
+    const row = await readRow();
     if (!row) {
         return {
             ready: false,
@@ -97,7 +97,7 @@ export function resolveEmailConfig() {
     }
 
     const missing = [];
-    if (row.enabled !== 1) missing.push('email delivery is switched off');
+    if (!row.enabled) missing.push('email delivery is switched off');
     if (recipients.length === 0) missing.push('no recipients');
     if (!row.from_address) missing.push('no sender address');
 
@@ -120,10 +120,10 @@ export function resolveEmailConfig() {
  * Everything the console needs to render the email section — the provider
  * catalog, the current values, and whether a secret is held. Never the secret.
  */
-export function describeEmailConfig() {
-    const row = readRow();
+export async function describeEmailConfig() {
+    const row = await readRow();
     const envLocked = isEnvConfigured();
-    const resolved = resolveEmailConfig();
+    const resolved = await resolveEmailConfig();
 
     return {
         providers: listProviders(),
@@ -137,7 +137,7 @@ export function describeEmailConfig() {
             from: row?.from_address ?? null,
             recipients: row?.recipients ?? null,
             template: row?.template ?? 'professional',
-            enabled: row?.enabled === 1,
+            enabled: Boolean(row?.enabled),
             updatedAt: row?.updated_at ?? null,
             updatedBy: row?.updated_by ?? null,
         },
@@ -169,7 +169,7 @@ export function describeEmailConfig() {
  * @param {boolean} [input.enabled]
  * @param {string} [changedBy]
  */
-export function saveEmailConfig(input, changedBy) {
+export async function saveEmailConfig(input, changedBy) {
     const descriptor = getProvider(input.provider);
     if (!descriptor) throw new Error(`Unknown email provider: ${input.provider}`);
 
@@ -177,7 +177,7 @@ export function saveEmailConfig(input, changedBy) {
         throw new Error('template must be "professional" or "minimal"');
     }
 
-    const current = readRow();
+    const current = await readRow();
 
     let cipher = current?.secret_cipher ?? null;
     let hint = current?.secret_hint ?? null;
@@ -209,29 +209,27 @@ export function saveEmailConfig(input, changedBy) {
         throw new Error('port must be a positive integer');
     }
 
-    getDb()
-        .prepare(
-            `INSERT INTO email_config
-                (id, provider, host, port, username, secret_cipher, secret_hint,
-                 from_address, recipients, template, enabled, updated_at, updated_by)
-             VALUES
-                (1, @provider, @host, @port, @username, @cipher, @hint,
-                 @from, @recipients, @template, @enabled, datetime('now'), @changedBy)
-             ON CONFLICT(id) DO UPDATE SET
-                provider = excluded.provider,
-                host = excluded.host,
-                port = excluded.port,
-                username = excluded.username,
-                secret_cipher = excluded.secret_cipher,
-                secret_hint = excluded.secret_hint,
-                from_address = excluded.from_address,
-                recipients = excluded.recipients,
-                template = excluded.template,
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at,
-                updated_by = excluded.updated_by`
-        )
-        .run({
+    await query(
+        `INSERT INTO email_config
+            (id, provider, host, port, username, secret_cipher, secret_hint,
+             from_address, recipients, template, enabled, updated_at, updated_by)
+         VALUES
+            (1, @provider, @host, @port, @username, @cipher, @hint,
+             @from, @recipients, @template, @enabled, now(), @changedBy)
+         ON CONFLICT (id) DO UPDATE SET
+            provider = excluded.provider,
+            host = excluded.host,
+            port = excluded.port,
+            username = excluded.username,
+            secret_cipher = excluded.secret_cipher,
+            secret_hint = excluded.secret_hint,
+            from_address = excluded.from_address,
+            recipients = excluded.recipients,
+            template = excluded.template,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by`,
+        {
             provider: descriptor.id,
             host: input.host ?? descriptor.defaults.host ?? null,
             port,
@@ -241,10 +239,11 @@ export function saveEmailConfig(input, changedBy) {
             from: input.from ?? current?.from_address ?? null,
             recipients: input.recipients ?? current?.recipients ?? null,
             template: (input.template ?? current?.template ?? 'professional').toLowerCase(),
-            enabled: input.enabled === undefined ? current?.enabled ?? 0 : input.enabled ? 1 : 0,
+            enabled: input.enabled === undefined ? Boolean(current?.enabled) : Boolean(input.enabled),
             changedBy: changedBy ?? null,
-        });
+        }
+    );
 
     logger.info({ provider: descriptor.id, changedBy }, 'Email configuration saved');
-    return describeEmailConfig();
+    return await describeEmailConfig();
 }

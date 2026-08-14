@@ -7,9 +7,9 @@ import { Status } from '../domain/enums/Status.js';
  * @param {{ getAll: Function }} cache
  * @returns {Array} Matching vulnerabilities
  */
-export function queryByTech(technologies, cache) {
+export async function queryByTech(technologies, cache) {
     const techLower = technologies.map(t => t.toLowerCase());
-    const allVulns = cache.getAll();
+    const allVulns = await cache.getAll();
 
     return allVulns.filter(vuln => {
         if (![Status.OPEN, Status.ACKNOWLEDGED].includes(vuln.status)) {

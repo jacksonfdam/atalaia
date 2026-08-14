@@ -1,8 +1,6 @@
-import { getDb } from './sqliteCache.js';
+import { query, queryAll, queryOne, withTransaction } from '../db/pool.js';
 import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import logger from '../logger.js';
-
-const NOW = "datetime('now')";
 
 /**
  * Persistence for source-code organizations.
@@ -23,7 +21,7 @@ export function present(row) {
         login: row.login,
         name: row.name,
         provider: row.provider,
-        enabled: row.enabled === 1,
+        enabled: row.enabled,
         hasToken: Boolean(row.token_cipher),
         tokenHint: row.token_hint,
         lastImportAt: row.last_import_at,
@@ -36,55 +34,54 @@ export function present(row) {
 /**
  * @param {{ key: string, login: string, name?: string, provider?: string, token?: string }} data
  */
-export function addOrganization({ key, login, name = null, provider = 'github', token = null }) {
+export async function addOrganization({ key, login, name = null, provider = 'github', token = null }) {
     const cipher = token ? encrypt(token) : null;
     const hint = token ? maskSecret(token) : null;
 
-    const result = getDb()
-        .prepare(
-            `INSERT INTO organizations (key, login, name, provider, token_cipher, token_hint)
-             VALUES (@key, @login, @name, @provider, @cipher, @hint)
-             ON CONFLICT(key) DO UPDATE SET
-                login = excluded.login,
-                name = excluded.name,
-                provider = excluded.provider,
-                -- Re-adding an organization without a token keeps the stored one.
-                token_cipher = COALESCE(excluded.token_cipher, organizations.token_cipher),
-                token_hint = COALESCE(excluded.token_hint, organizations.token_hint),
-                updated_at = ${NOW},
-                deleted_at = NULL
-             RETURNING *`
-        )
-        .get({ key, login, name, provider, cipher, hint });
+    const result = await queryOne(
+        `INSERT INTO organizations (key, login, name, provider, token_cipher, token_hint)
+         VALUES (@key, @login, @name, @provider, @cipher, @hint)
+         ON CONFLICT (key) DO UPDATE SET
+            login = excluded.login,
+            name = excluded.name,
+            provider = excluded.provider,
+            -- Re-adding an organization without a token keeps the stored one.
+            token_cipher = COALESCE(excluded.token_cipher, organizations.token_cipher),
+            token_hint = COALESCE(excluded.token_hint, organizations.token_hint),
+            updated_at = now(),
+            deleted_at = NULL
+         RETURNING *`,
+        { key, login, name, provider, cipher, hint }
+    );
 
     logger.info({ key, login, id: result?.id }, 'Organization added/restored');
-    return result ?? getOrganizationByKey(key);
+    return result ?? await getOrganizationByKey(key);
 }
 
-export function getOrganizationByKey(key) {
-    return getDb().prepare('SELECT * FROM organizations WHERE key = ?').get(key) || null;
+export async function getOrganizationByKey(key) {
+    return queryOne('SELECT * FROM organizations WHERE key = @key', { key });
 }
 
-export function getOrganization(id) {
-    return getDb().prepare('SELECT * FROM organizations WHERE id = ?').get(id) || null;
+export async function getOrganization(id) {
+    return queryOne('SELECT * FROM organizations WHERE id = @id', { id });
 }
 
-export function listOrganizations({ includeDeleted = false } = {}) {
+export async function listOrganizations({ includeDeleted = false } = {}) {
     const where = includeDeleted ? '' : 'WHERE deleted_at IS NULL';
-    return getDb().prepare(`SELECT * FROM organizations ${where} ORDER BY key`).all();
+    return queryAll(`SELECT * FROM organizations ${where} ORDER BY key`);
 }
 
 /**
  * @param {string} key
  * @param {{ login?: string, name?: string, enabled?: boolean, token?: string|null, lastImportAt?: string }} updates
  */
-export function updateOrganization(key, updates) {
+export async function updateOrganization(key, updates) {
     const fields = [];
     const values = { key };
 
     if (updates.login !== undefined) { fields.push('login = @login'); values.login = updates.login; }
     if (updates.name !== undefined) { fields.push('name = @name'); values.name = updates.name; }
-    if (updates.enabled !== undefined) { fields.push('enabled = @enabled'); values.enabled = updates.enabled ? 1 : 0; }
+    if (updates.enabled !== undefined) { fields.push('enabled = @enabled'); values.enabled = Boolean(updates.enabled); }
     if (updates.lastImportAt !== undefined) { fields.push('last_import_at = @lastImportAt'); values.lastImportAt = updates.lastImportAt; }
 
     // An explicit null clears the token; undefined leaves it untouched.
@@ -94,12 +91,12 @@ export function updateOrganization(key, updates) {
         values.hint = updates.token ? maskSecret(updates.token) : null;
     }
 
-    if (fields.length === 0) return getOrganizationByKey(key);
+    if (fields.length === 0) return await getOrganizationByKey(key);
 
-    fields.push(`updated_at = ${NOW}`);
-    getDb().prepare(`UPDATE organizations SET ${fields.join(', ')} WHERE key = @key`).run(values);
+    fields.push('updated_at = now()');
+    await query(`UPDATE organizations SET ${fields.join(', ')} WHERE key = @key`, values);
 
-    return getOrganizationByKey(key);
+    return await getOrganizationByKey(key);
 }
 
 /**
@@ -107,26 +104,34 @@ export function updateOrganization(key, updates) {
  * Leaving those behind would strand repositories nothing can authenticate to.
  *
  * @param {string} key
- * @returns {{ repositories: number }}
+ * @returns {Promise<{ repositories: number }>}
  */
-export function softDeleteOrganization(key) {
-    const db = getDb();
-    let repositories = 0;
+export async function softDeleteOrganization(key) {
+    const repositories = await withTransaction(async client => {
+        await query(
+            `UPDATE organizations SET deleted_at = now(), updated_at = now()
+             WHERE key = @key AND deleted_at IS NULL`,
+            { key },
+            client
+        );
 
-    db.transaction(() => {
-        db.prepare(`UPDATE organizations SET deleted_at = ${NOW}, updated_at = ${NOW} WHERE key = ? AND deleted_at IS NULL`).run(key);
+        const result = await query(
+            `UPDATE repositories SET deleted_at = now(), updated_at = now()
+             WHERE org_key = @key AND deleted_at IS NULL`,
+            { key },
+            client
+        );
 
-        const result = db
-            .prepare(`UPDATE repositories SET deleted_at = ${NOW}, updated_at = ${NOW} WHERE org_key = ? AND deleted_at IS NULL`)
-            .run(key);
-        repositories = result.changes;
-
-        db.prepare(
-            `UPDATE repository_dependencies SET deleted_at = ${NOW}, updated_at = ${NOW}
+        await query(
+            `UPDATE repository_dependencies SET deleted_at = now(), updated_at = now()
              WHERE deleted_at IS NULL
-               AND repository_id IN (SELECT id FROM repositories WHERE org_key = ?)`
-        ).run(key);
-    })();
+               AND repository_id IN (SELECT id FROM repositories WHERE org_key = @key)`,
+            { key },
+            client
+        );
+
+        return result.rowCount;
+    });
 
     logger.info({ key, repositories }, 'Organization soft-deleted with its repositories');
     return { repositories };
@@ -137,10 +142,10 @@ export function softDeleteOrganization(key) {
  * Only the importer and the scanner call this.
  *
  * @param {string} key
- * @returns {string|null}
+ * @returns {Promise<string|null>}
  */
-export function getOrganizationToken(key) {
-    const row = getOrganizationByKey(key);
+export async function getOrganizationToken(key) {
+    const row = await getOrganizationByKey(key);
     if (!row?.token_cipher) return null;
 
     try {
@@ -159,17 +164,15 @@ export function getOrganizationToken(key) {
 }
 
 /** How many repositories each organization currently has. */
-export function countRepositoriesByOrg() {
-    const rows = getDb()
-        .prepare(
-            `SELECT org_key AS key,
-                    COUNT(*) AS total,
-                    SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END) AS enabled
-             FROM repositories
-             WHERE deleted_at IS NULL AND org_key IS NOT NULL
-             GROUP BY org_key`
-        )
-        .all();
+export async function countRepositoriesByOrg() {
+    const rows = await queryAll(
+        `SELECT org_key AS key,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE enabled) AS enabled
+         FROM repositories
+         WHERE deleted_at IS NULL AND org_key IS NOT NULL
+         GROUP BY org_key`
+    );
 
     return new Map(rows.map(row => [row.key, { total: row.total, enabled: row.enabled }]));
 }

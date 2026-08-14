@@ -38,9 +38,9 @@ export function validateSlackSignature(signingSecret, timestamp, rawBody, signat
 /**
  * Express middleware to validate Slack signing secret.
  */
-export function requireSlackSignature(req, res, next) {
+export async function requireSlackSignature(req, res, next) {
     // Environment first, then whatever the console stored.
-    const signingSecret = resolveSigningSecret();
+    const signingSecret = await resolveSigningSecret();
     if (!signingSecret) {
         logger.error('No Slack signing secret configured; rejecting the callback');
         return res.status(500).json({ error: 'Server misconfigured' });

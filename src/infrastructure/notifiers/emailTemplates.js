@@ -116,7 +116,7 @@ export function formatReportHtmlProfessional(report) {
                 📋 Vulnerability Details
             </h2>
 
-            ${renderVulnerabilityTable(report, 'professional')}
+            ${renderBody(report)}
         </div>
 
         <!-- Footer -->
@@ -195,7 +195,7 @@ export function formatReportHtmlMinimal(report) {
 
         <!-- Vulnerability Details -->
         <div style="padding: 0 30px 30px 30px; border-top: 1px solid ${UTILITY_COLORS.border};">
-            ${renderVulnerabilityTable(report, 'minimal')}
+            ${renderBody(report)}
         </div>
 
         <!-- Footer -->
@@ -212,60 +212,218 @@ export function formatReportHtmlMinimal(report) {
  * Render vulnerability table with styling based on template type
  * @private
  */
-function renderVulnerabilityTable(report, templateType) {
+/**
+ * The body: what reaches your code, grouped by the repository it reaches.
+ *
+ * The digest used to be one table ordered by severity, listing every row ever
+ * collected — thousands, while the console led with the twenty-seven that name
+ * something the fleet ships. Same rule, same numbers, and grouped by the thing
+ * somebody owns.
+ */
+function renderAffecting(report) {
+    const { count, repositories } = report.affecting;
+
+    if (count === 0) {
+        return `<p style="margin: 0 0 24px 0; font-size: 14px; color: ${UTILITY_COLORS.textMuted};">
+            Nothing new reached your repositories this period.
+        </p>`;
+    }
+
+    let html = `<h3 style="margin: 0 0 4px 0; font-size: 18px; color: ${UTILITY_COLORS.text};">
+        Affects your code — ${count} new
+    </h3>
+    <p style="margin: 0 0 20px 0; font-size: 12px; color: ${UTILITY_COLORS.textMuted};">
+        A dependency of a tracked repository is named in these.
+        ${report.affecting.openCount ? `${report.affecting.openCount} open in total; with containers and CI folded in, the console counts ${report.affecting.openCount + (report.infrastructure.openCount ?? 0)} as affecting this fleet.` : ''}
+    </p>`;
+
+    for (const repo of repositories) {
+        const worst = SEVERITY_COLORS[repo.worstSeverity] || SEVERITY_COLORS.UNKNOWN;
+
+        html += `
+        <div style="margin: 0 0 20px 0; border-left: 4px solid ${worst}; background-color: ${UTILITY_COLORS.background}; padding: 14px 16px;">
+            <div style="font-size: 14px; font-weight: 600; color: ${UTILITY_COLORS.text}; margin-bottom: 10px;">
+                ${escapeHtml(repo.name)}
+                <span style="font-weight: 400; color: ${UTILITY_COLORS.textMuted};">
+                    · ${repo.vulnerabilities.length} ${repo.vulnerabilities.length === 1 ? 'finding' : 'findings'}
+                </span>
+            </div>`;
+
+        for (const vuln of repo.vulnerabilities) {
+            const color = SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.UNKNOWN;
+            const score = vuln.cvssScore == null ? '' : ` · CVSS ${Number(vuln.cvssScore).toFixed(1)}`;
+            const via = vuln.via
+                .map(v => `${escapeHtml(v.dependency)}${v.manifestFile ? ` in <code>${escapeHtml(v.manifestFile)}</code>` : ''}`)
+                .join(', ');
+
+            html += `
+            <div style="padding: 10px 0; border-top: 1px solid ${UTILITY_COLORS.border};">
+                <div style="font-size: 13px; margin-bottom: 4px;">
+                    <span style="color: ${color}; font-weight: 600;">●</span>
+                    <strong>${escapeHtml(vuln.cveId)}</strong>
+                    <span style="color: ${UTILITY_COLORS.textMuted};">${vuln.severity}${score}</span>
+                    ${vuln.exploited ? '<span style="color: #DC2626; font-weight: 600;"> · known exploited</span>' : ''}
+                </div>
+                ${vuln.title ? `<div style="font-size: 12px; color: ${UTILITY_COLORS.text}; margin-bottom: 4px;">${escapeHtml(vuln.title)}</div>` : ''}
+                ${vuln.explanation ? `<div style="font-size: 12px; color: ${UTILITY_COLORS.textMuted}; margin-bottom: 4px;">${escapeHtml(vuln.explanation)}</div>` : ''}
+                <div style="font-size: 11px; color: ${UTILITY_COLORS.textMuted};">Arrives through ${via}</div>
+            </div>`;
+        }
+
+        html += '</div>';
+    }
+
+    return html;
+}
+
+/** A capped section: the count is the truth, the rows are a sample of it. */
+function renderSection(title, subtitle, section) {
+    if (section.count === 0) return '';
+
+    let html = `<h3 style="margin: 24px 0 4px 0; font-size: 16px; color: ${UTILITY_COLORS.text};">
+        ${title} — ${section.count}
+    </h3>
+    <p style="margin: 0 0 12px 0; font-size: 12px; color: ${UTILITY_COLORS.textMuted};">${subtitle}</p>`;
+
+    html += renderRows(section.vulnerabilities);
+
+    if (section.count > section.shown) {
+        html += `<p style="margin: 8px 0 0 0; font-size: 12px; color: ${UTILITY_COLORS.textMuted};">
+            and ${section.count - section.shown} more — the console lists them all.
+        </p>`;
+    }
+
+    return html;
+}
+
+/** Dependencies a registry has moved past, per repository. */
+function renderDependencies(report) {
+    const { count, repositories } = report.dependencies ?? { count: 0, repositories: [] };
+    if (count === 0) return '';
+
+    let html = `<h3 style="margin: 24px 0 4px 0; font-size: 16px; color: ${UTILITY_COLORS.text};">
+        Dependencies behind — ${count}
+    </h3>
+    <p style="margin: 0 0 12px 0; font-size: 12px; color: ${UTILITY_COLORS.textMuted};">
+        The registry has a newer release than the manifest allows. Whether that upgrade is safe is a question about your code.
+    </p>`;
+
+    for (const repo of repositories) {
+        const shown = repo.dependencies.slice(0, 10);
+
+        html += `<div style="margin-bottom: 12px;">
+            <div style="font-size: 13px; font-weight: 600; color: ${UTILITY_COLORS.text};">${escapeHtml(repo.name)}</div>
+            <div style="font-size: 12px; color: ${UTILITY_COLORS.textMuted};">
+                ${shown.map(d => `${escapeHtml(d.name)} ${escapeHtml(d.declared ?? '')} → ${escapeHtml(d.latest)}`).join('<br/>')}
+                ${repo.dependencies.length > shown.length ? `<br/>and ${repo.dependencies.length - shown.length} more` : ''}
+            </div>
+        </div>`;
+    }
+
+    return html;
+}
+
+/** The rows of a flat section. */
+function renderRows(vulns) {
     let html = '<table style="width: 100%; border-collapse: collapse;">';
     html += `
         <tr style="border-bottom: 2px solid ${UTILITY_COLORS.border}; background-color: ${UTILITY_COLORS.background};">
-            <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 600; color: ${UTILITY_COLORS.text};">CVE ID</th>
-            <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 600; color: ${UTILITY_COLORS.text};">Severity</th>
-            <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 600; color: ${UTILITY_COLORS.text};">CVSS</th>
-            <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 600; color: ${UTILITY_COLORS.text};">Source</th>
-            <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 600; color: ${UTILITY_COLORS.text};">Status</th>
-        </tr>
-    `;
+            <th style="padding: 10px 8px; text-align: left; font-size: 12px; color: ${UTILITY_COLORS.text};">CVE ID</th>
+            <th style="padding: 10px 8px; text-align: left; font-size: 12px; color: ${UTILITY_COLORS.text};">Severity</th>
+            <th style="padding: 10px 8px; text-align: left; font-size: 12px; color: ${UTILITY_COLORS.text};">CVSS</th>
+            <th style="padding: 10px 8px; text-align: left; font-size: 12px; color: ${UTILITY_COLORS.text};">Source</th>
+        </tr>`;
 
-    // Iterate through severity levels
-    const severities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
-    let rowCount = 0;
+    vulns.forEach((vuln, index) => {
+        const color = SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.UNKNOWN;
+        const score = vuln.cvssScore == null ? 'N/A' : Number(vuln.cvssScore).toFixed(1);
 
-    for (const severity of severities) {
-        const vulns = report.vulnerabilities[severity] || [];
+        html += `
+        <tr style="border-bottom: 1px solid ${UTILITY_COLORS.border}; background-color: ${index % 2 === 0 ? '#FFFFFF' : UTILITY_COLORS.background};">
+            <td style="padding: 10px 8px; border-left: 3px solid ${color}; font-size: 12px;"><strong>${escapeHtml(vuln.cveId)}</strong></td>
+            <td style="padding: 10px 8px; font-size: 12px;"><span style="color: ${color};">●</span> ${vuln.severity}</td>
+            <td style="padding: 10px 8px; font-size: 12px; text-align: center;">${score}</td>
+            <td style="padding: 10px 8px; font-size: 12px;">${escapeHtml(vuln.source ?? 'N/A')}</td>
+        </tr>`;
+    });
 
-        for (const vuln of vulns) {
-            const bgColor = rowCount % 2 === 0 ? '#FFFFFF' : UTILITY_COLORS.background;
-            const severityColor = SEVERITY_COLORS[severity] || SEVERITY_COLORS.UNKNOWN;
-            // Rows read from SQLite carry cvss_score; entities carry cvssScore.
-            const score = vuln.cvss_score ?? vuln.cvssScore;
-            const cvssDisplay = score == null ? 'N/A' : Number(score).toFixed(1);
+    return html + '</table>';
+}
 
-            html += `
-        <tr style="border-bottom: 1px solid ${UTILITY_COLORS.border}; background-color: ${bgColor};">
-            <td style="padding: 12px 8px; border-left: 3px solid ${severityColor}; font-size: 12px;">
-                <strong>${vuln.cve_id || vuln.cveId}</strong>
-            </td>
-            <td style="padding: 12px 8px; font-size: 12px;">
-                <span style="color: ${severityColor}; font-weight: 600;">●</span> ${severity}
-            </td>
-            <td style="padding: 12px 8px; font-size: 12px; text-align: center;">
-                ${cvssDisplay}
-            </td>
-            <td style="padding: 12px 8px; font-size: 12px;">
-                ${vuln.source || 'N/A'}
-            </td>
-            <td style="padding: 12px 8px; font-size: 12px;">
-                <span style="background-color: ${getStatusColor(vuln.status)}; color: white; padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: 500;">
-                    ${vuln.status || 'OPEN'}
-                </span>
-            </td>
-        </tr>
-            `;
+/** Everything here is interpolated into HTML, and none of it is ours. */
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
 
-            rowCount++;
-        }
-    }
+/** The whole body, shared by both templates. */
+function renderBody(report) {
+    return [
+        renderAffecting(report),
+        renderSection(
+            'Containers &amp; CI only',
+            'These reach a container image or a CI action, not application code.',
+            report.infrastructure
+        ),
+        renderSection(
+            'Everything else collected',
+            'Published somewhere, naming nothing this fleet ships.',
+            report.other
+        ),
+        renderDependencies(report),
+    ].join('');
+}
 
-    html += '</table>';
-    return html;
+/**
+ * One CVE, one subscriber, the repositories of theirs it reaches.
+ *
+ * Deliberately small: this arrives the moment it is detected, and its whole job
+ * is to say what happened, where, and which file carries it.
+ */
+export function formatRepositoryAlertHtml(vulnerability, repositories, owner) {
+    const severity = (vulnerability.severity || 'UNKNOWN').toUpperCase();
+    const color = SEVERITY_COLORS[severity] || SEVERITY_COLORS.UNKNOWN;
+    const score = vulnerability.cvssScore == null ? '' : ` · CVSS ${Number(vulnerability.cvssScore).toFixed(1)}`;
+    const explanation = vulnerability.clientExplanation || vulnerability.description || '';
+
+    return `<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background-color: ${UTILITY_COLORS.background}; margin: 0; padding: 24px;">
+    <div style="max-width: 600px; margin: 0 auto; background: #FFFFFF; border-top: 4px solid ${color}; padding: 24px;">
+        <p style="margin: 0 0 4px 0; font-size: 12px; color: ${UTILITY_COLORS.textMuted};">
+            ${escapeHtml(owner?.name ?? 'You')} asked to hear about ${repositories.length === 1 ? 'this repository' : 'these repositories'}.
+        </p>
+
+        <h1 style="margin: 0 0 8px 0; font-size: 20px; color: ${UTILITY_COLORS.text};">
+            <span style="color: ${color};">●</span> ${escapeHtml(vulnerability.cveId)}
+            <span style="font-size: 14px; font-weight: 400; color: ${UTILITY_COLORS.textMuted};">${severity}${score}</span>
+        </h1>
+
+        ${vulnerability.exploited ? '<p style="margin: 0 0 12px 0; font-size: 13px; color: #DC2626; font-weight: 600;">Known to be exploited in the wild.</p>' : ''}
+        ${vulnerability.title ? `<p style="margin: 0 0 12px 0; font-size: 14px; color: ${UTILITY_COLORS.text};">${escapeHtml(vulnerability.title)}</p>` : ''}
+        ${explanation ? `<p style="margin: 0 0 16px 0; font-size: 13px; color: ${UTILITY_COLORS.textMuted};">${escapeHtml(explanation.slice(0, 400))}</p>` : ''}
+
+        <h2 style="margin: 16px 0 8px 0; font-size: 14px; color: ${UTILITY_COLORS.text};">Where it reaches you</h2>
+        ${repositories
+            .map(
+                repo => `<div style="padding: 10px 12px; margin-bottom: 8px; background: ${UTILITY_COLORS.background}; font-size: 13px;">
+                    <strong>${escapeHtml(repo.name)}</strong>
+                    ${repo.url ? `<br/><a href="${escapeHtml(repo.url)}" style="font-size: 12px; color: #667eea;">${escapeHtml(repo.url)}</a>` : ''}
+                </div>`
+            )
+            .join('')}
+
+        ${vulnerability.link ? `<p style="margin: 16px 0 0 0; font-size: 13px;"><a href="${escapeHtml(vulnerability.link)}" style="color: #667eea;">Read the advisory</a></p>` : ''}
+
+        <p style="margin: 24px 0 0 0; font-size: 11px; color: ${UTILITY_COLORS.textMuted};">
+            Atalaia reports; it never opens a pull request or changes a manifest.
+        </p>
+    </div>
+</body>
+</html>`;
 }
 
 /**
@@ -290,15 +448,19 @@ function getStatusColor(status) {
  * @private
  */
 function calculateStats(report) {
+    // The header counts the backlog by severity, which is the number that does
+    // not change with the window — "113 open" reads the same on a quiet week.
+    const open = report.openBySeverity ?? {};
+
     return {
-        critical: (report.vulnerabilities.CRITICAL || []).length,
-        high: (report.vulnerabilities.HIGH || []).length,
-        medium: (report.vulnerabilities.MEDIUM || []).length,
-        low: (report.vulnerabilities.LOW || []).length,
+        critical: open.CRITICAL ?? 0,
+        high: open.HIGH ?? 0,
+        medium: open.MEDIUM ?? 0,
+        low: open.LOW ?? 0,
         // Unrated items are a real slice of the report — Ubuntu USN and the
         // CERT feeds publish no score — so they get their own count instead of
         // vanishing between the header total and the table.
-        unknown: (report.vulnerabilities.UNKNOWN || []).length,
+        unknown: open.UNKNOWN ?? 0,
     };
 }
 

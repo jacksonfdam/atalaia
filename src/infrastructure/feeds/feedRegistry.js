@@ -98,8 +98,8 @@ const REGISTRY = [
  * The registry with the operator's overrides applied.
  * @returns {(FeedDescriptor & { enabled: boolean, overridden: boolean, catalog: object|null })[]}
  */
-export function listFeeds() {
-    const overrides = listOverrides();
+export async function listFeeds() {
+    const overrides = await listOverrides();
 
     return REGISTRY.map(feed => {
         const override = overrides.get(feed.name);
@@ -116,13 +116,13 @@ export function listFeeds() {
 }
 
 /** Feeds the monitoring cycle actually runs. */
-export function enabledFeeds() {
-    return listFeeds().filter(feed => feed.enabled);
+export async function enabledFeeds() {
+    return (await listFeeds()).filter(feed => feed.enabled);
 }
 
 /** @returns {ReturnType<typeof listFeeds>[number] | undefined} */
-export function getFeed(name) {
-    return listFeeds().find(feed => feed.name === name?.toLowerCase());
+export async function getFeed(name) {
+    return (await listFeeds()).find(feed => feed.name === name?.toLowerCase());
 }
 
 /**
@@ -133,19 +133,19 @@ export function getFeed(name) {
  * @param {string} [changedBy]
  * @returns {ReturnType<typeof listFeeds>[number]}
  */
-export function setFeedEnabled(name, enabled, changedBy) {
-    const feed = getFeed(name);
+export async function setFeedEnabled(name, enabled, changedBy) {
+    const feed = await getFeed(name);
     if (!feed) throw new Error(`Unknown feed: ${name}`);
 
-    setEnabled(feed.name, enabled, changedBy);
-    return getFeed(feed.name);
+    await setEnabled(feed.name, enabled, changedBy);
+    return await getFeed(feed.name);
 }
 
 /** Drop the override so the source follows the registry default again. */
-export function resetFeed(name) {
-    const feed = getFeed(name);
+export async function resetFeed(name) {
+    const feed = await getFeed(name);
     if (!feed) throw new Error(`Unknown feed: ${name}`);
 
-    clearOverride(feed.name);
-    return getFeed(feed.name);
+    await clearOverride(feed.name);
+    return await getFeed(feed.name);
 }

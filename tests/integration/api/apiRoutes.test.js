@@ -1,24 +1,29 @@
 /**
  * Integration tests for the REST API.
  *
- * The app is mounted with supertest against a temporary SQLite file, so routes,
- * middleware and the real persistence layer are all exercised — no port is
- * opened, no scheduler starts, and no feed is contacted.
+ * The app is mounted with supertest against a throwaway Postgres schema, so
+ * routes, middleware and the real persistence layer are all exercised — no port
+ * is opened, no scheduler starts, and no feed is contacted.
  */
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import request from 'supertest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import {
+    describeWithDatabase as describe,
+    hasDatabase,
+    useSchema,
+    setUpSchema,
+    tearDownSchema,
+    truncateAll,
+} from '../../helpers/postgres.js';
 
-const TMP_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atalaia-api-')), 'test.db');
+const { schema } = useSchema('api_routes');
 
-process.env.DB_PATH = TMP_DB;
 process.env.API_KEY = 'test-api-key';
 
-const { initializeDatabase, getDb } = await import('#app/infrastructure/cache/sqliteCache.js');
-const cache = await import('#app/infrastructure/cache/sqliteCache.js');
+const { initializeDatabase } = await import('#app/infrastructure/cache/postgresCache.js');
+const cache = await import('#app/infrastructure/cache/postgresCache.js');
 const { createApp } = await import('#app/interface/http/createApp.js');
+const { query } = await import('#app/infrastructure/db/pool.js');
 
 // Cleared *after* the imports: config.js calls dotenv.config(), which would
 // repopulate these from the developer's .env and make writable settings look
@@ -30,37 +35,42 @@ delete process.env.CRON_SCHEDULE;
 const KEY = { 'X-API-Key': 'test-api-key' };
 let app;
 
-function seed(rows) {
-    const insert = getDb().prepare(`
-        INSERT INTO vulnerabilities (cve_id, title, description, severity, cvss_score, exploited, source, affected_technologies, status)
-        VALUES (@cveId, @title, @description, @severity, @cvss, @exploited, @source, @tech, @status)
-    `);
+async function seed(rows) {
     for (const row of rows) {
-        insert.run({
-            cveId: row.cveId,
-            title: row.title ?? row.cveId,
-            description: row.description ?? '',
-            severity: row.severity ?? 'UNKNOWN',
-            cvss: row.cvss ?? null,
-            exploited: row.exploited ? 1 : 0,
-            source: row.source ?? 'nvd',
-            tech: JSON.stringify(row.technologies ?? []),
-            status: row.status ?? 'OPEN',
-        });
+        await query(
+            `INSERT INTO vulnerabilities
+                 (cve_id, title, description, severity, cvss_score, exploited, source, affected_technologies, status)
+             VALUES (@cveId, @title, @description, @severity, @cvss, @exploited, @source, @tech, @status)`,
+            {
+                cveId: row.cveId,
+                title: row.title ?? row.cveId,
+                description: row.description ?? '',
+                severity: row.severity ?? 'UNKNOWN',
+                cvss: row.cvss ?? null,
+                exploited: Boolean(row.exploited),
+                source: row.source ?? 'nvd',
+                tech: JSON.stringify(row.technologies ?? []),
+                status: row.status ?? 'OPEN',
+            }
+        );
     }
 }
 
-beforeAll(() => {
-    initializeDatabase();
+beforeAll(async () => {
+    if (!hasDatabase) return;
+    await setUpSchema(schema);
+    await initializeDatabase();
     app = createApp(cache);
 });
 
-afterAll(() => {
-    fs.rmSync(path.dirname(TMP_DB), { recursive: true, force: true });
+afterAll(async () => {
+    if (!hasDatabase) return;
+    await tearDownSchema(schema);
 });
 
-beforeEach(() => {
-    getDb().exec('DELETE FROM vulnerabilities; DELETE FROM settings;');
+beforeEach(async () => {
+    if (!hasDatabase) return;
+    await truncateAll();
 });
 
 describe('authentication', () => {
@@ -88,8 +98,8 @@ describe('authentication', () => {
 });
 
 describe('GET /vulnerabilities', () => {
-    beforeEach(() => {
-        seed([
+    beforeEach(async () => {
+        await seed([
             { cveId: 'CVE-2026-0001', severity: 'CRITICAL', cvss: 9.8, source: 'nvd', technologies: ['npm'] },
             { cveId: 'CVE-2026-0002', severity: 'HIGH', cvss: 7.5, source: 'cisa', technologies: ['pip'] },
             { cveId: 'CVE-2026-0003', severity: 'LOW', cvss: 2.1, source: 'nvd', status: 'RESOLVED' },
@@ -143,7 +153,7 @@ describe('GET /vulnerabilities', () => {
     });
 
     test('matches a technology exactly, not as a prefix', async () => {
-        seed([{ cveId: 'CVE-2026-0009', technologies: ['npm-audit'] }]);
+        await seed([{ cveId: 'CVE-2026-0009', technologies: ['npm-audit'] }]);
         const res = await request(app).get('/api/v1/vulnerabilities?tech=npm').set(KEY);
         expect(res.body.vulnerabilities.map(v => v.cve_id)).toEqual(['CVE-2026-0001']);
     });
@@ -164,7 +174,7 @@ describe('GET /vulnerabilities', () => {
 
 describe('GET /vulnerabilities/:cveId', () => {
     test('returns the vulnerability with a timeline', async () => {
-        seed([{ cveId: 'CVE-2026-0100', severity: 'HIGH', source: 'nvd' }]);
+        await seed([{ cveId: 'CVE-2026-0100', severity: 'HIGH', source: 'nvd' }]);
         const res = await request(app).get('/api/v1/vulnerabilities/CVE-2026-0100').set(KEY);
 
         expect(res.status).toBe(200);
@@ -202,7 +212,7 @@ describe('PATCH /vulnerabilities/:cveId/status', () => {
             .send({ status: 'ACKNOWLEDGED', changedBy: 'test' });
 
         expect(res.status).toBe(200);
-        expect(cache.get('CVE-2026-0200').status).toBe('ACKNOWLEDGED');
+        expect((await cache.get('CVE-2026-0200')).status).toBe('ACKNOWLEDGED');
     });
 
     test('404s for an unknown CVE', async () => {
@@ -216,7 +226,7 @@ describe('PATCH /vulnerabilities/:cveId/status', () => {
 
 describe('GET /stats', () => {
     test('aggregates by status, severity and source', async () => {
-        seed([
+        await seed([
             { cveId: 'CVE-2026-0301', severity: 'CRITICAL', source: 'nvd', exploited: true },
             { cveId: 'CVE-2026-0302', severity: 'CRITICAL', source: 'cisa' },
             { cveId: 'CVE-2026-0303', severity: 'LOW', source: 'nvd', status: 'RESOLVED' },
@@ -316,9 +326,10 @@ describe('feeds', () => {
 });
 
 describe('repositories and owners', () => {
-    beforeEach(() => {
-        // Children first: owner_assignments references system_owners.
-        getDb().exec('DELETE FROM owner_assignments; DELETE FROM system_owners; DELETE FROM repositories;');
+    beforeEach(async () => {
+        // TRUNCATE ... CASCADE handles the foreign keys, so the order no longer
+        // has to be spelled out here.
+        await truncateAll();
     });
 
     test('rejects a repository with no url', async () => {

@@ -1,14 +1,15 @@
-import { openReadonly } from '../lib/db.js';
+import { createClient } from '../lib/api.js';
 import { findVuln } from '../lib/stats.js';
 
 interface Opts {
   json?: boolean;
+  api?: string;
 }
 
 export async function runShow(cveId: string, opts: Opts): Promise<void> {
-  const db = openReadonly();
   try {
-    const row = findVuln(db, cveId);
+    const api = createClient({ baseUrl: opts.api });
+    const row = await findVuln(api, cveId);
     if (!row) {
       process.stderr.write(`CVE ${cveId} not found.\n`);
       process.exitCode = 1;
@@ -20,14 +21,8 @@ export async function runShow(cveId: string, opts: Opts): Promise<void> {
       return;
     }
 
-    const techs = (() => {
-      if (!row.affected_technologies) return [];
-      try {
-        return JSON.parse(row.affected_technologies) as string[];
-      } catch {
-        return [];
-      }
-    })();
+    // jsonb on the server, an array over the wire: nothing left to parse.
+    const techs = row.affectedTechnologies ?? [];
 
     const lines: string[] = [
       `CVE:         ${row.cve_id}`,
@@ -58,7 +53,8 @@ export async function runShow(cveId: string, opts: Opts): Promise<void> {
     }
 
     process.stdout.write(lines.join('\n') + '\n');
-  } finally {
-    db.close();
+  } catch (err) {
+    process.stderr.write(`Error: ${(err as Error).message}\n`);
+    process.exitCode = 1;
   }
 }

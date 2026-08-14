@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
 import { DIM, ORANGE } from '../lib/colors.js';
-import { openReadonly } from '../lib/db.js';
+import { createClient } from '../lib/api.js';
 import {
+  fetchStats,
   countBySeverity,
   countByStatus,
   countBySource,
@@ -34,22 +35,24 @@ interface Snapshot {
   readAt: string;
 }
 
-function loadSnapshot(): Snapshot {
-  const db = openReadonly();
-  try {
-    return {
-      summary: summaryStats(db),
-      severity: countBySeverity(db),
-      status: countByStatus(db),
-      source: countBySource(db),
-      tech: topTechnologies(db, 8),
-      activity: recentActivity(db, 7),
-      critical: latestCritical(db, 5),
-      readAt: new Date().toISOString(),
-    };
-  } finally {
-    db.close();
-  }
+async function loadSnapshot(): Promise<Snapshot> {
+  const api = createClient();
+
+  // One /stats call feeds every panel but the critical list: the counting is
+  // done in SQL on the server, so a refresh is two requests rather than a
+  // table scan per panel.
+  const [stats, critical] = await Promise.all([fetchStats(api), latestCritical(api, 5)]);
+
+  return {
+    summary: summaryStats(stats),
+    severity: countBySeverity(stats),
+    status: countByStatus(stats),
+    source: countBySource(stats),
+    tech: topTechnologies(stats, 8),
+    activity: recentActivity(stats, 7),
+    critical,
+    readAt: new Date().toISOString(),
+  };
 }
 
 interface DashboardProps {
@@ -69,17 +72,24 @@ export function Dashboard({ refreshSeconds }: DashboardProps) {
   const wide = columns >= 120;
 
   useEffect(() => {
-    const refresh = () => {
+    let cancelled = false;
+
+    const refresh = async () => {
       try {
-        setSnapshot(loadSnapshot());
+        const next = await loadSnapshot();
+        if (cancelled) return;
+        setSnapshot(next);
         setError(null);
       } catch (e) {
-        setError((e as Error).message);
+        if (!cancelled) setError((e as Error).message);
       }
     };
     refresh();
     const id = setInterval(refresh, Math.max(1, refreshSeconds) * 1000);
-    return () => clearInterval(id);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
   }, [refreshSeconds, tick]);
 
   useInput(

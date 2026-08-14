@@ -5,21 +5,25 @@
  * rules around the credential. Actually posting is what the console's "Send
  * test" button is for.
  */
-import { describe, test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import request from 'supertest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import {
+    describeWithDatabase as describe,
+    hasDatabase,
+    useSchema,
+    setUpSchema,
+    tearDownSchema,
+    truncateAll,
+} from '../../helpers/postgres.js';
 
-const TMP_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'atalaia-slack-')), 'test.db');
-
-process.env.DB_PATH = TMP_DB;
+const { schema } = useSchema('slack_settings');
 process.env.API_KEY = 'test-api-key';
 process.env.TOKEN_ENCRYPTION_KEY = 'test-encryption-key';
 
-const cache = await import('#app/infrastructure/cache/sqliteCache.js');
-const { initializeDatabase, getDb } = cache;
+const cache = await import('#app/infrastructure/cache/postgresCache.js');
+const { initializeDatabase } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
+const { query, queryOne } = await import('#app/infrastructure/db/pool.js');
 
 // Cleared *after* the imports: config.js calls dotenv.config(), which would
 // otherwise repopulate them from the developer's .env.
@@ -37,17 +41,20 @@ const BOT = {
     enabled: true,
 };
 
-beforeAll(() => {
-    initializeDatabase();
+beforeAll(async () => {
+    if (!hasDatabase) return;
+    await setUpSchema(schema);
+    await initializeDatabase();
     app = createApp(cache);
 });
 
-afterAll(() => {
-    fs.rmSync(path.dirname(TMP_DB), { recursive: true, force: true });
+afterAll(async () => {
+    if (!hasDatabase) return;
+    await tearDownSchema(schema);
 });
 
-beforeEach(() => {
-    getDb().exec('DELETE FROM slack_config;');
+beforeEach(async () => {
+    await truncateAll(); // was: DELETE FROM slack_config;
     for (const key of ENV_KEYS) delete process.env[key];
 });
 
@@ -74,7 +81,7 @@ describe('PUT /api/v1/settings/slack', () => {
         const res = await request(app).get('/api/v1/settings/slack').set(KEY);
         expect(JSON.stringify(res.body)).not.toContain('secret9999');
 
-        const row = getDb().prepare('SELECT bot_cipher FROM slack_config').get();
+        const row = await queryOne('SELECT bot_cipher FROM slack_config');
         expect(row.bot_cipher).not.toContain('xoxb-0000');
     });
 

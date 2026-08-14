@@ -23,8 +23,8 @@ export function createFeedRoutes() {
     const router = express.Router();
 
     // GET /feeds — the registry, without touching the network
-    router.get('/', (_req, res) => {
-        res.json({ feeds: listFeeds().map(present) });
+    router.get('/', async (_req, res) => {
+        res.json({ feeds: (await listFeeds()).map(present) });
     });
 
     // GET /feeds/catalog — every known public database, collected or not
@@ -49,7 +49,7 @@ export function createFeedRoutes() {
     });
 
     // PATCH /feeds/:name — turn a source on or off
-    router.patch('/:name', (req, res) => {
+    router.patch('/:name', async (req, res) => {
         const { enabled } = req.body ?? {};
 
         if (typeof enabled !== 'boolean') {
@@ -57,7 +57,7 @@ export function createFeedRoutes() {
         }
 
         try {
-            const feed = setFeedEnabled(req.params.name, enabled, req.get('X-Actor') || 'api');
+            const feed = await setFeedEnabled(req.params.name, enabled, req.get('X-Actor') || 'api');
             // The cached health report still describes the old state.
             resetFeedHealthCache();
             res.json(present(feed));
@@ -67,9 +67,9 @@ export function createFeedRoutes() {
     });
 
     // DELETE /feeds/:name/override — follow the registry default again
-    router.delete('/:name/override', (req, res) => {
+    router.delete('/:name/override', async (req, res) => {
         try {
-            const feed = resetFeed(req.params.name);
+            const feed = await resetFeed(req.params.name);
             resetFeedHealthCache();
             res.json(present(feed));
         } catch (error) {

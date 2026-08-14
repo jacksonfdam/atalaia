@@ -1,25 +1,37 @@
+import { createClient } from '../lib/api.js';
+
 interface Opts {
-  dryRun?: boolean;
+  api?: string;
+  json?: boolean;
 }
 
+/**
+ * Queue a monitoring cycle.
+ *
+ * It used to run the cycle in this process, which meant the terminal held every
+ * feed request and closing it lost the run. The worker owns that now; this asks
+ * for it and returns.
+ */
 export async function runScan(opts: Opts): Promise<void> {
-  if (opts.dryRun) {
-    // Disarm Slack by blanking the webhook URL before monitorVulns imports it.
-    // The LLM adapter will also fail softly (empty prompt paths) but the scan still runs.
-    process.env.SLACK_WEBHOOK_URL = '';
-    process.stdout.write(
-      'dry-run: Slack webhook disabled, scan will fetch + dedupe but notifications are suppressed\n'
-    );
-  } else {
-    process.stdout.write(
-      'warning: this triggers the same Slack notifications as a cron-driven scan\n'
-    );
-  }
+  try {
+    const api = createClient({ baseUrl: opts.api });
+    const result = await api.post<{ accepted: boolean; jobId: string }>('/scan');
 
-  // Dynamic import so environment blanking above happens before module load.
-  const { default: monitorVulns } = await import('#app/application/monitorVulns.js');
-  const started = Date.now();
-  await monitorVulns();
-  const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-  process.stdout.write(`Scan complete in ${elapsed}s. See logs for details.\n`);
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      return;
+    }
+
+    process.stdout.write(
+      `Monitoring cycle queued (job ${result.jobId}). Follow it with: atalaia status\n`
+    );
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 409) {
+      process.stderr.write('A monitoring cycle is already running.\n');
+    } else {
+      process.stderr.write(`Error: ${(err as Error).message}\n`);
+    }
+    process.exitCode = 1;
+  }
 }

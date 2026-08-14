@@ -40,8 +40,8 @@ function byExposure(a, b) {
  * @returns {{ count: number, total: number, limit: number, offset: number,
  *             atRisk: number, facets: object, repositories: object[] }}
  */
-export function listRepositoriesPage(query = {}) {
-    const rows = queryRepositories({
+export async function listRepositoriesPage(query = {}) {
+    const rows = await queryRepositories({
         search: query.search,
         org: query.org,
         language: query.language,
@@ -52,7 +52,7 @@ export function listRepositoriesPage(query = {}) {
         order: query.order,
     });
 
-    const risk = summarizeFleetRisk();
+    const risk = await summarizeFleetRisk();
 
     let repositories = rows.map(row => ({
         ...row,
@@ -87,7 +87,7 @@ export function listRepositoriesPage(query = {}) {
         // Across everything tracked, not just this page — it is a fleet-wide
         // number and would be meaningless scoped to twenty-five rows.
         atRisk: [...risk.values()].filter(entry => entry.total > 0).length,
-        facets: repositoryFacets(),
+        facets: await repositoryFacets(),
         repositories: page,
     };
 }

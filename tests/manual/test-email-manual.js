@@ -45,7 +45,7 @@ const logger = (await import(`${projectRoot}/src/infrastructure/logger.js`))
   .default;
 
 const { getAll } = await import(
-  `${projectRoot}/src/infrastructure/cache/sqliteCache.js`
+  `${projectRoot}/src/infrastructure/cache/postgresCache.js`
 );
 
 // Color output helpers

@@ -373,20 +373,36 @@ export interface EmailPayload {
 
 export interface FleetScanState {
   running: boolean;
+  /** The queue's job id, once there is one. */
+  jobId?: string | null;
   startedAt: string | null;
+  /**
+   * Written by the worker as it goes, so a field can be missing simply because
+   * the sweep has not reached that stage yet. Optional on purpose: reading
+   * `.length` off an absent array blanked this whole page once.
+   */
   progress: {
-    organizations: { total: number; done: number; current: string | null };
-    repositories: { total: number; done: number; current: string | null };
-    dependencies: number;
-    errors: string[];
+    organizations?: { total: number; done: number; current: string | null };
+    repositories?: {
+      total: number;
+      done: number;
+      current: string | null;
+      concurrency?: number;
+      /** Still being read. The tail of a sweep looks stuck without it. */
+      inFlight?: number;
+    };
+    dependencies?: number;
+    errors?: string[];
   } | null;
   lastRun: {
+    jobId?: string;
     startedAt: string;
     finishedAt: string;
     ok: boolean;
-    repositories: number;
-    dependencies: number;
-    errors: string[];
+    error?: string | null;
+    repositories?: number;
+    dependencies?: number;
+    errors?: string[];
   } | null;
 }
 
@@ -481,4 +497,70 @@ export interface SlackPayload {
     source: 'env' | 'database' | 'config' | 'none';
     mode: string;
   };
+}
+
+/** A vulnerability as the report presents it — the short version, for reading. */
+export interface ReportVulnerability {
+  cveId: string;
+  title: string | null;
+  severity: string;
+  cvssScore: number | null;
+  exploited: boolean;
+  status: string;
+  source: string | null;
+  sourceUrl: string | null;
+  /** The model's explanation, or the advisory text trimmed. Null when neither. */
+  explanation: string | null;
+  /** Only on the affecting section: the dependencies it arrives through. */
+  via?: { dependency: string; ecosystem: string; manifestFile: string | null }[];
+}
+
+/** A section the report caps: `count` is the truth, the rows are a sample. */
+export interface ReportSection {
+  count: number;
+  /** Still open, whatever the window. Absent on sections that do not track it. */
+  openCount?: number;
+  shown: number;
+  vulnerabilities: ReportVulnerability[];
+}
+
+export interface WeeklyReport {
+  generatedAt: string;
+  windowDays: number;
+  since: string;
+  scoped: boolean;
+  totalCount: number;
+  affecting: {
+    count: number;
+    openCount: number;
+    repositories: {
+      id: number;
+      name: string;
+      url: string;
+      worstSeverity: string | null;
+      vulnerabilities: (ReportVulnerability & {
+        via: { dependency: string; ecosystem: string; manifestFile: string | null }[];
+      })[];
+    }[];
+  };
+  infrastructure: ReportSection;
+  other: ReportSection;
+  dependencies: {
+    count: number;
+    repositories: {
+      id: number;
+      name: string;
+      url: string;
+      dependencies: {
+        ecosystem: string;
+        name: string;
+        declared: string | null;
+        latest: string;
+        gap: string | null;
+        manifestFile: string | null;
+      }[];
+    }[];
+  };
+  openTotal: number;
+  openBySeverity: Record<string, number>;
 }
