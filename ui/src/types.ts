@@ -426,6 +426,19 @@ export interface LlmPayload {
   };
 }
 
+export interface TeamsPayload {
+  config: {
+    hasWebhook: boolean;
+    webhookHint: string | null;
+    enabled: boolean;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  };
+  envLocked: boolean;
+  envVars: string[];
+  status: { ready: boolean; reason: string | null; source: 'env' | 'database' | 'none' };
+}
+
 export interface ScanState {
   running: boolean;
   startedAt: string | null;

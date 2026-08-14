@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
+import { Owners } from './Owners';
 import type { SlackPayload } from '../types';
 
 /**
@@ -93,6 +94,7 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
   }
 
   return (
+    <>
     <Window
       title="SLACK.CFG"
       note={status ? (status.ready ? `ready · ${status.mode}` : 'not ready') : undefined}
@@ -304,5 +306,10 @@ export function SlackSettings({ onAuthLost }: { onAuthLost: () => void }) {
         ) : null}
       </Body>
     </Window>
+
+    {/* Owners are what "direct-message the owners" routes to, so they belong
+        with the integration rather than on a page of their own. */}
+    <Owners onAuthLost={onAuthLost} />
+    </>
   );
 }

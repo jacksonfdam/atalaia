@@ -11,7 +11,6 @@ import { Feeds } from './pages/Feeds';
 import { Organizations } from './pages/Organizations';
 import { Repositories } from './pages/Repositories';
 import { RepositoryDetail } from './pages/RepositoryDetail';
-import { Owners } from './pages/Owners';
 import { Settings } from './pages/Settings';
 import type { FeedHealthReport, Stats } from './types';
 
@@ -21,7 +20,6 @@ const NAV = [
   { to: '/feeds', label: 'Sources' },
   { to: '/organizations', label: 'Organizations' },
   { to: '/repositories', label: 'Repositories' },
-  { to: '/owners', label: 'Notifications' },
   { to: '/settings', label: 'Settings' },
 ];
 
@@ -87,7 +85,9 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
           <Route path="/organizations" element={<Organizations onAuthLost={onAuthLost} />} />
           <Route path="/repositories" element={<Repositories onAuthLost={onAuthLost} />} />
           <Route path="/repositories/:id" element={<RepositoryDetail onAuthLost={onAuthLost} />} />
-          <Route path="/owners" element={<Owners onAuthLost={onAuthLost} />} />
+          {/* Owners moved inside the Slack settings; the old link still lands
+              somewhere useful. */}
+          <Route path="/owners" element={<Navigate to="/settings" replace />} />
           <Route path="/settings" element={<Settings onAuthLost={onAuthLost} />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

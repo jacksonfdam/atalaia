@@ -4,6 +4,9 @@ import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
 import { EmailSettings } from './EmailSettings';
 import { LlmSettings } from './LlmSettings';
+import { SlackSettings } from './SlackSettings';
+import { TeamsSettings } from './TeamsSettings';
+import { DesktopAlerts } from './DesktopAlerts';
 import type { SettingsPayload } from '../types';
 
 export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
@@ -113,7 +116,10 @@ export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
         </Body>
       </Window>
 
+      <SlackSettings onAuthLost={onAuthLost} />
+      <TeamsSettings onAuthLost={onAuthLost} />
       <EmailSettings onAuthLost={onAuthLost} />
+      <DesktopAlerts onAuthLost={onAuthLost} />
       <LlmSettings onAuthLost={onAuthLost} />
 
       <Window title="CREDENTIALS.SYS" accent="var(--severity-high)">
