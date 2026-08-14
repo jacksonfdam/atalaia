@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 #
-# Atalaia launcher — brings up the API and the management console, with or
-# without Docker, from a single command.
+# Atalaia launcher — brings up the API, the worker and the management console.
 #
-# Both services need the same secrets, and the console server does not read
-# .env on its own (it is a plain Node process, not a dotenv consumer). This
-# script is the one place that knows how to wire that up in either mode.
+# Containers only. The three services need the same secrets and the console
+# server does not read .env on its own, so something has to wire that up; this
+# script is that something, for either container runtime.
 #
-#   ./scripts/atalaia.sh up            # Docker if the daemon is up, else local
-#   ./scripts/atalaia.sh up --local    # force local processes
-#   ./scripts/atalaia.sh up --docker   # force docker compose
+#   ./scripts/atalaia.sh up               # Docker if it answers, else Apple container
+#   ./scripts/atalaia.sh up --docker      # force docker compose
+#   ./scripts/atalaia.sh up --container   # force Apple's container CLI
 #   ./scripts/atalaia.sh --help
+#
+# Postgres is not one of these services: it is Supabase, local (`supabase
+# start`) or cloud, reached through DATABASE_URL.
 #
 set -euo pipefail
 
@@ -21,7 +23,7 @@ cd "$ROOT"
 # real .env; everything else should leave it unset.
 ENV_FILE="${ATALAIA_ENV_FILE:-$ROOT/.env}"
 ENV_EXAMPLE="$ROOT/.env.example"
-RUN_DIR="$ROOT/.run"
+NETWORK="atalaia"
 
 # ---------------------------------------------------------------------------
 # Output
@@ -177,9 +179,11 @@ ensure_env() {
 API_PORT() { local p="${PORT:-}"; [ -n "$p" ] || p="$(env_get PORT)"; printf '%s' "${p:-3000}"; }
 UI_PORT_() { local p="${UI_PORT:-}"; [ -n "$p" ] || p="$(env_get UI_PORT)"; printf '%s' "${p:-3001}"; }
 
-# ---------------------------------------------------------------------------
-# Health polling
-# ---------------------------------------------------------------------------
+DATABASE_URL_() {
+    local url="${DATABASE_URL:-}"
+    [ -n "$url" ] || url="$(env_get DATABASE_URL)"
+    printf '%s' "$url"
+}
 
 wait_http() {
     local url="$1" label="$2" timeout="${3:-60}" waited=0
@@ -196,7 +200,36 @@ wait_http() {
 }
 
 # ---------------------------------------------------------------------------
-# Docker mode
+# The services
+#
+# One table, two runtimes. docker compose reads docker-compose.yml and Apple's
+# container CLI has no compose at all, so without a single source both would
+# drift — and the drift would only show up as "it works on Docker".
+#
+#   name | image tag | dockerfile | entry command | port variable | health path
+# ---------------------------------------------------------------------------
+
+SERVICES="\
+atalaia|atalaia-api|Dockerfile|node src/interface/index.js|PORT|/health
+atalaia-worker|atalaia-worker|Dockerfile|node src/interface/worker.js||
+atalaia-console|atalaia-console|ui/Dockerfile|node server/index.js|UI_PORT|/healthz"
+
+service_field() {
+    printf '%s\n' "$SERVICES" | awk -F'|' -v want="$1" -v field="$2" '$1 == want { print $field }'
+}
+
+service_names() { printf '%s\n' "$SERVICES" | cut -d'|' -f1; }
+
+service_port() {
+    case "$(service_field "$1" 5)" in
+        PORT)    API_PORT ;;
+        UI_PORT) UI_PORT_ ;;
+        *)       printf '' ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Runtime: Docker Compose
 # ---------------------------------------------------------------------------
 
 compose() {
@@ -210,132 +243,118 @@ compose() {
 docker_ready() { have docker && docker info >/dev/null 2>&1; }
 
 up_docker() {
-    docker_ready || die "Docker is not running. Start Docker Desktop, or use: $0 up --local"
+    log "Starting services with Docker Compose"
 
-    log "Starting Docker services"
-    if [ "$REBUILD" = "1" ]; then
-        compose up -d --build
-    else
-        compose up -d
-    fi
-
-    wait_http "http://localhost:$(API_PORT)/health" "API" 120 || true
-    if [ "$WITH_CONSOLE" = "1" ]; then
-        wait_http "http://localhost:$(UI_PORT_)/healthz" "Console" 120 || true
-    fi
-    summary
+    # DATABASE_URL is interpolated into the compose file, so it has to be in the
+    # environment of the compose command itself, not only in .env.
+    DATABASE_URL="$(DATABASE_URL_)" \
+    PORT="$(API_PORT)" UI_PORT="$(UI_PORT_)" \
+        compose up -d ${REBUILD:+--build} ${WITH_CONSOLE:+} $(services_to_start)
 }
 
 down_docker() {
     docker_ready || return 0
     log "Stopping Docker services"
-    compose down
+    DATABASE_URL="$(DATABASE_URL_)" compose down
 }
 
 # ---------------------------------------------------------------------------
-# Local mode
+# Runtime: Apple container
+#
+# No compose here: each container is started by hand, on a network created for
+# them, and `depends_on: healthy` becomes "poll the health endpoint before
+# starting the next one".
 # ---------------------------------------------------------------------------
 
-pid_file()  { printf '%s/%s.pid' "$RUN_DIR" "$1"; }
-log_file()  { printf '%s/%s.log' "$RUN_DIR" "$1"; }
+container_ready() { have container && container system status >/dev/null 2>&1; }
 
-running() {
-    local pid
-    pid="$(cat "$(pid_file "$1")" 2>/dev/null || true)"
-    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+container_env_args() {
+    local key value
+    for key in $(env_keys); do
+        value="$(env_get "$key")"
+        printf ' --env %s=%s' "$key" "$value"
+    done
+    printf ' --env NODE_ENV=production'
+    printf ' --env DATABASE_URL=%s' "$(DATABASE_URL_)"
 }
 
-stop_service() {
-    local name="$1" pid
-    pid="$(cat "$(pid_file "$name")" 2>/dev/null || true)"
-    [ -n "$pid" ] || return 0
+up_container() {
+    container_ready || die "Apple's container service is not running. Start it with: container system start"
 
-    if kill -0 "$pid" 2>/dev/null; then
-        kill "$pid" 2>/dev/null || true
-        # Give it a moment to close the SQLite handle before forcing.
-        for _ in 1 2 3 4 5 6 7 8 9 10; do
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 0.5
-        done
-        kill -9 "$pid" 2>/dev/null || true
-        ok "Stopped $name (pid $pid)"
-    fi
-    rm -f "$(pid_file "$name")"
-}
+    log "Starting services with Apple container"
+    container network create "$NETWORK" >/dev/null 2>&1 || true
 
-start_service() {
-    local name="$1"; shift
-    if running "$name"; then
-        warn "$name already running (pid $(cat "$(pid_file "$name")"))"
-        return 0
-    fi
-    mkdir -p "$RUN_DIR"
-    "$@" >> "$(log_file "$name")" 2>&1 &
-    echo $! > "$(pid_file "$name")"
-    ok "Started $name (pid $(cat "$(pid_file "$name")")) — logs: .run/${name}.log"
-}
+    local name image dockerfile command port health
+    for name in $(services_to_start); do
+        image="$(service_field "$name" 2)"
+        dockerfile="$(service_field "$name" 3)"
+        command="$(service_field "$name" 4)"
+        port="$(service_port "$name")"
+        health="$(service_field "$name" 6)"
 
-require_pnpm() {
-    have pnpm && return 0
-    have corepack || die "pnpm is required. Install Node 24+ (which ships corepack) then run: corepack enable"
-    corepack enable >/dev/null 2>&1 || true
-    have pnpm || die "pnpm not found after 'corepack enable'. Install it with: npm i -g pnpm"
-}
-
-install_deps() {
-    require_pnpm
-    log "Installing dependencies (pnpm)"
-    pnpm install
-}
-
-build_console() {
-    require_pnpm
-    log "Building the console bundle"
-    pnpm --filter atalaia-console run build
-}
-
-up_local() {
-    require_pnpm
-    [ "$SKIP_INSTALL" = "1" ] || install_deps
-
-    mkdir -p "$RUN_DIR" "$ROOT/data"
-
-    if [ "$DEV" = "1" ]; then
-        start_service api pnpm run dev
-    else
-        start_service api node src/interface/index.js
-    fi
-    wait_http "http://localhost:$(API_PORT)/health" "API" 60 || dim "See .run/api.log"
-
-    if [ "$WITH_CONSOLE" = "1" ]; then
-        if [ ! -d "$ROOT/ui/dist" ] || [ "$REBUILD" = "1" ]; then
-            build_console
+        if [ "$REBUILD" = "1" ] || ! container images list 2>/dev/null | grep -q "^$image "; then
+            log "Building $image"
+            container build --tag "$image" --file "$dockerfile" .
         fi
 
-        local api_url
-        api_url="$(env_get ATALAIA_API_URL)"
-        [ -n "$api_url" ] || api_url="http://localhost:$(API_PORT)"
+        container stop "$name" >/dev/null 2>&1 || true
+        container rm "$name" >/dev/null 2>&1 || true
 
-        # The console server reads plain process env, so the values it needs are
-        # passed explicitly rather than relying on dotenv.
-        start_service console env \
-            NODE_ENV="${NODE_ENV:-production}" \
-            API_KEY="$(env_get API_KEY)" \
-            UI_PASSWORD="$(env_get UI_PASSWORD)" \
-            UI_SESSION_SECRET="$(env_get UI_SESSION_SECRET)" \
-            UI_PORT="$(UI_PORT_)" \
-            ATALAIA_API_URL="$api_url" \
-            node ui/server/index.js
+        local publish=""
+        [ -n "$port" ] && publish="--publish ${port}:${port}"
 
-        wait_http "http://localhost:$(UI_PORT_)/healthz" "Console" 60 || dim "See .run/console.log"
-    fi
+        # The console reaches the API by container name on the shared network,
+        # which is what ATALAIA_API_URL has to say — localhost inside a
+        # container is the container itself.
+        local extra=""
+        [ "$name" = "atalaia-console" ] && extra="--env ATALAIA_API_URL=http://atalaia:$(API_PORT)"
 
-    summary
+        # shellcheck disable=SC2086
+        container run --detach --name "$name" --network "$NETWORK" \
+            $publish $(container_env_args) $extra "$image" $command >/dev/null
+
+        ok "Started $name"
+
+        # Stand in for depends_on: service_healthy.
+        [ -n "$health" ] && [ -n "$port" ] && \
+            wait_http "http://localhost:${port}${health}" "$name" 120 || true
+    done
 }
 
-down_local() {
-    stop_service console
-    stop_service api
+down_container() {
+    container_ready || return 0
+    log "Stopping Apple container services"
+
+    local name
+    for name in $(service_names); do
+        container stop "$name" >/dev/null 2>&1 || true
+        container rm "$name" >/dev/null 2>&1 || true
+    done
+    container network delete "$NETWORK" >/dev/null 2>&1 || true
+}
+
+# ---------------------------------------------------------------------------
+# Runtime selection
+# ---------------------------------------------------------------------------
+
+resolve_runtime() {
+    case "$MODE" in
+        docker)    docker_ready || die "Docker is not running. Start Docker Desktop, or use: $0 up --container"
+                   printf 'docker' ;;
+        container) printf 'container' ;;
+        *)         if docker_ready; then printf 'docker'
+                   elif container_ready; then printf 'container'
+                   else die "No container runtime available. Start Docker Desktop, or install Apple's container CLI."
+                   fi ;;
+    esac
+}
+
+services_to_start() {
+    if [ "$WITH_CONSOLE" = "1" ]; then
+        service_names
+    else
+        service_names | grep -v atalaia-console
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -347,23 +366,35 @@ summary() {
     printf '  API      http://localhost:%s        (health: /health)\n' "$(API_PORT)"
     [ "$WITH_CONSOLE" = "1" ] && \
     printf '  Console  http://localhost:%s        (password: UI_PASSWORD in .env)\n' "$(UI_PORT_)"
-    printf '  Logs     %s\n' "$([ "$MODE" = docker ] && echo 'docker compose logs -f' || echo './scripts/atalaia.sh logs')"
+    printf '  Worker   no port; it takes jobs off the queue\n'
+    printf '  Logs     %s logs\n' "$0"
     echo
 }
 
 cmd_up() {
     ensure_env
+
     for key in API_KEY UI_SESSION_SECRET; do
         is_placeholder "$(env_get "$key")" && die "$key is not configured in .env"
     done
-    if [ "$MODE" = docker ]; then up_docker; else up_local; fi
+
+    [ -n "$(DATABASE_URL_)" ] || die "DATABASE_URL is not set. Point it at Supabase — 'supabase start' locally, or your project's session connection string."
+
+    case "$(resolve_runtime)" in
+        docker)    up_docker ;;
+        container) up_container ;;
+    esac
+
+    wait_http "http://localhost:$(API_PORT)/health" "API" 120 || true
+    [ "$WITH_CONSOLE" = "1" ] && wait_http "http://localhost:$(UI_PORT_)/healthz" "Console" 120 || true
+    summary
 }
 
 cmd_down() {
     case "$MODE" in
-        docker) down_docker ;;
-        local)  down_local ;;
-        *)      down_local; down_docker ;;
+        docker)    down_docker ;;
+        container) down_container ;;
+        *)         down_docker; down_container ;;
     esac
 }
 
@@ -378,35 +409,69 @@ cmd_status() {
         echo
         compose ps
     fi
-    for name in api console; do
-        running "$name" && dim "local $name running (pid $(cat "$(pid_file "$name")"))"
-    done
+
+    if container_ready; then
+        local listed
+        listed="$(container ls 2>/dev/null | grep -E 'atalaia' || true)"
+        [ -n "$listed" ] && { echo; printf '%s\n' "$listed"; }
+    fi
+
     return 0
 }
 
 cmd_logs() {
-    local which="${1:-all}"
-    if [ "$MODE" = docker ] || { [ "$MODE" = auto ] && docker_ready && [ -n "$(compose ps -q 2>/dev/null)" ]; }; then
-        compose logs -f
+    local which="${1:-}"
+
+    if docker_ready && [ -n "$(compose ps -q 2>/dev/null)" ]; then
+        if [ -n "$which" ]; then compose logs -f "$which"; else compose logs -f; fi
         return
     fi
-    case "$which" in
-        api)     tail -f "$(log_file api)" ;;
-        console) tail -f "$(log_file console)" ;;
-        *)       tail -f "$RUN_DIR"/*.log ;;
-    esac
+
+    if container_ready; then
+        container logs --follow "${which:-atalaia}"
+        return
+    fi
+
+    die "Nothing is running."
 }
 
 cmd_doctor() {
     log "Environment"
-    have node   && dim "node    $(node -v)"            || warn "node is not installed (Node 24+ required)"
-    have pnpm   && dim "pnpm    $(pnpm -v)"            || warn "pnpm is not installed — run: corepack enable"
-    docker_ready && dim "docker  $(docker --version)"  || warn "Docker is not available (local mode still works)"
+    have node   && dim "node      $(node -v)"           || warn "node is not installed (Node 24+ required)"
+    have pnpm   && dim "pnpm      $(pnpm -v)"           || warn "pnpm is not installed — run: corepack enable"
+    docker_ready    && dim "docker    $(docker --version)" || dim "docker    not available"
+    container_ready && dim "container Apple container service running" || dim "container not available"
+    docker_ready || container_ready || warn "No container runtime — Atalaia only runs in containers"
     have curl   || warn "curl is not installed — health checks will be skipped"
+    have supabase && dim "supabase  $(supabase --version 2>/dev/null | head -1)" || dim "supabase  CLI not installed (only needed for a local database)"
+
+    log "Database"
+    local url; url="$(DATABASE_URL_)"
+    if [ -z "$url" ]; then
+        warn "DATABASE_URL is not set — run 'supabase start' and point it at the local stack, or use your project's connection string"
+    else
+        case "$url" in
+            *:6543/*)
+                warn "DATABASE_URL uses port 6543, Supabase's transaction pooler. Use the session connection on 5432: pgbouncer in transaction mode breaks prepared statements and LISTEN, which the queue needs." ;;
+            *) dim "DATABASE_URL set" ;;
+        esac
+
+        if have node; then
+            if DATABASE_URL="$url" node -e "
+                const { Client } = require('pg');
+                const c = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 4000 });
+                c.connect().then(() => c.end()).then(() => process.exit(0)).catch(() => process.exit(1));
+            " 2>/dev/null; then
+                ok "Postgres answered"
+            else
+                warn "Could not connect to DATABASE_URL"
+            fi
+        fi
+    fi
 
     log "Configuration"
     if [ -f "$ENV_FILE" ]; then
-        dim ".env     present"
+        dim ".env      present"
         for key in API_KEY UI_PASSWORD UI_SESSION_SECRET; do
             if is_placeholder "$(env_get "$key")"; then
                 warn "$key is unset or still a placeholder — run: $0 init"
@@ -427,7 +492,7 @@ cmd_doctor() {
             [ "$value" = "$(example_get "$key")" ] || continue
             case "$key" in
                 API_KEY|UI_PASSWORD|UI_SESSION_SECRET) continue ;;  # reported above
-                PORT|NODE_ENV|LOG_LEVEL|DB_PATH|CRON_SCHEDULE|WEEKLY_REPORT_CRON|CORS_ORIGINS) continue ;;
+                PORT|NODE_ENV|LOG_LEVEL|DATABASE_URL|CRON_SCHEDULE|WEEKLY_REPORT_CRON|CORS_ORIGINS) continue ;;
                 # These are the keys that pin a whole integration on their own.
                 SLACK_WEBHOOK_URL|SLACK_SIGNING_SECRET|SLACK_APP_TOKEN|SLACK_APP_ID|SLACK_ENABLED|\
                 TEAMS_WEBHOOK_URL|TEAMS_ENABLED|SMTP_HOST|LLM_PROVIDER)
@@ -444,93 +509,86 @@ cmd_doctor() {
         warn ".env is missing — run: $0 init"
     fi
 
-    [ -d "$ROOT/ui/dist" ] && dim "console  bundle built" || dim "console  bundle not built (built on first 'up')"
     return 0
+}
+
+require_pnpm() {
+    have pnpm && return 0
+    have corepack || die "pnpm is required. Install Node 24+ (which ships corepack) then run: corepack enable"
+    corepack enable >/dev/null 2>&1 || true
+    have pnpm || die "pnpm not found after 'corepack enable'. Install it with: npm i -g pnpm"
 }
 
 usage() {
     cat <<'EOF'
-Atalaia launcher — start the API and the management console.
+Atalaia launcher — start the API, the worker and the management console.
 
 Usage: ./scripts/atalaia.sh <command> [options]
 
+Atalaia runs in containers. Postgres is not one of them: it is Supabase, local
+(`supabase start`) or a cloud project, reached through DATABASE_URL.
+
 Commands:
-  up                 Start everything. Uses Docker when the daemon is running,
-                     otherwise falls back to local Node processes.
+  up                 Start everything. Docker if it answers, else Apple container.
   down               Stop everything this script started.
   restart            down + up.
-  status             Health of both services, plus what is currently running.
-  logs [api|console] Follow logs (docker compose logs when running in Docker).
+  status             Health of each service, plus what is currently running.
+  logs [service]     Follow logs. Service names: atalaia, atalaia-worker,
+                     atalaia-console.
   init               Create .env from .env.example and generate missing secrets.
-  install            Install dependencies with pnpm.
+  install            Install dependencies with pnpm (for developing, not running).
   build              Build the console bundle and the CLI.
   test               Run the test suite.
-  doctor             Check prerequisites and configuration.
+  doctor             Check the runtime, the database and the configuration.
 
 Options:
-  --docker           Force Docker mode.
-  --local            Force local mode (no Docker).
-  --dev              Local mode with hot-reload (nodemon).
-  --build            Rebuild images / the console bundle before starting.
-  --no-console       Start the API only.
-  --skip-install     Local mode: do not run `pnpm install`.
-  -h, --help         Show this help.
+  --docker           Force Docker Compose.
+  --container        Force Apple's container CLI.
+  --build            Rebuild images before starting.
+  --no-console       Start the API and the worker only.
+  -h, --help         This.
 
 Examples:
-  ./scripts/atalaia.sh up                 # whatever is available on this machine
-  ./scripts/atalaia.sh up --docker --build
-  ./scripts/atalaia.sh up --local --dev   # hot-reload API, console on :3001
-  ./scripts/atalaia.sh logs api
-  ./scripts/atalaia.sh down
+  ./scripts/atalaia.sh up --build
+  ./scripts/atalaia.sh logs atalaia-worker
+  ./scripts/atalaia.sh doctor
 EOF
 }
 
 # ---------------------------------------------------------------------------
-# Argument parsing
+# Arguments
 # ---------------------------------------------------------------------------
 
-MODE=auto
-DEV=0
-REBUILD=0
-WITH_CONSOLE=1
-SKIP_INSTALL=0
 COMMAND=""
-LOG_TARGET=all
+MODE="auto"
+REBUILD="0"
+WITH_CONSOLE="1"
+ARGS=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
-        --docker)       MODE=docker ;;
-        --local)        MODE=local ;;
-        --dev)          DEV=1; MODE=local ;;
-        --build)        REBUILD=1 ;;
-        --no-console)   WITH_CONSOLE=0 ;;
-        --skip-install) SKIP_INSTALL=1 ;;
-        -h|--help)      usage; exit 0 ;;
-        -*)             die "Unknown option: $1 (try --help)" ;;
-        *)              if [ -z "$COMMAND" ]; then COMMAND="$1"; else LOG_TARGET="$1"; fi ;;
+        --docker)     MODE="docker" ;;
+        --container)  MODE="container" ;;
+        --build)      REBUILD="1" ;;
+        --no-console) WITH_CONSOLE="0" ;;
+        -h|--help)    usage; exit 0 ;;
+        -*)           die "Unknown option: $1" ;;
+        *)            if [ -z "$COMMAND" ]; then COMMAND="$1"; else ARGS+=("$1"); fi ;;
     esac
     shift
 done
 
-COMMAND="${COMMAND:-up}"
-
-# `up` needs a concrete mode; the other commands can stay mode-agnostic.
-if [ "$MODE" = auto ] && [ "$COMMAND" = up ]; then
-    if docker_ready; then MODE=docker; else MODE=local; fi
-    dim "mode: $MODE"
-fi
-
 case "$COMMAND" in
     up)      cmd_up ;;
     down)    cmd_down ;;
-    restart) cmd_down; if [ "$MODE" = auto ]; then docker_ready && MODE=docker || MODE=local; fi; cmd_up ;;
+    restart) cmd_down; cmd_up ;;
     status)  cmd_status ;;
-    logs)    cmd_logs "$LOG_TARGET" ;;
+    logs)    cmd_logs "${ARGS[0]:-}" ;;
     init)    ensure_env ;;
-    install) install_deps ;;
-    build)   install_deps; build_console; require_pnpm; pnpm run build:cli ;;
+    install) require_pnpm; pnpm install ;;
+    build)   require_pnpm; pnpm --filter atalaia-console run build; pnpm run build:cli ;;
     test)    require_pnpm; pnpm test ;;
     doctor)  cmd_doctor ;;
-    help)    usage ;;
-    *)       usage; die "Unknown command: $COMMAND" ;;
+    ""|help) usage ;;
+    *)       die "Unknown command: $COMMAND (try --help)" ;;
 esac
