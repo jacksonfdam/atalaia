@@ -24,6 +24,12 @@ import {
     isEnvConfigured as isLlmEnvConfigured,
 } from '../../infrastructure/llm/llmConfig.js';
 import { testLLM } from '../../infrastructure/llm/llmAdapter.js';
+import {
+    describeTeamsConfig,
+    saveTeamsConfig,
+    isEnvConfigured as isTeamsEnvConfigured,
+} from '../../infrastructure/notifiers/teamsConfig.js';
+import { sendTeamsTestMessage } from '../../infrastructure/notifiers/notifyTeams.js';
 import { generateWeeklyReport } from '../../application/generateWeeklyReport.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -145,6 +151,41 @@ export function createSettingsRoutes(cache) {
             res.status(result.ok ? 200 : 400).json(result);
         } catch (error) {
             logger.error({ err: error }, 'Slack test failed');
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // GET /settings/teams — the channel webhook, if any
+    router.get('/teams', (_req, res) => {
+        res.json(describeTeamsConfig());
+    });
+
+    // PUT /settings/teams
+    router.put('/teams', (req, res) => {
+        if (isTeamsEnvConfigured()) {
+            return res.status(409).json({
+                error: 'Teams is pinned by TEAMS_WEBHOOK_URL in the environment',
+                hint: 'Unset TEAMS_WEBHOOK_URL to manage it from the console.',
+            });
+        }
+
+        const { webhookUrl, enabled, changedBy } = req.body ?? {};
+
+        try {
+            res.json(saveTeamsConfig({ webhookUrl, enabled }, changedBy ?? 'api'));
+        } catch (error) {
+            logger.warn({ err: error }, 'Teams configuration update failed');
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // POST /settings/teams/test — post a real card to the channel
+    router.post('/teams/test', async (_req, res) => {
+        try {
+            const result = await sendTeamsTestMessage();
+            res.status(result.ok ? 200 : 400).json(result);
+        } catch (error) {
+            logger.error({ err: error }, 'Teams test failed');
             res.status(500).json({ error: error.message });
         }
     });

@@ -7,6 +7,7 @@ import { enabledFeeds } from '../infrastructure/feeds/feedRegistry.js';
 import { readFileSync } from 'fs';
 import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
+import { notifyTeams } from '../infrastructure/notifiers/notifyTeams.js';
 import { has, add } from '../infrastructure/cache/sqliteCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
@@ -271,7 +272,9 @@ async function monitorVulns() {
             }
 
             const highlight = vuln.isCritical() || vuln.isExploited();
+            // Both channels, each deciding for itself whether it is configured.
             await notifySlack(vuln, highlight, correlation);
+            await notifyTeams(vuln, highlight, correlation);
             add(vuln);
         }
 
