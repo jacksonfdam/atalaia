@@ -17,9 +17,20 @@
     "allowJs": false,
     "noEmitOnError": false,
     "paths": {
-      "#app/*": ["../*"]
-    }
+      "#app/*": [
+        "../*"
+      ]
+    },
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/cli/**/*.ts", "src/cli/**/*.tsx"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/cli/**/*.ts",
+    "src/cli/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

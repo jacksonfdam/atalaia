@@ -8,7 +8,7 @@ import { runShow } from './commands/show.js';
 import { runAck } from './commands/ack.js';
 import { runResolve } from './commands/resolve.js';
 import { runScan } from './commands/scan.js';
-import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoDeps, runRepoToggle, runRepoRestore, runRepoTech } from './commands/repo.js';
+import { runRepoAdd, runRepoRemove, runRepoList, runRepoScan, runRepoScanStatus, runRepoDeps, runRepoToggle, runRepoRestore, runRepoTech } from './commands/repo.js';
 import { runOwnerAdd, runOwnerRemove, runOwnerList, runOwnerAssign, runOwnerUnassign, runOwnerShow } from './commands/owner.js';
 import { runOrgAdd, runOrgList, runOrgRemove, runOrgUpdate, runOrgImport, runOrgRepos } from './commands/org.js';
 import { runFeedList, runFeedToggle, runFeedReset, runFeedCatalog } from './commands/feed.js';
@@ -19,10 +19,13 @@ program
   .name('atalaia')
   .description('Terminal interface for Atalaia — live dashboard + scriptable commands')
   .version('1.0.0')
-  .option('--db <path>', 'Override the SQLite database path (sets $DB_PATH)')
+  // The CLI is an HTTP client: there is no database path to point at any more,
+  // and pointing every terminal at Postgres would mean handing out the
+  // connection string.
+  .option('--api <url>', 'Atalaia API base URL (default $ATALAIA_API_URL or http://localhost:3000)')
   .hook('preAction', (thisCmd) => {
-    const dbPath = thisCmd.opts().db as string | undefined;
-    if (dbPath) process.env.DB_PATH = dbPath;
+    const api = thisCmd.opts().api as string | undefined;
+    if (api) process.env.ATALAIA_API_URL = api;
   });
 
 program
@@ -110,10 +113,10 @@ program
 program
   .command('scan')
   .description(
-    'Trigger one monitoring cycle now. WARNING: sends Slack notifications for new findings — use --dry-run to suppress.'
+    'Queue one monitoring cycle. The worker runs it, and it sends Slack notifications for new findings.'
   )
-  .option('--dry-run', 'Disarm Slack webhook before running the scan')
-  .action(async (opts: { dryRun?: boolean }) => {
+  .option('--json', 'Emit the queued job as JSON')
+  .action(async (opts: { json?: boolean }) => {
     await runScan(opts);
   });
 
@@ -160,6 +163,14 @@ repo
   .option('--json', 'Emit JSON output')
   .action(async (idOrUrl: string | undefined, opts: Record<string, unknown>) => {
     await runRepoScan(idOrUrl, opts as any);
+  });
+
+repo
+  .command('scan-status')
+  .description('Progress of the fleet scan, or how the last one ended')
+  .option('--json', 'Emit JSON output')
+  .action(async (opts: { json?: boolean }) => {
+    await runRepoScanStatus(opts);
   });
 
 repo

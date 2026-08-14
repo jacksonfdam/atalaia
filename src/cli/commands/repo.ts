@@ -1,88 +1,127 @@
-import { openWritable, openReadonly } from '../lib/db.js';
+import { createClient, type ApiClient } from '../lib/api.js';
 
-interface AddOpts {
+/**
+ * Repository commands, over the API.
+ *
+ * They used to import the application layer and open the database, which is not
+ * something a terminal on someone's laptop should be doing to a Postgres in the
+ * cloud. Every one of these has an endpoint behind it already.
+ */
+
+interface BaseOpts {
+  json?: boolean;
+  api?: string;
+}
+
+interface AddOpts extends BaseOpts {
   name?: string;
   provider?: string;
   branch?: string;
   orgKey?: string;
-  json?: boolean;
 }
 
-interface RemoveOpts {
-  json?: boolean;
-}
-
-interface ListOpts {
+interface ListOpts extends BaseOpts {
   deleted?: boolean;
-  json?: boolean;
 }
 
-interface ScanOpts {
+interface ScanOpts extends BaseOpts {
   all?: boolean;
   skipVendorLookup?: boolean;
-  json?: boolean;
 }
 
-interface DepsOpts {
+interface DepsOpts extends BaseOpts {
   ecosystem?: string;
-  json?: boolean;
+}
+
+interface Repo {
+  id: number;
+  name: string;
+  url: string;
+  provider: string;
+  org_key: string | null;
+  default_branch: string | null;
+  enabled: boolean;
+  deleted_at: string | null;
+  last_scanned_at: string | null;
+}
+
+interface Dependency {
+  ecosystem: string;
+  name: string;
+  version: string | null;
+  opencve_vendor: string | null;
+  opencve_product: string | null;
+}
+
+function fail(err: unknown): void {
+  process.stderr.write(`Error: ${(err as Error).message}\n`);
+  process.exitCode = 1;
+}
+
+/** The API takes an id or a URL in the same position, so nothing to resolve here. */
+function ref(idOrUrl: string): string {
+  return encodeURIComponent(idOrUrl);
 }
 
 export async function runRepoAdd(url: string, opts: AddOpts): Promise<void> {
-  // Dynamic imports to ensure DB_PATH env is set first
-  const { addRepo } = await import('#app/application/manageRepository.js');
   try {
-    const repo = addRepo(url, {
+    const api = createClient({ baseUrl: opts.api });
+    const repo = await api.post<Repo>('/repositories', {
+      url,
       name: opts.name,
       provider: opts.provider,
       orgKey: opts.orgKey,
       defaultBranch: opts.branch || 'main',
     });
+
     if (opts.json) {
       process.stdout.write(JSON.stringify(repo, null, 2) + '\n');
-    } else {
-      process.stdout.write(`Added repository: ${repo.name} (${repo.url})\n`);
-      process.stdout.write(`  Provider: ${repo.provider}\n`);
-      process.stdout.write(`  Branch: ${repo.default_branch}\n`);
-      process.stdout.write(`  ID: ${repo.id}\n`);
+      return;
     }
+
+    process.stdout.write(`Added repository: ${repo.name} (${repo.url})\n`);
+    process.stdout.write(`  Provider: ${repo.provider}\n`);
+    process.stdout.write(`  Branch: ${repo.default_branch}\n`);
+    process.stdout.write(`  ID: ${repo.id}\n`);
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
 }
 
-export async function runRepoRemove(idOrUrl: string, opts: RemoveOpts): Promise<void> {
-  const { removeRepo, getRepoByUrl } = await import('#app/application/manageRepository.js');
+export async function runRepoRemove(idOrUrl: string, opts: BaseOpts): Promise<void> {
   try {
-    const isNumeric = /^\d+$/.test(idOrUrl);
-    const success = isNumeric ? removeRepo(parseInt(idOrUrl, 10)) : removeRepo(idOrUrl);
-    if (success) {
-      process.stdout.write(`Repository soft-deleted: ${idOrUrl}\n`);
-    } else {
-      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-      process.exitCode = 1;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    await api.del(`/repositories/${ref(idOrUrl)}`);
+    process.stdout.write(`Repository soft-deleted: ${idOrUrl}\n`);
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
 }
 
 export async function runRepoList(opts: ListOpts): Promise<void> {
-  const { listRepos } = await import('#app/application/manageRepository.js');
   try {
-    const repos = listRepos({ includeDeleted: opts.deleted });
+    const api = createClient({ baseUrl: opts.api });
+    const params = new URLSearchParams({ limit: '200' });
+    if (opts.deleted) params.set('includeDeleted', 'true');
+
+    const page = await api.get<{ repositories: Repo[]; total: number }>(`/repositories?${params}`);
+    const repos = page.repositories ?? [];
+
     if (opts.json) {
       process.stdout.write(JSON.stringify(repos, null, 2) + '\n');
       return;
     }
+
     if (repos.length === 0) {
       process.stdout.write('No repositories found.\n');
       return;
     }
-    process.stdout.write(`${'ID'.padEnd(5)} ${'Name'.padEnd(40)} ${'Provider'.padEnd(10)} ${'Last Scanned'.padEnd(22)} ${'Status'.padEnd(10)}\n`);
+
+    process.stdout.write(
+      `${'ID'.padEnd(5)} ${'Name'.padEnd(40)} ${'Provider'.padEnd(10)} ${'Last Scanned'.padEnd(22)} ${'Status'.padEnd(10)}\n`
+    );
     process.stdout.write('-'.repeat(90) + '\n');
+
     for (const r of repos) {
       const status = r.deleted_at ? 'DELETED' : r.enabled ? 'ACTIVE' : 'DISABLED';
       const scanned = r.last_scanned_at ? r.last_scanned_at.slice(0, 19) : 'never';
@@ -90,86 +129,91 @@ export async function runRepoList(opts: ListOpts): Promise<void> {
         `${String(r.id).padEnd(5)} ${(r.name || '').slice(0, 38).padEnd(40)} ${(r.provider || '').padEnd(10)} ${scanned.padEnd(22)} ${status.padEnd(10)}\n`
       );
     }
-    process.stdout.write(`\nTotal: ${repos.length} repositories\n`);
+
+    process.stdout.write(`\nTotal: ${page.total ?? repos.length} repositories\n`);
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
 }
 
+/**
+ * Queue a scan — of one repository or of the fleet.
+ *
+ * It used to run here, which meant the terminal held a scan that takes ten
+ * seconds per repository and losing the shell lost the sweep.
+ */
 export async function runRepoScan(idOrUrl: string | undefined, opts: ScanOpts): Promise<void> {
   try {
-    const started = Date.now();
+    const api = createClient({ baseUrl: opts.api });
+    const body = { skipVendorLookup: opts.skipVendorLookup === true };
 
-    if (opts.all || !idOrUrl) {
-      // Scan all repos from all providers
-      const { scanAllRepositories } = await import('#app/application/scanAllRepositories.js');
-      const result = await scanAllRepositories({ skipVendorLookup: opts.skipVendorLookup });
-      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+    const path = opts.all || !idOrUrl ? '/repositories/scan-all' : `/repositories/${ref(idOrUrl)}/scan`;
+    const result = await api.post<{ accepted: boolean; jobId: string }>(path, body);
 
-      if (opts.json) {
-        process.stdout.write(JSON.stringify({ ...result, elapsedSeconds: parseFloat(elapsed) }, null, 2) + '\n');
-      } else {
-        process.stdout.write(`Scan complete in ${elapsed}s\n`);
-        process.stdout.write(`  Repositories: ${result.totalRepos}\n`);
-        process.stdout.write(`  Dependencies found: ${result.totalDeps}\n`);
-        if (result.errors.length > 0) {
-          process.stdout.write(`  Errors: ${result.errors.length}\n`);
-          for (const e of result.errors) {
-            process.stderr.write(`    - ${e}\n`);
-          }
-        }
-      }
-    } else {
-      // Scan a single repo
-      const { getRepoByUrl, getRepo } = await import('#app/application/manageRepository.js');
-      const { scanRepository } = await import('#app/application/scanRepository.js');
-      const { providerForOrg } = await import('#app/application/manageOrganization.js');
-
-      const isNumeric = /^\d+$/.test(idOrUrl);
-      const repo = isNumeric ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
-      if (!repo) {
-        process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-        process.exitCode = 1;
-        return;
-      }
-
-      // Resolves the organization's own token first, then config.json, then env.
-      const provider = providerForOrg(repo.org_key);
-
-      const result = await scanRepository(repo.id, provider, { skipVendorLookup: opts.skipVendorLookup });
-      const elapsed = ((Date.now() - started) / 1000).toFixed(1);
-
-      if (opts.json) {
-        process.stdout.write(JSON.stringify({ ...result, elapsedSeconds: parseFloat(elapsed) }, null, 2) + '\n');
-      } else {
-        process.stdout.write(`Scan complete for ${result.repoName} in ${elapsed}s\n`);
-        process.stdout.write(`  Dependencies: ${result.dependencyCount}\n`);
-        process.stdout.write(`  Ecosystems: ${result.ecosystems.join(', ') || 'none'}\n`);
-        process.stdout.write(`  Unmapped: ${result.unmappedCount}\n`);
-      }
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+      return;
     }
+
+    const what = opts.all || !idOrUrl ? 'Fleet scan' : `Scan of ${idOrUrl}`;
+    process.stdout.write(`${what} queued (job ${result.jobId}).\n`);
+    process.stdout.write('Follow it with: atalaia repo scan-status\n');
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    if ((err as { status?: number }).status === 409) {
+      process.stderr.write('A scan is already running.\n');
+      process.exitCode = 1;
+      return;
+    }
+    fail(err);
+  }
+}
+
+/** Progress of the fleet sweep, as the console polls it. */
+export async function runRepoScanStatus(opts: BaseOpts): Promise<void> {
+  try {
+    const api = createClient({ baseUrl: opts.api });
+    const state = await api.get<{
+      running: boolean;
+      progress: { repositories?: { done: number; total: number; current: string | null } } | null;
+      lastRun: { finishedAt: string; ok: boolean } | null;
+    }>('/repositories/scan-all');
+
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(state, null, 2) + '\n');
+      return;
+    }
+
+    if (!state.running) {
+      const last = state.lastRun;
+      process.stdout.write(
+        last
+          ? `Idle. Last run ${last.ok ? 'succeeded' : 'failed'} at ${last.finishedAt}\n`
+          : 'Idle. No scan has run yet.\n'
+      );
+      return;
+    }
+
+    const repos = state.progress?.repositories;
+    process.stdout.write(
+      repos
+        ? `Running — ${repos.done}/${repos.total} repositories${repos.current ? ` (${repos.current})` : ''}\n`
+        : 'Running…\n'
+    );
+  } catch (err) {
+    fail(err);
   }
 }
 
 export async function runRepoDeps(idOrUrl: string, opts: DepsOpts): Promise<void> {
-  const { getRepoByUrl, getRepo } = await import('#app/application/manageRepository.js');
-  const { getDependenciesByRepo } = await import('#app/infrastructure/cache/repositoryStore.js');
   try {
-    const isNumeric = /^\d+$/.test(idOrUrl);
-    const repo = isNumeric ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
-    if (!repo) {
-      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-      process.exitCode = 1;
-      return;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    const body = await api.get<{ repository: Repo; dependencies: Dependency[] }>(
+      `/repositories/${ref(idOrUrl)}/dependencies`
+    );
 
-    let deps = getDependenciesByRepo(repo.id);
+    let deps = body.dependencies ?? [];
     if (opts.ecosystem) {
-      deps = deps.filter((d: any) => d.ecosystem.toUpperCase() === opts.ecosystem!.toUpperCase());
+      deps = deps.filter(d => d.ecosystem?.toUpperCase() === opts.ecosystem!.toUpperCase());
     }
 
     if (opts.json) {
@@ -178,88 +222,62 @@ export async function runRepoDeps(idOrUrl: string, opts: DepsOpts): Promise<void
     }
 
     if (deps.length === 0) {
-      process.stdout.write(`No dependencies found for ${repo.name}. Run 'atalaia repo scan' first.\n`);
+      process.stdout.write(
+        `No dependencies found for ${body.repository?.name ?? idOrUrl}. Run 'atalaia repo scan' first.\n`
+      );
       return;
     }
 
-    process.stdout.write(`Dependencies for ${repo.name} (${deps.length} total):\n\n`);
-    process.stdout.write(`${'Ecosystem'.padEnd(12)} ${'Name'.padEnd(40)} ${'Version'.padEnd(20)} ${'Vendor/Product'.padEnd(30)}\n`);
+    process.stdout.write(`Dependencies for ${body.repository?.name ?? idOrUrl} (${deps.length} total):\n\n`);
+    process.stdout.write(
+      `${'Ecosystem'.padEnd(12)} ${'Name'.padEnd(40)} ${'Version'.padEnd(20)} ${'Vendor/Product'.padEnd(30)}\n`
+    );
     process.stdout.write('-'.repeat(105) + '\n');
 
     for (const d of deps) {
-      const vp = d.opencve_vendor && d.opencve_product
-        ? `${d.opencve_vendor}/${d.opencve_product}`
-        : '—';
+      const vp =
+        d.opencve_vendor && d.opencve_product ? `${d.opencve_vendor}/${d.opencve_product}` : '—';
       process.stdout.write(
         `${(d.ecosystem || '').padEnd(12)} ${(d.name || '').slice(0, 38).padEnd(40)} ${(d.version || '—').slice(0, 18).padEnd(20)} ${vp.slice(0, 28).padEnd(30)}\n`
       );
     }
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
-}
-
-async function resolveRepo(idOrUrl: string) {
-  const { getRepo, getRepoByUrl } = await import('#app/application/manageRepository.js');
-  return /^\d+$/.test(idOrUrl) ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
 }
 
 /** Turn scanning on or off without losing what has been collected. */
-export async function runRepoToggle(idOrUrl: string, enabled: boolean): Promise<void> {
-  const { setRepoEnabled } = await import('#app/application/manageRepository.js');
+export async function runRepoToggle(idOrUrl: string, enabled: boolean, opts: BaseOpts = {}): Promise<void> {
   try {
-    const repo = await resolveRepo(idOrUrl);
-    if (!repo) {
-      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-      process.exitCode = 1;
-      return;
-    }
-    const updated = setRepoEnabled(repo.id, enabled);
+    const api = createClient({ baseUrl: opts.api });
+    const updated = await api.patch<Repo>(`/repositories/${ref(idOrUrl)}`, { enabled });
     process.stdout.write(`${updated.name} is now ${updated.enabled ? 'enabled' : 'disabled'}\n`);
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
 }
 
-export async function runRepoRestore(idOrUrl: string): Promise<void> {
-  const { restoreRepo } = await import('#app/application/manageRepository.js');
+export async function runRepoRestore(idOrUrl: string, opts: BaseOpts = {}): Promise<void> {
   try {
-    const restored = restoreRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
-    if (!restored) {
-      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-      process.exitCode = 1;
-      return;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    const restored = await api.post<Repo>(`/repositories/${ref(idOrUrl)}/restore`);
     process.stdout.write(`Restored ${restored.name}\n`);
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
 }
 
-export async function runRepoTech(idOrUrl: string, opts: { refresh?: boolean; json?: boolean }): Promise<void> {
-  const { getRepositoryTechnologies, refreshRepositoryLanguages } = await import(
-    '#app/application/repositoryTechnologies.js'
-  );
+export async function runRepoTech(
+  idOrUrl: string,
+  opts: { refresh?: boolean } & BaseOpts
+): Promise<void> {
   try {
-    const repo = await resolveRepo(idOrUrl);
-    if (!repo) {
-      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-      process.exitCode = 1;
-      return;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    const path = `/repositories/${ref(idOrUrl)}/technologies`;
 
     const report = opts.refresh
-      ? await refreshRepositoryLanguages(repo.id)
-      : getRepositoryTechnologies(repo.id);
-
-    if (!report) {
-      process.stderr.write(`Repository not found: ${idOrUrl}\n`);
-      process.exitCode = 1;
-      return;
-    }
+      ? await api.post<TechReport>(path)
+      : await api.get<TechReport>(path);
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(report, null, 2) + '\n');
@@ -276,7 +294,14 @@ export async function runRepoTech(idOrUrl: string, opts: { refresh?: boolean; js
     );
     process.stdout.write(`  Dependencies: ${report.dependencyCount}\n`);
   } catch (err) {
-    process.stderr.write(`Error: ${(err as Error).message}\n`);
-    process.exitCode = 1;
+    fail(err);
   }
+}
+
+interface TechReport {
+  repository: { name: string };
+  languages: { name: string; share: number | null }[];
+  topics: string[];
+  ecosystems: { name: string; packages: number }[];
+  dependencyCount: number;
 }

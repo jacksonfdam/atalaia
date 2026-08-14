@@ -60,7 +60,6 @@
   "dependencies": {
     "@ngrok/ngrok": "^1.7.0",
     "axios": "^1.19.0",
-    "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
     "commander": "^15.0.0",
     "cors": "^2.8.6",
@@ -77,7 +76,6 @@
   },
   "devDependencies": {
     "@jest/globals": "^30.4.1",
-    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "jest": "^30.4.2",

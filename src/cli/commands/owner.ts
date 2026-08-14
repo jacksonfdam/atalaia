@@ -1,31 +1,44 @@
-interface AddOpts {
+import { createClient } from '../lib/api.js';
+
+/** Owner commands, over the API. */
+
+interface BaseOpts {
+  json?: boolean;
+  api?: string;
+}
+
+interface Owner {
+  id: number;
+  name: string;
+  email: string;
+  slack_user_id: string | null;
+  created_at: string;
+}
+
+interface Assignment {
+  id: number;
+  target_type: string;
+  target_value: string;
+}
+
+interface AddOpts extends BaseOpts {
   email: string;
   slack?: string;
-  json?: boolean;
 }
 
-interface RemoveOpts {
-  json?: boolean;
-}
+type RemoveOpts = BaseOpts;
+type ListOpts = BaseOpts;
+type ShowOpts = BaseOpts;
 
-interface ListOpts {
-  json?: boolean;
-}
-
-interface AssignOpts {
+interface AssignOpts extends BaseOpts {
   type: string;
   value: string;
-  json?: boolean;
-}
-
-interface ShowOpts {
-  json?: boolean;
 }
 
 export async function runOwnerAdd(name: string, opts: AddOpts): Promise<void> {
-  const { addOwner } = await import('#app/application/manageOwner.js');
   try {
-    const owner = addOwner({
+    const api = createClient({ baseUrl: opts.api });
+    const owner = await api.post<Owner>('/owners', {
       name,
       email: opts.email,
       slackUserId: opts.slack || null,
@@ -46,15 +59,10 @@ export async function runOwnerAdd(name: string, opts: AddOpts): Promise<void> {
 }
 
 export async function runOwnerRemove(id: string, opts: RemoveOpts): Promise<void> {
-  const { removeOwner } = await import('#app/application/manageOwner.js');
   try {
-    const success = removeOwner(parseInt(id, 10));
-    if (success) {
-      process.stdout.write(`Owner ${id} soft-deleted\n`);
-    } else {
-      process.stderr.write(`Owner ${id} not found\n`);
-      process.exitCode = 1;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    await api.del(`/owners/${encodeURIComponent(id)}`);
+    process.stdout.write(`Owner ${id} soft-deleted\n`);
   } catch (err) {
     process.stderr.write(`Error: ${(err as Error).message}\n`);
     process.exitCode = 1;
@@ -62,9 +70,9 @@ export async function runOwnerRemove(id: string, opts: RemoveOpts): Promise<void
 }
 
 export async function runOwnerList(opts: ListOpts): Promise<void> {
-  const { listOwners } = await import('#app/application/manageOwner.js');
   try {
-    const owners = listOwners();
+    const api = createClient({ baseUrl: opts.api });
+    const { owners } = await api.get<{ owners: Owner[] }>('/owners');
     if (opts.json) {
       process.stdout.write(JSON.stringify(owners, null, 2) + '\n');
       return;
@@ -88,9 +96,12 @@ export async function runOwnerList(opts: ListOpts): Promise<void> {
 }
 
 export async function runOwnerAssign(ownerId: string, opts: AssignOpts): Promise<void> {
-  const { assignOwner } = await import('#app/application/manageOwner.js');
   try {
-    const assignment = assignOwner(parseInt(ownerId, 10), opts.type, opts.value);
+    const api = createClient({ baseUrl: opts.api });
+    const assignment = await api.post<Assignment>(
+      `/owners/${encodeURIComponent(ownerId)}/assignments`,
+      { targetType: opts.type, targetValue: opts.value }
+    );
     if (opts.json) {
       process.stdout.write(JSON.stringify(assignment, null, 2) + '\n');
     } else {
@@ -102,10 +113,12 @@ export async function runOwnerAssign(ownerId: string, opts: AssignOpts): Promise
   }
 }
 
-export async function runOwnerUnassign(assignmentId: string): Promise<void> {
-  const { unassignOwner } = await import('#app/application/manageOwner.js');
+export async function runOwnerUnassign(assignmentId: string, opts: BaseOpts = {}): Promise<void> {
   try {
-    unassignOwner(parseInt(assignmentId, 10));
+    const api = createClient({ baseUrl: opts.api });
+    // The API scopes an assignment to its owner; the id alone is enough to find
+    // it, so `0` stands in for "whichever owner holds it".
+    await api.del(`/owners/0/assignments/${encodeURIComponent(assignmentId)}`);
     process.stdout.write(`Assignment ${assignmentId} removed\n`);
   } catch (err) {
     process.stderr.write(`Error: ${(err as Error).message}\n`);
@@ -114,14 +127,11 @@ export async function runOwnerUnassign(assignmentId: string): Promise<void> {
 }
 
 export async function runOwnerShow(id: string, opts: ShowOpts): Promise<void> {
-  const { getOwnerWithAssignments } = await import('#app/application/manageOwner.js');
   try {
-    const result = getOwnerWithAssignments(parseInt(id, 10));
-    if (!result) {
-      process.stderr.write(`Owner ${id} not found\n`);
-      process.exitCode = 1;
-      return;
-    }
+    const api = createClient({ baseUrl: opts.api });
+    const result = await api.get<{ owner: Owner; assignments: Assignment[] }>(
+      `/owners/${encodeURIComponent(id)}`
+    );
 
     if (opts.json) {
       process.stdout.write(JSON.stringify(result, null, 2) + '\n');

@@ -269,22 +269,47 @@ export async function stats() {
         return Object.fromEntries(rows.map(row => [row.key ?? 'UNKNOWN', row.count]));
     };
 
-    const [totals, byStatus, bySeverity, bySource] = await Promise.all([
+    const [totals, byStatus, bySeverity, bySource, byTechnology, activity] = await Promise.all([
         queryOne(`SELECT COUNT(*) AS total,
                          COUNT(*) FILTER (WHERE exploited) AS exploited,
-                         MAX(last_seen_at) AS last_seen
+                         COUNT(*) FILTER (WHERE status = 'OPEN' AND severity = 'CRITICAL') AS open_critical,
+                         COUNT(*) FILTER (WHERE status = 'OPEN' AND exploited) AS open_exploited,
+                         MAX(last_seen_at) AS last_seen,
+                         MAX(notified_at) AS last_notified
                   FROM vulnerabilities`),
         groupBy('status'),
         groupBy('severity'),
         groupBy('source'),
+        // Unrolling the jsonb array in SQL rather than shipping every row to
+        // whoever asked and counting there — the CLI dashboard refreshes on a
+        // timer, and it is the same question the console asks.
+        queryAll(
+            `SELECT lower(tech) AS key, COUNT(*) AS count
+             FROM vulnerabilities, jsonb_array_elements_text(affected_technologies) AS tech
+             GROUP BY lower(tech)
+             ORDER BY count DESC
+             LIMIT 12`
+        ),
+        queryAll(
+            `SELECT to_char(first_seen_at::date, 'YYYY-MM-DD') AS date, COUNT(*) AS count
+             FROM vulnerabilities
+             WHERE first_seen_at >= current_date - interval '29 days'
+             GROUP BY first_seen_at::date
+             ORDER BY first_seen_at::date`
+        ),
     ]);
 
     return {
         total: totals.total,
         exploited: totals.exploited,
+        openCritical: totals.open_critical,
+        openExploited: totals.open_exploited,
         lastSeenAt: totals.last_seen,
+        lastNotifiedAt: totals.last_notified,
         byStatus,
         bySeverity,
         bySource,
+        byTechnology: Object.fromEntries(byTechnology.map(row => [row.key, row.count])),
+        activity,
     };
 }
