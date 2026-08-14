@@ -185,6 +185,28 @@ DATABASE_URL_() {
     printf '%s' "$url"
 }
 
+# The same URL, as a container has to see it.
+#
+# A local Supabase is on the host, so .env says 127.0.0.1 — which is what the
+# CLI, the tests and `doctor` need. Inside a container that address is the
+# container itself, and the connection is refused. Rather than asking for two
+# connection strings that must be kept in step, the loopback host is translated
+# here, once, on the way in.
+#
+# A remote database is left alone: its host is on the network already.
+container_database_url() {
+    local url; url="$(DATABASE_URL_)"
+
+    case "$url" in
+        *@127.0.0.1:*|*@localhost:*|*@0.0.0.0:*|*@[::1]:*)
+            printf '%s' "$url" | sed -E 's#@(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]):#@host.docker.internal:#'
+            ;;
+        *)
+            printf '%s' "$url"
+            ;;
+    esac
+}
+
 wait_http() {
     local url="$1" label="$2" timeout="${3:-60}" waited=0
     while [ "$waited" -lt "$timeout" ]; do
@@ -247,15 +269,15 @@ up_docker() {
 
     # DATABASE_URL is interpolated into the compose file, so it has to be in the
     # environment of the compose command itself, not only in .env.
-    DATABASE_URL="$(DATABASE_URL_)" \
+    DATABASE_URL="$(container_database_url)" \
     PORT="$(API_PORT)" UI_PORT="$(UI_PORT_)" \
-        compose up -d ${REBUILD:+--build} ${WITH_CONSOLE:+} $(services_to_start)
+        compose up -d ${REBUILD:+--build} $(services_to_start)
 }
 
 down_docker() {
     docker_ready || return 0
     log "Stopping Docker services"
-    DATABASE_URL="$(DATABASE_URL_)" compose down
+    DATABASE_URL="$(container_database_url)" compose down
 }
 
 # ---------------------------------------------------------------------------
@@ -271,11 +293,13 @@ container_ready() { have container && container system status >/dev/null 2>&1; }
 container_env_args() {
     local key value
     for key in $(env_keys); do
+        # DATABASE_URL is appended below, translated for a container.
+        [ "$key" = "DATABASE_URL" ] && continue
         value="$(env_get "$key")"
         printf ' --env %s=%s' "$key" "$value"
     done
     printf ' --env NODE_ENV=production'
-    printf ' --env DATABASE_URL=%s' "$(DATABASE_URL_)"
+    printf ' --env DATABASE_URL=%s' "$(container_database_url)"
 }
 
 up_container() {
@@ -455,6 +479,10 @@ cmd_doctor() {
                 warn "DATABASE_URL uses port 6543, Supabase's transaction pooler. Use the session connection on 5432: pgbouncer in transaction mode breaks prepared statements and LISTEN, which the queue needs." ;;
             *) dim "DATABASE_URL set" ;;
         esac
+
+        if [ "$url" != "$(container_database_url)" ]; then
+            dim "Containers will use $(container_database_url | sed -E 's#://[^@]*@#://…@#')"
+        fi
 
         if have node; then
             if DATABASE_URL="$url" node -e "

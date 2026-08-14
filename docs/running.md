@@ -74,13 +74,23 @@ Nothing mounts a volume: there is no state on this side any more.
 
 ## With Docker directly
 
+One thing the launcher does that a bare `docker compose up` does not: **translate the database host**.
+
+A local Supabase lives on the host, so `.env` says `127.0.0.1` — which is what the CLI, the tests and `doctor` need. Inside a container that address is the container itself, and the connection is refused with `ECONNREFUSED 127.0.0.1:54622`. Compose reads `.env` for interpolation, so it passes the host-shaped URL straight through.
+
+Export a container-reachable URL yourself, or use the launcher:
+
 ```bash
 cp .env.example .env          # or: ./scripts/atalaia.sh init
+
+export DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:54622/postgres
 docker compose up -d --build
 docker compose ps             # all three should be "healthy"
 docker compose logs -f atalaia-worker
 docker compose down
 ```
+
+A remote database needs no translation: its host is already on the network. `./scripts/atalaia.sh doctor` prints the URL the containers will get whenever it differs from the one in `.env`.
 
 More workers, if one is not keeping up:
 

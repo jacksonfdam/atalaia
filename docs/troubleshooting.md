@@ -17,6 +17,7 @@
 | `Cannot decrypt the token for "…"` | `TOKEN_ENCRYPTION_KEY` (or `API_KEY`, when it is the fallback) is not the value the token was stored with. Save the token again. |
 | `GitHub rejected the token for this organization` | The token expired or cannot see that organization. Replace it under **Settings → Organizations**. |
 | `DATABASE_URL is not set` | Atalaia has no database of its own. `supabase start` locally, then put the connection string in `.env`. |
+| A container dies with `ECONNREFUSED 127.0.0.1:5432x` | Inside a container, `127.0.0.1` is that container. Start with `./scripts/atalaia.sh up`, which translates the loopback host, or export `DATABASE_URL` with `host.docker.internal` before a bare `docker compose up`. |
 | The queue never picks anything up | Nothing is consuming it. Check the worker: `./scripts/atalaia.sh logs atalaia-worker`. The API only enqueues. |
 | Odd `prepared statement` or `LISTEN` errors | `DATABASE_URL` points at Supabase's 6543 transaction pooler. Use the session connection on 5432; `doctor` flags this. |
 | A scan says `409` and nothing is running | A worker died mid-job, so the job is still `active`. pg-boss retries it when its expiry window passes — see [queues.md](queues.md) — or cancel it in `pgboss.job`. |

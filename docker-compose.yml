@@ -17,9 +17,14 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-      # host.docker.internal reaches the Supabase stack running on the host.
-      # A cloud project just works: its host is on the internet.
-      - DATABASE_URL=${DATABASE_URL}
+      # Required, and it has to be reachable *from inside a container*: a local
+      # Supabase on 127.0.0.1 is the container itself in here. The launcher
+      # translates loopback to host.docker.internal for you; running compose by
+      # hand means exporting it yourself.
+      - DATABASE_URL=${DATABASE_URL:?set it to a URL a container can reach, or run ./scripts/atalaia.sh up}
+    # Linux does not resolve host.docker.internal on its own.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:${PORT:-3000}/health"]
@@ -41,7 +46,9 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=${DATABASE_URL:?set it to a URL a container can reach, or run ./scripts/atalaia.sh up}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     # No HTTP to check. A worker that cannot reach Postgres exits, and `restart`
     # brings it back — which is the honest signal here.
