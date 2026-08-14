@@ -198,7 +198,7 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 | `BFF_TIMEOUT_MS` | `120000` | Upstream timeout — a repository scan can take minutes. |
 | `BFF_URL` | `http://localhost:3001` | Vite dev-server proxy target. Development only. |
 
-### Slack
+### Chat integrations
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -207,6 +207,8 @@ Configuration comes from `.env` (see [`.env.example`](.env.example)) plus `confi
 | `SLACK_SIGNING_SECRET` | — | Verifies interactive button callbacks. Required for Acknowledge/Resolve. |
 | `SLACK_APP_TOKEN` | — | Dev only: lets Atalaia update the app's Request URL. |
 | `SLACK_APP_ID` | — | Dev only: the app to update. |
+| `TEAMS_WEBHOOK_URL` | — | Microsoft Teams Workflows webhook. Pins the integration to the environment. |
+| `TEAMS_ENABLED` | — | Forces Teams delivery on or off wherever it is configured. |
 | `NGROK_AUTH_TOKEN` | — | Dev only: public tunnel for Slack callbacks. |
 | `NGROK_REGION` | `auto` | ngrok region. |
 
@@ -495,6 +497,8 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `PUT` | `/api/v1/settings/email` | Email provider catalog and delivery configuration. |
 | `GET` `PUT` | `/api/v1/settings/slack` | Slack integration: webhook or bot token, and the destination. |
 | `POST` | `/api/v1/settings/slack/test` | Post a test message to the configured destination. |
+| `GET` `PUT` | `/api/v1/settings/teams` | Microsoft Teams webhook. |
+| `POST` | `/api/v1/settings/teams/test` | Post a test card to the Teams channel. |
 | `GET` `PUT` | `/api/v1/settings/llm` | Model provider catalog and the configured model. |
 | `POST` | `/api/v1/settings/llm/test` | Send one short prompt to the configured model. |
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
@@ -675,6 +679,25 @@ the browser shut, use Slack or the weekly email.
 
 ---
 
+## Microsoft Teams alerts
+
+The second chat integration, configured under **Settings → TEAMS.CFG**. In Teams: channel →
+*Workflows* → “Post to a channel when a webhook request is received”. Paste the URL it gives you.
+
+Alerts arrive as an Adaptive Card carrying the severity, the affected repositories, the owners and a
+link to the advisory. There are **no Acknowledge/Resolve buttons**: those need a registered app with
+an endpoint Teams can call back, which is what Slack's signing secret gives us for free.
+
+A workflow webhook is bound to the channel it was created in, so there is no destination to choose —
+one webhook, one channel. The URL is a credential (anyone holding it can post there), so it is
+encrypted at rest and never returned by the API. `TEAMS_WEBHOOK_URL` and `TEAMS_ENABLED` pin it from
+the environment, same as everywhere else.
+
+Both chat integrations are independent: enable either, both, or neither. A vulnerability is offered
+to each, and each decides for itself whether it is configured.
+
+---
+
 ## Weekly email report
 
 Every Monday at 09:00 (`WEEKLY_REPORT_CRON`) Atalaia emails a digest of **what it detected in the last
@@ -735,8 +758,7 @@ open http://localhost:3001
 | Sources | Enable/disable each source, live per-feed health, and the full database catalog |
 | Organizations | Register GitHub organizations with their own tokens and import their repositories |
 | Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies |
-| Notifications | Slack integration (webhook or bot, channel or person), plus owners and their ecosystem/dependency/repository assignments |
-| Settings | Schedules, email provider, model provider (local or hosted), plus which secrets are configured |
+| Settings | Every integration in one place: Slack (with the owners it routes to), Microsoft Teams, email, desktop notifications and the model provider — plus schedules and which secrets are configured |
 
 **Authentication.** The browser signs in against the console with `UI_PASSWORD` and receives an
 HMAC-signed, HttpOnly session cookie. Requests then go to the console's `/bff` prefix, which
