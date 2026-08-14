@@ -901,7 +901,7 @@ Track progress on the [Project Board](https://github.com/jacksonfdam/atalaia) an
 
 ## Credits
 
-**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Mobile and Security Engineer at [jacksonfdam](https://github.com/jacksonfdam)
+**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Mobile and Security Engineer
 
 Built from the ground up starting September 2025. 
 From initial concept through architecture design, feed integration, Slack workflows, email reporting, and LLM-powered intelligence, a solo effort to give engineering teams the vulnerability visibility they deserve.
