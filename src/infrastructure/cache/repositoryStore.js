@@ -479,6 +479,73 @@ export async function findVulnerabilitiesForRepository(repoId, { includeResolved
 }
 
 /**
+ * Which CVE reaches which repository, and through which dependency.
+ *
+ * The report's job: one row per (vulnerability, repository, dependency), so the
+ * caller can group by whichever of the three it wants. Same join as the exposure
+ * summary — the matching rule lives in one pair of fragments, not in three
+ * hand-written copies that would drift.
+ *
+ * @param {{ since?: string, includeResolved?: boolean }} [options]
+ *   `since` filters on first_seen_at, which is what makes a report weekly.
+ */
+export async function vulnerabilityRepositoryLinks({ since = null, includeResolved = false } = {}) {
+    const clauses = ["r.enabled", 'r.deleted_at IS NULL'];
+    if (!includeResolved) clauses.push("v.status <> 'RESOLVED'");
+    if (since) clauses.push('v.first_seen_at >= @since');
+
+    return queryAll(
+        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
+         SELECT v.cve_id,
+                v.title,
+                v.severity,
+                v.cvss_score,
+                v.exploited,
+                v.status,
+                v.description,
+                v.client_explanation,
+                v.source,
+                v.source_url,
+                v.first_seen_at,
+                r.id   AS repository_id,
+                r.name AS repository_name,
+                r.url  AS repository_url,
+                fleet.name AS dependency,
+                fleet.ecosystem AS ecosystem,
+                fleet.manifest_file AS manifest_file
+         FROM fleet
+         JOIN repositories r ON r.id = fleet.repository_id
+         JOIN tech ON tech.name = fleet.match_name
+         JOIN vulnerabilities v ON v.id = tech.id
+         WHERE ${clauses.join(' AND ')}
+         ORDER BY r.name, v.cvss_score DESC NULLS LAST, v.cve_id`,
+        { since }
+    );
+}
+
+/**
+ * Dependencies whose registry has something newer, per repository.
+ *
+ * The comparison itself is not SQL — a manifest declares a constraint, not a
+ * version, and `compareVersions()` is what knows the difference. This returns
+ * the rows worth comparing: checked, with an answer, and not obviously equal.
+ */
+export async function dependenciesWithLatest() {
+    return queryAll(
+        `SELECT r.id AS repository_id, r.name AS repository_name, r.url AS repository_url,
+                d.ecosystem, d.name, d.version, d.latest_version, d.manifest_file
+         FROM repository_dependencies d
+         JOIN repositories r ON r.id = d.repository_id
+         WHERE d.deleted_at IS NULL
+           AND r.deleted_at IS NULL
+           AND r.enabled
+           AND d.latest_version IS NOT NULL
+           AND d.latest_error IS NULL
+         ORDER BY r.name, d.ecosystem, d.name`
+    );
+}
+
+/**
  * How exposed every tracked repository is, in one pass.
  * Used for the list view, where running the per-repository query N times would
  * mean N round trips for a column.

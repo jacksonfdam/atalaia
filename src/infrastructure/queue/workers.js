@@ -6,9 +6,10 @@ import monitorVulns from '../../application/monitorVulns.js';
 import { scanAllRepositories } from '../../application/scanAllRepositories.js';
 import { scanRepository } from '../../application/scanRepository.js';
 import { checkDependencyVersions } from '../../application/checkDependencyVersions.js';
-import { generateWeeklyReport } from '../../application/generateWeeklyReport.js';
+import { buildReport } from '../../application/buildReport.js';
 import { sendWeeklyEmail } from '../notifiers/emailNotifier.js';
 import { getAll } from '../cache/postgresCache.js';
+import { sendSubscriberDigests } from '../../application/notifySubscribers.js';
 import { getRepository } from '../cache/repositoryStore.js';
 import { providerForOrg } from '../../application/manageOrganization.js';
 
@@ -160,9 +161,14 @@ export async function registerWorkers() {
         QUEUES.REPORT_WEEKLY,
         { batchSize: 1 },
         one(async job => {
-            const report = generateWeeklyReport(await getAll());
+            const cache = { getAll };
+            const report = await buildReport(cache);
             await sendWeeklyEmail(report);
-            logger.info({ jobId: job.id }, 'Weekly report sent');
+
+            // Then the people who asked about one repository in particular.
+            const subscribers = await sendSubscriberDigests(cache);
+
+            logger.info({ jobId: job.id, subscribers }, 'Weekly report sent');
         })
     );
 

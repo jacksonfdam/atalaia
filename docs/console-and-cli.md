@@ -13,8 +13,9 @@ open http://localhost:3001
 |------|-----------------|
 | Overview | Counts by severity/status/source, open criticals, trigger a monitoring cycle |
 | Vulnerabilities | Filter, paginate, acknowledge and resolve |
+| Reports | The weekly digest as the email sends it: findings grouped by repository, each with the dependency it arrives through and a short explanation. *Send now* mails it immediately |
 | Sources | Enable/disable each source, live per-feed health, and the full database catalog |
-| Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies |
+| Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies, and subscribe someone to be told when a CVE reaches one |
 | Settings | Everything configurable, one tab at a time |
 
 Settings is tabbed, because stacking every integration on one page made the bottom of it unreachable. Each tab has its own URL, so `/settings/slack` is a link you can send someone:

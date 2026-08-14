@@ -39,9 +39,39 @@ Alerts arrive as an Adaptive Card carrying the severity, the affected repositori
 
 A workflow webhook is bound to the channel it was created in, so there is no destination to choose — one webhook, one channel. The URL is a credential (anyone holding it can post there), so it is encrypted at rest and never returned by the API. `TEAMS_WEBHOOK_URL` and `TEAMS_ENABLED` pin it from the environment, same as everywhere else.
 
+## Subscribing to a repository
+
+A vulnerability that reaches a repository is emailed to the people who asked about it, the moment it is detected. A dependency that fell behind is not an incident — a freshness check can mark dozens at once — so those wait for that subscriber's weekly digest.
+
+There is no separate subscriber list: **an owner assigned to a repository is the subscription**. The same rows Slack already direct-messages, so there is one answer to "who cares about this repository" rather than two that drift apart.
+
+Subscribe from the repository's own page, under **NOTIFY.CFG**: pick an owner and press Subscribe. Owners themselves are managed under **Settings → Slack**, where the Slack member id also lives.
+
+| What happens | When | Where it goes |
+|---|---|---|
+| A CVE reaches a subscribed repository | immediately, in the cycle that found it | one email per subscriber, naming the repositories of theirs it reaches and the manifest file it arrives through |
+| A dependency falls behind its registry | the weekly digest | that subscriber's digest, scoped to their repositories |
+
+One email per person per finding, however many of their repositories it reaches: a CVE in a package six of your repositories share is one problem, not six.
+
 ## Weekly email report
 
 Every Monday at 09:00 (`WEEKLY_REPORT_CRON`) Atalaia emails a digest of **what it detected in the last seven days**, with the running total of everything still open shown alongside it. A quiet week reads as "nothing new, 113 open" instead of re-sending the whole backlog. Unrated findings — Ubuntu USN and the CERT feeds publish no CVSS — get their own bucket rather than being dropped.
+
+It is split the way the console splits it, because a report that disagrees with the screen is worse than no report:
+
+| Section | What is in it |
+|---------|---------------|
+| **Affects your code** | The CVE names a dependency of a tracked, enabled repository. Grouped by repository, each finding with the dependency and manifest file it arrives through, and a short explanation. |
+| **Containers & CI only** | It reaches a container image, a GitHub Action, Terraform or Helm — not application code. Capped at 25 rows, with the full count. |
+| **Everything else collected** | Published somewhere, naming nothing this fleet ships. Capped at 25 rows: this is thousands on a real install, and an email that lists them is a database dump. |
+| **Dependencies behind** | Per repository, where the registry has a newer release than the manifest allows. |
+
+The short explanation is the model's when one is configured (**Settings → Model**), otherwise the advisory text trimmed to a paragraph — the same fallback the Slack alert uses.
+
+The header states both numbers a reader might be looking for: what arrived this week, and what is still open. The console's *Affects our code* count folds containers and CI in, so it equals this report's first two sections added together.
+
+**Reading it without waiting for Monday:** the console's **Reports** page renders exactly this payload — `GET /api/v1/reports/weekly`, the same one the email is built from — with a *Send now* button beside it.
 
 Pick a provider under **Settings → Email**, fill in its credential, and save:
 

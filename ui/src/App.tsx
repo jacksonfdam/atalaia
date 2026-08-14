@@ -6,6 +6,7 @@ import { useDesktopAlerts } from './hooks/useDesktopAlerts';
 import { Login } from './pages/Login';
 import { Overview } from './pages/Overview';
 import { Vulnerabilities } from './pages/Vulnerabilities';
+import { Reports } from './pages/Reports';
 import { VulnDetail } from './pages/VulnDetail';
 import { Feeds } from './pages/Feeds';
 import { Repositories } from './pages/Repositories';
@@ -16,6 +17,7 @@ import type { FeedHealthReport, Stats } from './types';
 const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/vulnerabilities', label: 'Vulnerabilities' },
+  { to: '/reports', label: 'Reports' },
   { to: '/feeds', label: 'Sources' },
   { to: '/repositories', label: 'Repositories' },
   { to: '/settings', label: 'Settings' },
@@ -79,6 +81,7 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
           <Route path="/" element={<Overview onAuthLost={onAuthLost} />} />
           <Route path="/vulnerabilities" element={<Vulnerabilities onAuthLost={onAuthLost} />} />
           <Route path="/vulnerabilities/:cveId" element={<VulnDetail onAuthLost={onAuthLost} />} />
+          <Route path="/reports" element={<Reports onAuthLost={onAuthLost} />} />
           <Route path="/feeds" element={<Feeds onAuthLost={onAuthLost} />} />
           <Route path="/repositories" element={<Repositories onAuthLost={onAuthLost} />} />
           <Route path="/repositories/:id" element={<RepositoryDetail onAuthLost={onAuthLost} />} />

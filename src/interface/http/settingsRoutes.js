@@ -30,7 +30,7 @@ import {
     isEnvConfigured as isTeamsEnvConfigured,
 } from '../../infrastructure/notifiers/teamsConfig.js';
 import { sendTeamsTestMessage } from '../../infrastructure/notifiers/notifyTeams.js';
-import { generateWeeklyReport } from '../../application/generateWeeklyReport.js';
+import { buildReport } from '../../application/buildReport.js';
 import logger from '../../infrastructure/logger.js';
 
 const WRITABLE_KEYS = new Set(WRITABLE_SETTINGS.map(setting => setting.key));
@@ -243,7 +243,7 @@ export function createSettingsRoutes(cache) {
 
             // Sends the current digest when there is one, so the operator sees
             // the real template rather than an empty sample.
-            const report = cache ? generateWeeklyReport(await cache.getAll()) : null;
+            const report = cache ? await buildReport(cache) : null;
             const result = await sendTestEmail(report);
 
             res.status(result.ok ? 200 : 400).json(result);

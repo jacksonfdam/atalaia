@@ -17,7 +17,10 @@ jest.unstable_mockModule('nodemailer', () => ({
 
 const nodemailer = (await import('nodemailer')).default;
 const { generateWeeklyReport } = await import('../src/application/generateWeeklyReport.js');
-const { sendWeeklyEmail, formatReportHtml } = await import(
+const { formatReportHtmlProfessional } = await import(
+  '../src/infrastructure/notifiers/emailTemplates.js'
+);
+const { sendWeeklyEmail } = await import(
   '../src/infrastructure/notifiers/emailNotifier.js'
 );
 
@@ -57,9 +60,9 @@ describe('Email Functionality', () => {
 
       // Should include CVE-1 and CVE-2, exclude CVE-3 (RESOLVED)
       expect(report.totalCount).toBe(2);
-      expect(report.vulnerabilities.CRITICAL).toHaveLength(1);
-      expect(report.vulnerabilities.HIGH).toHaveLength(1);
-      expect(report.vulnerabilities.MEDIUM).toHaveLength(0);
+      // Nothing links these to a repository, so they are 'everything else'.
+      expect(report.other.count).toBe(2);
+      expect(report.affecting.count).toBe(0);
     });
 
     it('should group vulnerabilities by severity', () => {
@@ -88,10 +91,10 @@ describe('Email Functionality', () => {
 
       const report = generateWeeklyReport(vulns);
 
-      expect(report.vulnerabilities.CRITICAL).toHaveLength(2);
-      expect(report.vulnerabilities.HIGH).toHaveLength(1);
-      expect(report.vulnerabilities.MEDIUM).toHaveLength(1);
       expect(report.totalCount).toBe(4);
+      expect(report.other.count).toBe(4);
+      // Severity still orders the rows inside a section.
+      expect(report.other.vulnerabilities[0].severity).toBe('CRITICAL');
     });
 
     it('should return null when no vulnerabilities match filter', () => {
@@ -156,138 +159,125 @@ describe('Email Functionality', () => {
   // Test Suite 2: HTML Formatting
   // ============================================
 
-  describe('HTML Formatting - formatReportHtml()', () => {
-    it('should generate valid HTML with proper structure', () => {
-      const report = {
-        generatedAt: '2026-03-10T10:00:00Z',
-        totalCount: 2,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cve_id: 'CVE-2026-0001',
-              status: 'OPEN',
-              source: 'CISA',
-              affectedTechnologies: ['nodejs', 'npm'],
-            },
-          ],
-          HIGH: [
-            {
-              cve_id: 'CVE-2026-0002',
-              status: 'ACKNOWLEDGED',
-              source: 'NVD',
-              affected_technologies: 'docker,kubernetes',
-            },
-          ],
-          MEDIUM: [],
-          LOW: [],
-        },
-      };
+  describe('HTML formatting — the template that actually ships', () => {
+    const report = {
+      generatedAt: '2026-03-10T10:00:00Z',
+      windowDays: 7,
+      totalCount: 3,
+      openTotal: 12,
+      openBySeverity: { CRITICAL: 2, HIGH: 4, MEDIUM: 3, LOW: 2, UNKNOWN: 1 },
+      affecting: {
+        count: 1,
+        repositories: [
+          {
+            id: 1,
+            name: 'acme/api',
+            url: 'https://github.com/acme/api',
+            worstSeverity: 'CRITICAL',
+            vulnerabilities: [
+              {
+                cveId: 'CVE-2026-0001',
+                title: 'Prototype pollution in lodash',
+                severity: 'CRITICAL',
+                cvssScore: 9.8,
+                exploited: true,
+                explanation: 'Someone can change how every object behaves.',
+                via: [{ dependency: 'lodash', ecosystem: 'NPM', manifestFile: 'package.json' }],
+              },
+            ],
+          },
+        ],
+      },
+      infrastructure: {
+        count: 1,
+        shown: 1,
+        vulnerabilities: [
+          { cveId: 'CVE-2026-0002', severity: 'HIGH', cvssScore: 7.5, source: 'ghsa', explanation: null },
+        ],
+      },
+      other: {
+        count: 40,
+        shown: 1,
+        vulnerabilities: [
+          { cveId: 'CVE-2026-0003', severity: 'MEDIUM', cvssScore: 5.3, source: 'nvd', explanation: null },
+        ],
+      },
+      dependencies: {
+        count: 1,
+        repositories: [
+          {
+            id: 1,
+            name: 'acme/api',
+            dependencies: [{ ecosystem: 'NPM', name: 'express', declared: '^4.17.1', latest: '5.2.1' }],
+          },
+        ],
+      },
+    };
 
-      const html = formatReportHtml(report);
+    const html = () => formatReportHtmlProfessional(report);
 
-      // Should contain heading
-      expect(html).toContain('Weekly Vulnerability Report');
-      // Should contain timestamp
-      expect(html).toContain('2026-03-10T10:00:00Z');
-      // Should contain total count
-      expect(html).toContain('2');
-      // Should contain table headers
-      expect(html).toContain('CVE ID');
-      expect(html).toContain('Status');
-      expect(html).toContain('Source');
-      expect(html).toContain('Technologies');
-      // Should contain vulnerability data
-      expect(html).toContain('CVE-2026-0001');
-      expect(html).toContain('OPEN');
-      expect(html).toContain('CISA');
-      expect(html).toContain('nodejs');
+    it('names the repository a finding reaches, and the file it arrives through', () => {
+      expect(html()).toContain('acme/api');
+      expect(html()).toContain('CVE-2026-0001');
+      expect(html()).toContain('lodash');
+      expect(html()).toContain('package.json');
     });
 
-    it('should handle camelCase field names (cveId)', () => {
-      const report = {
-        generatedAt: '2026-03-10T10:00:00Z',
-        totalCount: 1,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cveId: 'CVE-2026-0003', // camelCase
-              status: 'OPEN',
-              source: 'Snyk',
-              affectedTechnologies: ['react'],
-            },
-          ],
-          HIGH: [],
-          MEDIUM: [],
-          LOW: [],
-        },
-      };
-
-      const html = formatReportHtml(report);
-
-      expect(html).toContain('CVE-2026-0003');
+    it('carries the short explanation, which is the point of the digest', () => {
+      expect(html()).toContain('Someone can change how every object behaves.');
     });
 
-    it('should handle snake_case field names (cve_id)', () => {
-      const report = {
-        generatedAt: '2026-03-10T10:00:00Z',
-        totalCount: 1,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cve_id: 'CVE-2026-0004', // snake_case
-              status: 'OPEN',
-              source: 'NVD',
-              affected_technologies: 'python,pip',
-            },
-          ],
-          HIGH: [],
-          MEDIUM: [],
-          LOW: [],
-        },
-      };
-
-      const html = formatReportHtml(report);
-
-      expect(html).toContain('CVE-2026-0004');
-      expect(html).toContain('python');
+    it('says a finding is known-exploited', () => {
+      expect(html()).toContain('known exploited');
     });
 
-    it('should skip severity groups with no vulnerabilities', () => {
-      const report = {
-        generatedAt: '2026-03-10T10:00:00Z',
-        totalCount: 1,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cve_id: 'CVE-2026-0005',
-              status: 'OPEN',
-              source: 'Test',
-              affectedTechnologies: ['test'],
-            },
+    it('keeps the three sections apart', () => {
+      const body = html();
+      expect(body).toContain('Affects your code');
+      expect(body).toContain('Containers');
+      expect(body).toContain('Everything else collected');
+    });
+
+    it('states the full count of a capped section rather than the sample size', () => {
+      // 40 collected, 1 listed: the email must not imply there is one.
+      expect(html()).toContain('and 39 more');
+    });
+
+    it('reports dependencies that fell behind', () => {
+      expect(html()).toContain('express');
+      expect(html()).toContain('5.2.1');
+    });
+
+    it('escapes what came from a feed rather than interpolating it raw', () => {
+      const hostile = {
+        ...report,
+        other: {
+          count: 1,
+          shown: 1,
+          vulnerabilities: [
+            { cveId: '<script>alert(1)</script>', severity: 'LOW', cvssScore: null, source: 'nvd', explanation: null },
           ],
-          HIGH: [],
-          MEDIUM: [],
-          LOW: [],
         },
       };
 
-      const html = formatReportHtml(report);
+      const body = formatReportHtmlProfessional(hostile);
+      expect(body).not.toContain('<script>alert(1)</script>');
+      expect(body).toContain('&lt;script&gt;');
+    });
 
-      // Should contain CRITICAL section
-      expect(html).toContain('CRITICAL');
-      // Should NOT contain empty severity headers
-      const lines = html.split('\n');
-      const highLine = lines.find((l) => l.includes('HIGH'));
-      if (highLine) {
-        // If HIGH exists, it should have vulnerabilities or be skipped
-        expect(html).not.toContain('<h3>HIGH (0)</h3>');
-      }
+    it('renders a quiet week without throwing', () => {
+      const quiet = {
+        ...report,
+        totalCount: 0,
+        affecting: { count: 0, repositories: [] },
+        infrastructure: { count: 0, shown: 0, vulnerabilities: [] },
+        other: { count: 0, shown: 0, vulnerabilities: [] },
+        dependencies: { count: 0, repositories: [] },
+      };
+
+      expect(formatReportHtmlProfessional(quiet)).toContain('Nothing new reached your repositories');
     });
   });
-
-  // ============================================
-  // Test Suite 3: Email Sending (Mocked)
-  // ============================================
 
   describe('Email Sending - sendWeeklyEmail()', () => {
     it('should not send email when report is null', async () => {
@@ -310,19 +300,11 @@ describe('Email Functionality', () => {
       const report = {
         generatedAt: '2026-03-10T10:00:00Z',
         totalCount: 1,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cve_id: 'CVE-2026-0001',
-              status: 'OPEN',
-              source: 'CISA',
-              affectedTechnologies: ['nodejs'],
-            },
-          ],
-          HIGH: [],
-          MEDIUM: [],
-          LOW: [],
-        },
+        affecting: { count: 0, repositories: [] },
+        infrastructure: { count: 0, shown: 0, vulnerabilities: [] },
+        dependencies: { count: 0, repositories: [] },
+        other: { count: 0, shown: 0, vulnerabilities: [
+        ] },
       };
 
       process.env.EMAIL_RECIPIENTS = 'test@example.com';
@@ -339,7 +321,7 @@ describe('Email Functionality', () => {
       const emailCall = mockSendMail.mock.calls[0][0];
       expect(emailCall.to).toContain('test@example.com');
       expect(emailCall.from).toContain('atalaia@example.com');
-      expect(emailCall.subject).toContain('Weekly');
+      expect(emailCall.subject).toContain('Atalaia');
       expect(emailCall.html).toBeDefined();
       expect(emailCall.html).toContain('Weekly Vulnerability Report');
     });
@@ -353,18 +335,12 @@ describe('Email Functionality', () => {
       const report = {
         generatedAt: '2026-03-10T10:00:00Z',
         totalCount: 1,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cve_id: 'CVE-2026-0001',
-              status: 'OPEN',
-              source: 'CISA',
-            },
-          ],
-          HIGH: [],
-          MEDIUM: [],
-          LOW: [],
-        },
+        affecting: { count: 0, repositories: [] },
+        infrastructure: { count: 0, shown: 0, vulnerabilities: [] },
+        dependencies: { count: 0, repositories: [] },
+        other: { count: 1, shown: 1, vulnerabilities: [
+            { cveId: 'CVE-2026-0001', severity: 'CRITICAL', status: 'OPEN', source: 'CISA', cvssScore: null, exploited: false, explanation: null }
+        ] },
       };
 
       process.env.SMTP_HOST = 'smtp.test.com';
@@ -381,18 +357,12 @@ describe('Email Functionality', () => {
       const report = {
         generatedAt: '2026-03-10T10:00:00Z',
         totalCount: 1,
-        vulnerabilities: {
-          CRITICAL: [
-            {
-              cve_id: 'CVE-2026-0001',
-              status: 'OPEN',
-              source: 'CISA',
-            },
-          ],
-          HIGH: [],
-          MEDIUM: [],
-          LOW: [],
-        },
+        affecting: { count: 0, repositories: [] },
+        infrastructure: { count: 0, shown: 0, vulnerabilities: [] },
+        dependencies: { count: 0, repositories: [] },
+        other: { count: 1, shown: 1, vulnerabilities: [
+            { cveId: 'CVE-2026-0001', severity: 'CRITICAL', status: 'OPEN', source: 'CISA', cvssScore: null, exploited: false, explanation: null }
+        ] },
       };
 
       // Should handle gracefully without crashing
@@ -440,7 +410,7 @@ describe('Email Functionality', () => {
       expect(report.totalCount).toBe(2);
 
       // Step 2: Format HTML
-      const html = formatReportHtml(report);
+      const html = formatReportHtmlProfessional(report);
       expect(html).toContain('CVE-2026-0001');
       expect(html).toContain('CVE-2026-0002');
       expect(html).toContain('CRITICAL');

@@ -13,6 +13,7 @@ import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
 import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
 import { correlateVulnerability } from './correlateVulnerability.js';
+import { notifyRepositorySubscribers } from './notifySubscribers.js';
 import { getAllUniqueDependencies, listRepositories } from '../infrastructure/cache/repositoryStore.js';
 
 const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
@@ -282,6 +283,17 @@ async function monitorVulns() {
             // Both channels, each deciding for itself whether it is configured.
             await notifySlack(vuln, highlight, correlation);
             await notifyTeams(vuln, highlight, correlation);
+
+            // And the people who asked about one of these repositories in
+            // particular. Immediate, because a CVE in something you ship is not
+            // a Monday problem — a dependency that fell behind is, and that one
+            // waits for the digest.
+            try {
+                await notifyRepositorySubscribers(vuln, correlation.affectedRepositories);
+            } catch (err) {
+                logger.warn({ cveId: vuln.cveId, err }, 'Could not notify repository subscribers');
+            }
+
             await add(vuln);
         }
 
