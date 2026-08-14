@@ -53,7 +53,17 @@ export function DesktopAlerts({ onAuthLost }: { onAuthLost: () => void }) {
             actions={
                 alerts.permission === 'granted' ? (
                     <>
-                        <button onClick={() => alerts.sendSample()}>Send test</button>
+                        <button
+                            onClick={() =>
+                                setMessage(
+                                    alerts.sendSample()
+                                        ? 'Sample sent. If nothing appeared on screen, the operating system is holding it back, not Atalaia — on macOS check System Settings → Notifications for your browser, and that Do Not Disturb is off.'
+                                        : 'The browser refused to raise the notification. See the error below.'
+                                )
+                            }
+                        >
+                            Send test
+                        </button>
                         <button onClick={() => alerts.toggle(!alerts.enabled)}>
                             {alerts.enabled ? 'Turn off' : 'Turn on'}
                         </button>
@@ -94,7 +104,7 @@ export function DesktopAlerts({ onAuthLost }: { onAuthLost: () => void }) {
                     <p className="muted">Waiting for the first check…</p>
                 ) : null}
 
-                {alerts.lastError ? <Notice kind="error">Last check failed: {alerts.lastError}</Notice> : null}
+                {alerts.lastError ? <Notice kind="error">Last problem: {alerts.lastError}</Notice> : null}
 
                 {alerts.permission === 'denied' ? (
                     <p className="muted">
