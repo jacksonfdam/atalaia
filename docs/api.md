@@ -22,6 +22,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/vulnerabilities` | List with filters and pagination, including `relevance`. |
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
+| `POST` | `/api/v1/vulnerabilities/:cveId/explain` | Write the plain-English explanation now, for a CVE collected before a model was configured. Answers `400` with the model's own reason when it fails. |
 | `GET` | `/api/v1/technologies` | Current stack filter. |
 | `POST` | `/api/v1/technologies` | Update the stack filter. |
 | `GET` | `/api/v1/feeds` | Every source, its state and its catalog entry. |

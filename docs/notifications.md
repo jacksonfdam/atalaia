@@ -120,6 +120,8 @@ Everything except Anthropic speaks the OpenAI chat-completions shape — Gemini 
 
 The explanation is written once, when the vulnerability is first stored, and travels with the Slack alert and the weekly report. Changing provider takes effect on the next cycle; there is no restart.
 
+Anything collected before a model was configured therefore has none. **Explain**, on the CVE's page, writes it on demand — and rewrites it, if a better model is configured since.
+
 ```bash
 curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/settings/llm
 
