@@ -16,5 +16,10 @@
 | GHSA returns 403 | Unauthenticated GitHub calls get 60 requests/hour per IP. Set `GITHUB_TOKEN`. |
 | `Cannot decrypt the token for "…"` | `TOKEN_ENCRYPTION_KEY` (or `API_KEY`, when it is the fallback) is not the value the token was stored with. Save the token again. |
 | `GitHub rejected the token for this organization` | The token expired or cannot see that organization. Replace it under **Settings → Organizations**. |
-| Docker build is slow the first time | `better-sqlite3` is compiled from source — no musl prebuilds. Later builds are cached. |
-| No console bundle in local mode | `pnpm --filter atalaia-console run build`, or `./scripts/atalaia.sh up --local --build`. |
+| `DATABASE_URL is not set` | Atalaia has no database of its own. `supabase start` locally, then put the connection string in `.env`. |
+| The queue never picks anything up | Nothing is consuming it. Check the worker: `./scripts/atalaia.sh logs atalaia-worker`. The API only enqueues. |
+| Odd `prepared statement` or `LISTEN` errors | `DATABASE_URL` points at Supabase's 6543 transaction pooler. Use the session connection on 5432; `doctor` flags this. |
+| A scan says `409` and nothing is running | A worker died mid-job, so the job is still `active`. pg-boss retries it when its expiry window passes — see [queues.md](queues.md) — or cancel it in `pgboss.job`. |
+| `LOG_LEVEL=... is not a pino level` | Only `trace debug info warn error fatal silent` exist. The service carries on at `info` rather than refusing to boot. |
+| No console bundle in the image | `./scripts/atalaia.sh up --build`. |
+| `atalaia` (CLI) cannot reach the API | It is an HTTP client now: export `API_KEY`, and `ATALAIA_API_URL` if the API is not on `localhost:3000`. |

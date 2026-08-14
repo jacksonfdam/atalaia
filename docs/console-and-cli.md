@@ -35,9 +35,12 @@ Settings is tabbed, because stacking every integration on one page made the bott
 
 ## CLI
 
-A terminal client ships with the package — a live dashboard plus scriptable commands. It reads the SQLite database directly, so it runs wherever the database file is.
+A terminal client ships with the package — a live dashboard plus scriptable commands. It is an **HTTP client of the API**, with the same key the console uses: there is no database connection to hand out.
 
 ```bash
+export API_KEY=...                          # the same one the API has
+export ATALAIA_API_URL=http://localhost:3000  # or pass --api <url>
+
 pnpm run build:cli       # compile to dist/ (also runs on `pnpm install`)
 node bin/atalaia.js --help
 pnpm run dev:cli         # run from source with tsx
@@ -51,10 +54,10 @@ pnpm run dev:cli         # run from source with tsx
 | `atalaia show <cve-id>` | Details, explanation and timeline. |
 | `atalaia ack <cve-id>` | OPEN → ACKNOWLEDGED. `--actor` |
 | `atalaia resolve <cve-id>` | → RESOLVED. `--actor` |
-| `atalaia scan` | Run a monitoring cycle now. `--dry-run` disarms the Slack webhook. |
+| `atalaia scan` | Queue a monitoring cycle. The worker runs it. |
 | `atalaia feed list\|enable\|disable\|reset\|catalog` | Sources and the database catalog. `--all`, `--json` |
 | `atalaia org add\|list\|repos\|import\|enable\|disable\|token\|remove` | Organizations and their read-only tokens. `--token`, `--only`, `--no-languages` |
-| `atalaia repo add\|remove\|restore\|enable\|disable\|list\|scan\|deps\|tech` | Monitored repositories. `--all`, `--ecosystem`, `--refresh`, … |
+| `atalaia repo add\|remove\|restore\|enable\|disable\|list\|scan\|scan-status\|deps\|tech` | Monitored repositories. `--all`, `--ecosystem`, `--refresh`, … A scan is queued, and `scan-status` follows it. |
 | `atalaia owner add\|remove\|list\|show\|assign\|unassign` | Owners and assignments. |
 
-`--db <path>` overrides the database location for any command.
+`--api <url>` points any command at another API; `ATALAIA_API_URL` does the same for every command. There is no `--db` any more — the CLI does not open the database.

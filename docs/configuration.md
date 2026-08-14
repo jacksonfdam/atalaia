@@ -2,6 +2,8 @@
 
 Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `config.json` for feed URLs and the technology filter. Values in `config.json` support `${ENV_VAR}` substitution, and a few keys (`CRON_SCHEDULE`, `SLACK_ENABLED`) can be overridden from the environment.
 
+`DATABASE_URL` is the one variable Atalaia cannot start without. Everything else has a default or an off switch.
+
 **Optional integrations ship commented out, and should stay that way until you have real values.** A variable set here beats the console, so a placeholder webhook or SMTP host is not harmless: Atalaia treats it as deliberate configuration, greys out the matching console section, and fails every **Send test** against it. `./scripts/atalaia.sh doctor` flags any value in `.env` that is still the one from `.env.example`.
 
 ## Core
@@ -13,8 +15,10 @@ Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `co
 | `HOST` | `0.0.0.0` | API bind address. |
 | `NODE_ENV` | — | `production` disables the ngrok/Slack dev bootstrap. |
 | `LOG_LEVEL` | `info` | Pino level: `trace`…`fatal`. |
-| `DB_PATH` | `data/atalaia.db` | SQLite file. `/app/data/atalaia.db` in Docker. |
-| `CRON_SCHEDULE` | `0 * * * *` | Monitoring cycle; overrides `config.json`. |
+| `DATABASE_URL` | — | **Required.** Postgres (Supabase). Use the **session** connection on port 5432, not the 6543 transaction pooler: pgbouncer in transaction mode breaks prepared statements and `LISTEN`, and the queue needs both. |
+| `DATABASE_POOL_MAX` | `10` | Connections per process. |
+| `PGBOSS_SCHEMA` | `pgboss` | Schema the queue keeps its own tables in. |
+| `CRON_SCHEDULE` | `0 * * * *` | Monitoring cycle; overrides `config.json`. Registered in the database by the worker, so a change takes effect when the worker restarts. |
 | `CORS_ORIGINS` | `http://localhost:3000` | Comma-separated allowed origins. |
 
 ## Console
@@ -25,7 +29,7 @@ Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `co
 | `UI_SESSION_SECRET` | — | **Required.** Cookie signing key — `openssl rand -hex 32`. |
 | `UI_PORT` | `3001` | Console port. |
 | `UI_HOST` | `0.0.0.0` | Console bind address. |
-| `ATALAIA_API_URL` | `http://localhost:3000` | API base URL the console proxies to. |
+| `ATALAIA_API_URL` | `http://localhost:3000` | API base URL the console proxies to — and the one the terminal client uses. |
 | `BFF_TIMEOUT_MS` | `120000` | Upstream timeout — a repository scan can take minutes. |
 | `BFF_URL` | `http://localhost:3001` | Vite dev-server proxy target. Development only. |
 
@@ -57,6 +61,7 @@ Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `co
 | `MITRE_MAX_RECORDS` | `25` | CVE records fetched per cycle from the MITRE delta — one request each. |
 | `REDHAT_PAGE_SIZE` | `100` | CVEs per Red Hat Security Data page. |
 | `USN_LIMIT` | `10` | Ubuntu notices per cycle. A single kernel notice can carry hundreds of CVEs. |
+| `REGISTRY_CONCURRENCY` | `6` | Registry lookups at once during a freshness check. |
 
 ## LLM summaries
 
@@ -101,7 +106,7 @@ Delivery is normally configured from the console (**Settings → Email**), which
 
 The same handful of decisions recur across every feature; knowing them explains most of the behaviour without reading the code.
 
-**Environment beats database beats file.** Anything set as an environment variable wins and turns the matching console field read-only — a deployment can always pin a value, and a write that would have no effect is refused with `409` rather than silently stored. Next comes what the console wrote to SQLite, and last `config.json`, which is the committed default.
+**Environment beats database beats file.** Anything set as an environment variable wins and turns the matching console field read-only — a deployment can always pin a value, and a write that would have no effect is refused with `409` rather than silently stored. Next comes what the console wrote to the database, and last `config.json`, which is the committed default.
 
 **Secrets are encrypted at rest and never come back.** GitHub tokens, SMTP passwords, Slack credentials and LLM keys are stored with AES-256-GCM keyed by `TOKEN_ENCRYPTION_KEY` (or `API_KEY`). The API returns whether one is held and its last four characters, never the value. Changing provider drops the stored key — a SendGrid key is not a Mailgun password.
 

@@ -2,6 +2,8 @@
 
 Everything under `/api/v1` requires the `X-API-Key` header. `/health` is public; `/api/v1/slack/actions` authenticates by Slack signature instead.
 
+Anything that outlives a request is queued rather than run: those endpoints answer `202` with a `jobId`, refuse a second concurrent run with `409`, and report progress on a `GET` at the same path. See [queues.md](queues.md).
+
 ```bash
 curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/vulnerabilities
 curl -H "X-API-Key: $API_KEY" "http://localhost:3000/api/v1/vulnerabilities?severity=CRITICAL"
@@ -15,7 +17,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `GET` | `/health` | Liveness. No auth. |
-| `GET` | `/api/v1/stats` | Counts by severity, status and source. |
+| `GET` | `/api/v1/stats` | Counts by severity, status, source and technology, plus 30 days of activity. |
 | `POST` | `/api/v1/query` | Query by technology list. |
 | `GET` | `/api/v1/vulnerabilities` | List with filters and pagination, including `relevance`. |
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
@@ -36,16 +38,16 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `PATCH` `DELETE` | `/api/v1/repositories/:idOrUrl` | Inspect / enable-disable / soft-delete. |
 | `POST` | `/api/v1/repositories/:idOrUrl/restore` | Undo a soft delete. |
 | `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies, with the latest published version of each. |
-| `GET` `POST` | `/api/v1/repositories/:idOrUrl/versions` | Progress of the freshness check / start one (202, runs detached). |
+| `GET` `POST` | `/api/v1/repositories/:idOrUrl/versions` | Progress of the freshness check / queue one (`202`, or `409` if that repository is already being checked). |
 | `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
-| `POST` | `/api/v1/repositories/:idOrUrl/scan` | Scan one repository. |
-| `GET` `POST` | `/api/v1/repositories/scan-all` | Progress of the fleet scan / start one (202, runs detached). |
+| `POST` | `/api/v1/repositories/:idOrUrl/scan` | Queue a scan of one repository (`202`). |
+| `GET` `POST` | `/api/v1/repositories/scan-all` | Progress of the fleet scan / queue one (`202`, or `409` while one runs). |
 | `GET` `POST` | `/api/v1/owners` | List / create owners. |
 | `GET` `PATCH` `DELETE` | `/api/v1/owners/:id` | Manage one owner. |
 | `POST` | `/api/v1/owners/:id/assignments` | Assign an ecosystem / dependency / repository. |
 | `DELETE` | `/api/v1/owners/:id/assignments/:assignmentId` | Remove an assignment. |
-| `GET` `POST` | `/api/v1/scan` | Monitoring cycle status / trigger one now. |
+| `GET` `POST` | `/api/v1/scan` | Monitoring cycle status / queue one (`202`, or `409` while one runs). |
 | `GET` `PUT` | `/api/v1/settings` | Runtime settings. |
 | `GET` `PUT` | `/api/v1/settings/email` | Email provider catalog and delivery configuration. |
 | `GET` `PUT` | `/api/v1/settings/slack` | Slack integration: webhook or bot token, and the destination. |

@@ -4,6 +4,7 @@
 |----------|---------------|
 | [Running Atalaia](running.md) | The launcher, Docker, plain Node, development mode |
 | [Configuration](configuration.md) | Every environment variable, `config.json`, and the precedence rules |
+| [Queues](queues.md) | The jobs, the schedules, retries, and how to look inside |
 | [Sources](sources.md) | The vulnerability feeds, their defaults and their health |
 | [Organizations and repositories](repositories.md) | GitHub import, dependency scanning, exposure and relevance |
 | [Notifications](notifications.md) | Slack, Microsoft Teams, desktop, weekly email, LLM explanations |
