@@ -1,8 +1,6 @@
 // src/interface/index.js
 import dotenv from "dotenv";
 import logger from "../infrastructure/logger.js";
-import startScheduler from "../infrastructure/scheduler.js";
-import monitorVulns from "../application/monitorVulns.js";
 import { initializeDatabase } from "../infrastructure/cache/postgresCache.js";
 import * as cache from "../infrastructure/cache/postgresCache.js";
 import { createApp } from "./http/createApp.js";
@@ -52,9 +50,7 @@ app.listen(PORT, HOST, async () => {
         }
     }
 
-    // Run scheduler
-    startScheduler();
-
-    // Run an immediate first cycle
-    monitorVulns();
+    // No scheduler and no first cycle here any more: both belong to the worker
+    // process, which is the only thing that takes jobs off the queue. Two API
+    // containers used to mean two of every scheduled run.
 });

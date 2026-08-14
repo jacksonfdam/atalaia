@@ -24,7 +24,6 @@ const cache = await import('#app/infrastructure/cache/postgresCache.js');
 const { initializeDatabase } = cache;
 const { createApp } = await import('#app/interface/http/createApp.js');
 const { query, queryOne } = await import('#app/infrastructure/db/pool.js');
-const { resetFleetScanState } = await import('#app/application/repositoryScanRunner.js');
 const { compareVersions } = await import('#app/application/versionComparison.js');
 const { buildTeamsCard } = await import('#app/infrastructure/notifiers/notifyTeams.js');
 
@@ -328,7 +327,6 @@ describe('repository exposure', () => {
 
 describe('fleet scan', () => {
     beforeEach(() => {
-        resetFleetScanState();
     });
 
     test('reports an idle scanner', async () => {
@@ -344,17 +342,22 @@ describe('fleet scan', () => {
         // 202, not 200: the work outlives the request by design.
         expect(res.status).toBe(202);
         expect(res.body.accepted).toBe(true);
+        expect(res.body.jobId).toEqual(expect.any(String));
     });
 
-    test('records the run once it finishes', async () => {
-        await request(app).post('/api/v1/repositories/scan-all').set(KEY).send({});
+    test('reports the queued job, and refuses a second one', async () => {
+        // The API enqueues; a worker runs it. There is no worker in this
+        // process, so the job stays queued — which is exactly the state the
+        // console polls, and what the second trigger has to be refused against.
+        const first = await request(app).post('/api/v1/repositories/scan-all').set(KEY).send({});
+        expect(first.status).toBe(202);
 
-        // No organizations registered, so the scan resolves on the next tick.
-        await new Promise(resolve => setTimeout(resolve, 50));
+        const state = await request(app).get('/api/v1/repositories/scan-all').set(KEY);
+        expect(state.body.running).toBe(true);
+        expect(state.body.jobId).toBe(first.body.jobId);
 
-        const res = await request(app).get('/api/v1/repositories/scan-all').set(KEY);
-        expect(res.body.running).toBe(false);
-        expect(res.body.lastRun).toMatchObject({ ok: true, repositories: 0 });
+        const second = await request(app).post('/api/v1/repositories/scan-all').set(KEY).send({});
+        expect(second.status).toBe(409);
     });
 });
 

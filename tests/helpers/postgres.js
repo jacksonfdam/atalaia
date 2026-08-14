@@ -42,6 +42,12 @@ export function useSchema(name) {
 
     process.env.DATABASE_URL = url.toString();
 
+    // pg-boss keeps its own schema, and it is global by default: without this a
+    // suite would see the queue of whatever else is using the same database —
+    // including a developer's running worker — and read it as "a cycle is
+    // already running".
+    process.env.PGBOSS_SCHEMA = `${schema}_pgboss`;
+
     return { schema, url: url.toString() };
 }
 
@@ -59,15 +65,24 @@ export async function setUpSchema(schema) {
     await runMigrations();
 }
 
-/** Drop the schema and close the pool. */
+/** Stop the queue, drop both schemas, close the pool. */
 export async function tearDownSchema(schema) {
     const { query, closePool } = await import('#app/infrastructure/db/pool.js');
+    const { stopBoss } = await import('#app/infrastructure/queue/boss.js');
 
+    await stopBoss();
     await query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await query(`DROP SCHEMA IF EXISTS ${schema}_pgboss CASCADE`);
     await closePool();
 }
 
-/** Empty every table without dropping the schema, between tests. */
+/**
+ * Empty every table without dropping the schema, between tests.
+ *
+ * The queue is emptied too: a job left behind by the previous test would make
+ * an exclusive queue refuse the next one, and the failure reads as a broken
+ * endpoint rather than as leftover state.
+ */
 export async function truncateAll() {
     const { query, queryAll } = await import('#app/infrastructure/db/pool.js');
 
@@ -76,8 +91,18 @@ export async function truncateAll() {
          WHERE schemaname = current_schema() AND tablename <> '_migrations'`
     );
 
-    if (rows.length === 0) return;
+    if (rows.length > 0) {
+        const tables = rows.map(row => `"${row.tablename}"`).join(', ');
+        await query(`TRUNCATE ${tables} RESTART IDENTITY CASCADE`);
+    }
 
-    const tables = rows.map(row => `"${row.tablename}"`).join(', ');
-    await query(`TRUNCATE ${tables} RESTART IDENTITY CASCADE`);
+    const queueSchema = process.env.PGBOSS_SCHEMA;
+    if (!queueSchema) return;
+
+    const jobTable = await queryAll(
+        `SELECT tablename FROM pg_tables WHERE schemaname = @schema AND tablename = 'job'`,
+        { schema: queueSchema }
+    );
+
+    if (jobTable.length > 0) await query(`TRUNCATE ${queueSchema}.job CASCADE`);
 }

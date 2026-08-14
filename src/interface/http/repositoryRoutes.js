@@ -7,16 +7,14 @@ import {
     restoreRepo,
     setRepoEnabled,
 } from '../../application/manageRepository.js';
-import { scanRepository } from '../../application/scanRepository.js';
-import { providerForOrg } from '../../application/manageOrganization.js';
 import {
     getRepositoryTechnologies,
     refreshRepositoryLanguages,
 } from '../../application/repositoryTechnologies.js';
 import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.js';
 import { listRepositoriesPage } from '../../application/listRepositories.js';
-import { startFleetScan, fleetScanState } from '../../application/repositoryScanRunner.js';
-import { startVersionCheck, versionCheckState } from '../../application/checkDependencyVersions.js';
+import { enqueue, queueState } from '../../infrastructure/queue/boss.js';
+import { QUEUES } from '../../infrastructure/queue/jobs.js';
 import { compareVersions } from '../../application/versionComparison.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
@@ -39,7 +37,7 @@ export function createRepositoryRoutes() {
     // GET /repositories/scan-all — progress of the running scan, or the last one.
     // Declared before /:idOrUrl so "scan-all" is not parsed as an identifier.
     router.get('/scan-all', async (_req, res) => {
-        res.json(fleetScanState());
+        res.json(await queueState(QUEUES.REPO_SCAN_ALL));
     });
 
     // POST /repositories/scan-all — starts it and returns immediately.
@@ -47,14 +45,19 @@ export function createRepositoryRoutes() {
     // Scanning a hundred repositories takes far longer than any HTTP client
     // waits, so the work is detached and the caller polls the GET above.
     router.post('/scan-all', async (req, res) => {
-        const result = startFleetScan({ skipVendorLookup: req.body?.skipVendorLookup === true });
+        const { accepted, jobId } = await enqueue(QUEUES.REPO_SCAN_ALL, {
+            skipVendorLookup: req.body?.skipVendorLookup === true,
+        });
 
-        if (!result.accepted) {
-            return res.status(409).json({ error: 'A repository scan is already running', ...result.state });
+        if (!accepted) {
+            return res.status(409).json({
+                error: 'A repository scan is already running',
+                ...(await queueState(QUEUES.REPO_SCAN_ALL)),
+            });
         }
 
-        logger.info('Fleet scan triggered via API');
-        res.status(202).json({ accepted: true, startedAt: result.startedAt });
+        logger.info({ jobId }, 'Fleet scan queued via API');
+        res.status(202).json({ accepted: true, jobId });
     });
 
     // POST /repositories
@@ -197,7 +200,7 @@ export function createRepositoryRoutes() {
             groups: [...groups.values()].sort((a, b) => b.count - a.count),
             repository,
             dependencies: enriched,
-            versionCheck: versionCheckState(repository.id),
+            versionCheck: await queueState(QUEUES.DEPS_VERSIONS, `repo:${repository.id}`),
         });
     });
 
@@ -206,7 +209,7 @@ export function createRepositoryRoutes() {
         const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
-        res.json(versionCheckState(repository.id));
+        res.json(await queueState(QUEUES.DEPS_VERSIONS, `repo:${repository.id}`));
     });
 
     // POST /repositories/:idOrUrl/versions — look up the latest published
@@ -215,20 +218,28 @@ export function createRepositoryRoutes() {
         const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
-        try {
-            const result = await startVersionCheck(repository.id, {
+        // singletonKey scopes the queue's exclusivity to this repository: two
+        // repositories may be checked at once, the same one may not.
+        const singletonKey = `repo:${repository.id}`;
+
+        const { accepted, jobId } = await enqueue(
+            QUEUES.DEPS_VERSIONS,
+            {
+                repositoryId: repository.id,
                 force: req.body?.force === true,
                 maxAgeHours: req.body?.maxAgeHours,
+            },
+            { singletonKey }
+        );
+
+        if (!accepted) {
+            return res.status(409).json({
+                error: 'A version check is already running',
+                ...(await queueState(QUEUES.DEPS_VERSIONS, singletonKey)),
             });
-
-            if (!result.accepted) {
-                return res.status(409).json({ error: 'A version check is already running', ...result.state });
-            }
-
-            res.status(202).json(result);
-        } catch (error) {
-            res.status(400).json({ error: error.message });
         }
+
+        res.status(202).json({ accepted: true, jobId });
     });
 
     // POST /repositories/:idOrUrl/scan
@@ -236,15 +247,20 @@ export function createRepositoryRoutes() {
         const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
-        try {
-            const result = await scanRepository(repository.id, await providerForOrg(repository.org_key), {
-                skipVendorLookup: req.body?.skipVendorLookup === true,
-            });
-            res.json(result);
-        } catch (error) {
-            logger.error({ repo: repository.name, err: error }, 'Repository scan failed');
-            res.status(500).json({ error: error.message });
+        // Queued rather than run here: a scan reads every manifest in the
+        // repository over the network, which outlives the console's proxy
+        // timeout on anything but a small project.
+        const { accepted, jobId } = await enqueue(QUEUES.REPO_SCAN, {
+            repositoryId: repository.id,
+            skipVendorLookup: req.body?.skipVendorLookup === true,
+        });
+
+        if (!accepted) {
+            return res.status(409).json({ error: 'A scan is already queued for this repository' });
         }
+
+        logger.info({ jobId, repo: repository.name }, 'Repository scan queued');
+        res.status(202).json({ accepted: true, jobId });
     });
 
     return router;

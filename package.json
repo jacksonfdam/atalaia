@@ -36,7 +36,9 @@
     "prepare": "pnpm run build:cli",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
-    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage"
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "start:worker": "node src/interface/worker.js",
+    "dev:worker": "nodemon src/interface/worker.js"
   },
   "jest": {
     "transform": {},
@@ -65,7 +67,6 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "ink": "^7.1.1",
-    "node-cron": "^4.6.0",
     "nodemailer": "^9.0.5",
     "pg": "^8.23.0",
     "pg-boss": "^12.27.0",
