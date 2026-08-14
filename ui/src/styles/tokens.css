@@ -3,10 +3,13 @@
  *
  * Two sources, merged deliberately:
  *
- *  - The window chrome, hard shadows and neon palette come from the reference
- *    design in design/style.css (a Win95-brutalist card feed).
- *  - The severity scale and brand accents come from design/atalaia.pen, so the
- *    console reads as the same product as the deck.
+ *  - The window chrome, hard shadows and neon palette come from a
+ *    Win95-brutalist reference design.
+ *  - The severity scale and brand accents come from the product deck, so the
+ *    console reads as the same product.
+ *
+ * Both sources lived under design/ and are no longer in the repository; these
+ * values are the record of them.
  *
  * One rule overrides the reference: accent colour encodes severity, it never
  * rotates by card position. In a security tool colour has to mean something.
@@ -42,7 +45,7 @@
   --violet: #7a00ff;
   --green: #00ff85;
 
-  /* Brand — design/atalaia.pen */
+  /* Brand — from the product deck */
   --accent-primary: #a855f7;
   --accent-secondary: #ec4899;
   --accent-tertiary: #06b6d4;
@@ -58,7 +61,7 @@
   --ink-ok: #0f6b3c;
   --ink-behind: #b03a00;
 
-  /* Severity — design/atalaia.pen. These drive every accent in the console. */
+  /* Severity — from the product deck. These drive every accent in the console. */
   --severity-critical: #dc3545;
   --severity-high: #fd7e14;
   --severity-medium: #ffc107;
