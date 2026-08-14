@@ -2,19 +2,40 @@ import { query, queryAll, queryOne, withTransaction } from '../db/pool.js';
 import logger from '../logger.js';
 
 /**
- * "This dependency is named in that CVE."
+ * "Which CVE names which dependency."
  *
- * affected_technologies is a jsonb array, so the test is equality over its
- * elements. Written once here and once in postgresCache.js, where the same
- * question drives the relevance counters — the two must agree, and a shared
- * fragment across modules would hide that they are the same rule.
+ * One row per (vulnerability, lowercased technology it names), to be joined
+ * against the fleet on equality. It was a correlated EXISTS that re-unrolled
+ * each vulnerability's jsonb array once per candidate dependency — thirteen
+ * million comparisons on a fleet of four hundred repositories, and a request
+ * that took the best part of a minute. Unrolling once and hash-joining is the
+ * same answer in a fraction of the time.
+ *
+ * Written here and in postgresCache.js, where the same question drives the
+ * relevance counters: the two must agree, and hiding it behind a shared fragment
+ * would make it easy to change one and not the other.
  */
-const NAMES_DEPENDENCY = `EXISTS (
-    SELECT 1
-    FROM jsonb_array_elements_text(v.affected_technologies) AS tech
-    WHERE lower(tech) = lower(d.name)
-       OR (d.opencve_product IS NOT NULL AND lower(tech) = lower(d.opencve_product))
-)`;
+const TECHNOLOGY_ROWS = `
+    SELECT v.id, v.cve_id, lower(element) AS name
+    FROM vulnerabilities v,
+         jsonb_array_elements_text(v.affected_technologies) AS element
+`;
+
+/**
+ * One row per (repository, dependency, lowercased name we ship). A CVE can name
+ * the dependency itself or the vendor's product name for it, so both are here.
+ */
+const FLEET_ROWS = `
+    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version,
+           d.manifest_file, lower(d.name) AS match_name
+    FROM repository_dependencies d
+    WHERE d.deleted_at IS NULL
+    UNION ALL
+    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version,
+           d.manifest_file, lower(d.opencve_product) AS match_name
+    FROM repository_dependencies d
+    WHERE d.deleted_at IS NULL AND d.opencve_product IS NOT NULL
+`;
 
 // ── Repositories ──
 
@@ -441,15 +462,16 @@ export async function findVulnerabilitiesForRepository(repoId, { includeResolved
     const statusClause = includeResolved ? '' : "AND v.status <> 'RESOLVED'";
 
     return queryAll(
-        `SELECT v.*,
-                d.name AS matched_dependency,
-                d.ecosystem AS matched_ecosystem,
-                d.version AS matched_version,
-                d.manifest_file AS matched_manifest
-         FROM repository_dependencies d
-         JOIN vulnerabilities v ON ${NAMES_DEPENDENCY}
-         WHERE d.repository_id = @repoId
-           AND d.deleted_at IS NULL
+        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
+         SELECT v.*,
+                fleet.name AS matched_dependency,
+                fleet.ecosystem AS matched_ecosystem,
+                fleet.version AS matched_version,
+                fleet.manifest_file AS matched_manifest
+         FROM fleet
+         JOIN tech ON tech.name = fleet.match_name
+         JOIN vulnerabilities v ON v.id = tech.id
+         WHERE fleet.repository_id = @repoId
            ${statusClause}
          ORDER BY v.cvss_score DESC NULLS LAST, v.cve_id`,
         { repoId }
@@ -465,16 +487,16 @@ export async function findVulnerabilitiesForRepository(repoId, { includeResolved
  */
 export async function summarizeRepositoryExposure() {
     const rows = await queryAll(
-        `SELECT d.repository_id AS "repositoryId",
+        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
+         SELECT fleet.repository_id AS "repositoryId",
                 v.severity AS severity,
                 bool_or(v.exploited) AS exploited,
                 COUNT(DISTINCT v.cve_id) AS total
-         FROM repository_dependencies d
-         JOIN repositories r ON r.id = d.repository_id AND r.deleted_at IS NULL
-         JOIN vulnerabilities v ON ${NAMES_DEPENDENCY}
-         WHERE d.deleted_at IS NULL
-           AND v.status <> 'RESOLVED'
-         GROUP BY d.repository_id, v.severity`
+         FROM fleet
+         JOIN repositories r ON r.id = fleet.repository_id AND r.deleted_at IS NULL
+         JOIN tech ON tech.name = fleet.match_name
+         JOIN vulnerabilities v ON v.id = tech.id AND v.status <> 'RESOLVED'
+         GROUP BY fleet.repository_id, v.severity`
     );
 
     const byRepo = new Map();

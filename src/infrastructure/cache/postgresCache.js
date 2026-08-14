@@ -115,30 +115,40 @@ const SORTABLE_COLUMNS = new Set([
  * actions are dependencies like any other — `infrastructure` is the same
  * question asked of just those ecosystems.
  *
- * The match is an equality test over the elements of the jsonb array, which is
- * what the old LIKE '%"name"%' was approximating against a JSON string.
+ * Written as a set to join against rather than as a correlated EXISTS. The
+ * EXISTS version re-unrolled every vulnerability's jsonb array once per
+ * candidate dependency: with 2200 CVEs and 5800 dependencies that is thirteen
+ * million comparisons and a 50-second request. Unrolling each side once lets
+ * Postgres hash-join them.
  */
-function relevanceExists(kind) {
+function relevantVulnerabilityIds(kind) {
     const ecosystemClause =
         kind === 'infrastructure'
             ? "AND d.ecosystem IN ('DOCKER', 'GITHUB_ACTIONS', 'TERRAFORM', 'HELM')"
             : '';
 
-    return `EXISTS (
-        SELECT 1
-        FROM repository_dependencies d
-        JOIN repositories r ON r.id = d.repository_id
-        WHERE d.deleted_at IS NULL
-          AND r.deleted_at IS NULL
-          AND r.enabled
-          ${ecosystemClause}
-          AND EXISTS (
-            SELECT 1
-            FROM jsonb_array_elements_text(vulnerabilities.affected_technologies) AS tech
-            WHERE lower(tech) = lower(d.name)
-               OR (d.opencve_product IS NOT NULL AND lower(tech) = lower(d.opencve_product))
-          )
-    )`;
+    // A CVE can name the dependency itself or the vendor's product name for it,
+    // so both are in the set of things this fleet ships.
+    return `SELECT DISTINCT tech.vuln_id
+        FROM (
+            SELECT v2.id AS vuln_id, lower(element) AS name
+            FROM vulnerabilities v2,
+                 jsonb_array_elements_text(v2.affected_technologies) AS element
+        ) AS tech
+        JOIN (
+            SELECT lower(d.name) AS name
+            FROM repository_dependencies d
+            JOIN repositories r ON r.id = d.repository_id
+            WHERE d.deleted_at IS NULL AND r.deleted_at IS NULL AND r.enabled
+              ${ecosystemClause}
+            UNION
+            SELECT lower(d.opencve_product) AS name
+            FROM repository_dependencies d
+            JOIN repositories r ON r.id = d.repository_id
+            WHERE d.deleted_at IS NULL AND r.deleted_at IS NULL AND r.enabled
+              AND d.opencve_product IS NOT NULL
+              ${ecosystemClause}
+        ) AS fleet ON fleet.name = tech.name`;
 }
 
 export const QUERY_LIMIT_MAX = 200;
@@ -203,7 +213,7 @@ export async function query(filters = {}) {
     // actions live, so "affects a Docker image or a workflow" is the same
     // question asked of a narrower set of ecosystems.
     if (filters.relevance === 'affecting' || filters.relevance === 'infrastructure') {
-        clauses.push(relevanceExists(filters.relevance));
+        clauses.push(`id IN (${relevantVulnerabilityIds(filters.relevance)})`);
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -249,8 +259,8 @@ export async function relevanceSummary() {
 
     const [total, affecting, infrastructure] = await Promise.all([
         count(openClause),
-        count(`${openClause} AND ${relevanceExists('affecting')}`),
-        count(`${openClause} AND ${relevanceExists('infrastructure')}`),
+        count(`${openClause} AND id IN (${relevantVulnerabilityIds('affecting')})`),
+        count(`${openClause} AND id IN (${relevantVulnerabilityIds('infrastructure')})`),
     ]);
 
     return { total, affecting, infrastructure };
