@@ -1,4 +1,4 @@
-import { getDb } from '../cache/sqliteCache.js';
+import { query, queryAll } from '../db/pool.js';
 import logger from '../logger.js';
 
 /**
@@ -9,14 +9,14 @@ import logger from '../logger.js';
  * reaches existing installations.
  */
 
-/** @returns {Map<string, { enabled: boolean, updatedAt: string, updatedBy: string|null }>} */
-export function listOverrides() {
+/** @returns {Promise<Map<string, { enabled: boolean, updatedAt: string, updatedBy: string|null }>>} */
+export async function listOverrides() {
     try {
-        const rows = getDb().prepare('SELECT name, enabled, updated_at, updated_by FROM feed_state').all();
+        const rows = await queryAll('SELECT name, enabled, updated_at, updated_by FROM feed_state');
         return new Map(
             rows.map(row => [
                 row.name,
-                { enabled: row.enabled === 1, updatedAt: row.updated_at, updatedBy: row.updated_by },
+                { enabled: row.enabled, updatedAt: row.updated_at, updatedBy: row.updated_by },
             ])
         );
     } catch (err) {
@@ -32,23 +32,22 @@ export function listOverrides() {
  * @param {boolean} enabled
  * @param {string} [changedBy]
  */
-export function setEnabled(name, enabled, changedBy) {
-    getDb()
-        .prepare(
-            `INSERT INTO feed_state (name, enabled, updated_at, updated_by)
-             VALUES (@name, @enabled, datetime('now'), @changedBy)
-             ON CONFLICT(name) DO UPDATE SET
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at,
-                updated_by = excluded.updated_by`
-        )
-        .run({ name, enabled: enabled ? 1 : 0, changedBy: changedBy ?? null });
+export async function setEnabled(name, enabled, changedBy) {
+    await query(
+        `INSERT INTO feed_state (name, enabled, updated_at, updated_by)
+         VALUES (@name, @enabled, now(), @changedBy)
+         ON CONFLICT (name) DO UPDATE SET
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by`,
+        { name, enabled: Boolean(enabled), changedBy: changedBy ?? null }
+    );
 
     logger.info({ feed: name, enabled, changedBy }, 'Feed state changed');
 }
 
 /** Drop the override so the source follows the registry default again. */
-export function clearOverride(name) {
-    getDb().prepare('DELETE FROM feed_state WHERE name = ?').run(name);
+export async function clearOverride(name) {
+    await query('DELETE FROM feed_state WHERE name = @name', { name });
     logger.info({ feed: name }, 'Feed override cleared');
 }

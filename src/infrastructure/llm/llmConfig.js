@@ -1,4 +1,4 @@
-import { getDb } from '../cache/sqliteCache.js';
+import { query, queryOne } from '../db/pool.js';
 import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import { getLlmProvider, listLlmProviders } from './llmProviders.js';
 import config from '../config.js';
@@ -14,9 +14,9 @@ import logger from '../logger.js';
 
 const ENV_KEYS = ['LLM_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'OLLAMA_URL', 'OLLAMA_MODEL'];
 
-function readRow() {
+async function readRow() {
     try {
-        return getDb().prepare('SELECT * FROM llm_config WHERE id = 1').get() ?? null;
+        return await queryOne('SELECT * FROM llm_config WHERE id = 1');
     } catch (err) {
         logger.warn({ err }, 'Failed to read the LLM configuration');
         return null;
@@ -58,10 +58,10 @@ function fromEnv() {
  *             provider?: string, api?: string, model?: string, baseUrl?: string,
  *             apiKey?: string|null, kind?: string }}
  */
-export function resolveLlmConfig() {
+export async function resolveLlmConfig() {
     if (isEnvConfigured()) return fromEnv();
 
-    const row = readRow();
+    const row = await readRow();
 
     if (!row) {
         // config.json may still name a provider from before this table existed.
@@ -108,7 +108,7 @@ export function resolveLlmConfig() {
     const baseUrl = row.base_url || descriptor.baseUrl;
 
     const missing = [];
-    if (row.enabled !== 1) missing.push('explanations are switched off');
+    if (!row.enabled) missing.push('explanations are switched off');
     if (descriptor.requiresKey && !apiKey) missing.push('no API key');
     if (!baseUrl) missing.push('no endpoint URL');
 
@@ -126,9 +126,9 @@ export function resolveLlmConfig() {
 }
 
 /** Everything the console renders. Never the key. */
-export function describeLlmConfig() {
-    const row = readRow();
-    const resolved = resolveLlmConfig();
+export async function describeLlmConfig() {
+    const row = await readRow();
+    const resolved = await resolveLlmConfig();
     const descriptor = getLlmProvider(row?.provider ?? resolved.provider ?? 'ollama');
 
     return {
@@ -139,7 +139,7 @@ export function describeLlmConfig() {
             baseUrl: row?.base_url ?? null,
             hasApiKey: Boolean(row?.api_key_cipher),
             apiKeyHint: row?.api_key_hint ?? null,
-            enabled: row?.enabled === 1,
+            enabled: Boolean(row?.enabled),
             updatedAt: row?.updated_at ?? null,
             updatedBy: row?.updated_by ?? null,
         },
@@ -167,11 +167,11 @@ export function describeLlmConfig() {
  * @param {boolean} [input.enabled]
  * @param {string} [changedBy]
  */
-export function saveLlmConfig(input, changedBy) {
+export async function saveLlmConfig(input, changedBy) {
     const descriptor = getLlmProvider(input.provider);
     if (!descriptor) throw new Error(`Unknown LLM provider: ${input.provider}`);
 
-    const current = readRow();
+    const current = await readRow();
 
     let cipher = current?.api_key_cipher ?? null;
     let hint = current?.api_key_hint ?? null;
@@ -198,32 +198,31 @@ export function saveLlmConfig(input, changedBy) {
         hint = null;
     }
 
-    getDb()
-        .prepare(
-            `INSERT INTO llm_config
-                (id, provider, model, base_url, api_key_cipher, api_key_hint, enabled, updated_at, updated_by)
-             VALUES
-                (1, @provider, @model, @baseUrl, @cipher, @hint, @enabled, datetime('now'), @changedBy)
-             ON CONFLICT(id) DO UPDATE SET
-                provider = excluded.provider,
-                model = excluded.model,
-                base_url = excluded.base_url,
-                api_key_cipher = excluded.api_key_cipher,
-                api_key_hint = excluded.api_key_hint,
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at,
-                updated_by = excluded.updated_by`
-        )
-        .run({
+    await query(
+        `INSERT INTO llm_config
+            (id, provider, model, base_url, api_key_cipher, api_key_hint, enabled, updated_at, updated_by)
+         VALUES
+            (1, @provider, @model, @baseUrl, @cipher, @hint, @enabled, now(), @changedBy)
+         ON CONFLICT (id) DO UPDATE SET
+            provider = excluded.provider,
+            model = excluded.model,
+            base_url = excluded.base_url,
+            api_key_cipher = excluded.api_key_cipher,
+            api_key_hint = excluded.api_key_hint,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by`,
+        {
             provider: descriptor.id,
             model: input.model || descriptor.defaultModel || null,
             baseUrl: input.baseUrl || descriptor.baseUrl || null,
             cipher,
             hint,
-            enabled: input.enabled === undefined ? current?.enabled ?? 0 : input.enabled ? 1 : 0,
+            enabled: input.enabled === undefined ? Boolean(current?.enabled) : Boolean(input.enabled),
             changedBy: changedBy ?? null,
-        });
+        }
+    );
 
     logger.info({ provider: descriptor.id, changedBy }, 'LLM configuration saved');
-    return describeLlmConfig();
+    return await describeLlmConfig();
 }

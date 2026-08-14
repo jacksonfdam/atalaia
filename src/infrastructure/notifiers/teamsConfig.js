@@ -1,4 +1,4 @@
-import { getDb } from '../cache/sqliteCache.js';
+import { query, queryOne } from '../db/pool.js';
 import { encrypt, decrypt, maskSecret, canEncrypt } from '../crypto.js';
 import logger from '../logger.js';
 
@@ -9,9 +9,9 @@ import logger from '../logger.js';
  * wins, then this table.
  */
 
-function readRow() {
+async function readRow() {
     try {
-        return getDb().prepare('SELECT * FROM teams_config WHERE id = 1').get() ?? null;
+        return await queryOne('SELECT * FROM teams_config WHERE id = 1');
     } catch (err) {
         logger.warn({ err }, 'Failed to read the Teams configuration');
         return null;
@@ -25,7 +25,7 @@ export function isEnvConfigured() {
 /**
  * @returns {{ ready: boolean, reason?: string, source: 'env'|'database'|'none', webhookUrl?: string }}
  */
-export function resolveTeamsConfig() {
+export async function resolveTeamsConfig() {
     const envSwitch = process.env.TEAMS_ENABLED === undefined ? null : process.env.TEAMS_ENABLED === 'true';
 
     if (isEnvConfigured()) {
@@ -38,7 +38,7 @@ export function resolveTeamsConfig() {
         };
     }
 
-    const row = readRow();
+    const row = await readRow();
     if (!row) return { ready: false, reason: 'Teams is not configured', source: 'none' };
 
     let webhookUrl = null;
@@ -57,7 +57,7 @@ export function resolveTeamsConfig() {
 
     const missing = [];
     if (envSwitch === false) missing.push('TEAMS_ENABLED=false in the environment');
-    else if (row.enabled !== 1) missing.push('Teams notifications are switched off');
+    else if (!row.enabled) missing.push('Teams notifications are switched off');
     if (!webhookUrl) missing.push('no webhook URL');
 
     return {
@@ -69,15 +69,15 @@ export function resolveTeamsConfig() {
 }
 
 /** Everything the console renders. Never the URL. */
-export function describeTeamsConfig() {
-    const row = readRow();
-    const resolved = resolveTeamsConfig();
+export async function describeTeamsConfig() {
+    const row = await readRow();
+    const resolved = await resolveTeamsConfig();
 
     return {
         config: {
             hasWebhook: Boolean(row?.webhook_cipher),
             webhookHint: row?.webhook_hint ?? null,
-            enabled: row?.enabled === 1,
+            enabled: Boolean(row?.enabled),
             updatedAt: row?.updated_at ?? null,
             updatedBy: row?.updated_by ?? null,
         },
@@ -91,14 +91,14 @@ export function describeTeamsConfig() {
  * @param {{ webhookUrl?: string, enabled?: boolean }} input
  * @param {string} [changedBy]
  */
-export function saveTeamsConfig(input, changedBy) {
+export async function saveTeamsConfig(input, changedBy) {
     // Both shapes Microsoft has shipped: the retired Office 365 connector and
     // the Power Automate workflow that replaced it.
     if (input.webhookUrl && !/^https:\/\/[^/]*(logic\.azure\.com|webhook\.office\.com|office\.com|azure\.com)/i.test(input.webhookUrl)) {
         throw new Error('That does not look like a Teams webhook URL (logic.azure.com or webhook.office.com)');
     }
 
-    const current = readRow();
+    const current = await readRow();
 
     let cipher = current?.webhook_cipher ?? null;
     let hint = current?.webhook_hint ?? null;
@@ -118,23 +118,22 @@ export function saveTeamsConfig(input, changedBy) {
         }
     }
 
-    getDb()
-        .prepare(
-            `INSERT INTO teams_config (id, webhook_cipher, webhook_hint, enabled, updated_at, updated_by)
-             VALUES (1, @cipher, @hint, @enabled, datetime('now'), @changedBy)
-             ON CONFLICT(id) DO UPDATE SET
-                webhook_cipher = excluded.webhook_cipher,
-                webhook_hint = excluded.webhook_hint,
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at,
-                updated_by = excluded.updated_by`
-        )
-        .run({
+    await query(
+        `INSERT INTO teams_config (id, webhook_cipher, webhook_hint, enabled, updated_at, updated_by)
+         VALUES (1, @cipher, @hint, @enabled, now(), @changedBy)
+         ON CONFLICT (id) DO UPDATE SET
+            webhook_cipher = excluded.webhook_cipher,
+            webhook_hint = excluded.webhook_hint,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by`,
+        {
             cipher,
             hint,
-            enabled: input.enabled === undefined ? current?.enabled ?? 0 : input.enabled ? 1 : 0,
+            enabled: input.enabled === undefined ? Boolean(current?.enabled) : Boolean(input.enabled),
             changedBy: changedBy ?? null,
-        });
+        }
+    );
 
     logger.info({ changedBy }, 'Teams configuration saved');
     return describeTeamsConfig();

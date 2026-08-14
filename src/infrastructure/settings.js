@@ -1,5 +1,5 @@
 import config from './config.js';
-import { getDb } from './cache/sqliteCache.js';
+import { query, queryAll } from './db/pool.js';
 import logger from './logger.js';
 
 /**
@@ -87,23 +87,49 @@ function coerce(type, raw) {
     return String(raw);
 }
 
-function readOverride(key) {
+/**
+ * The overrides table, held in memory.
+ *
+ * These are read on paths that run per request and per scheduled job, and they
+ * change when a human clicks Save. A round trip each time would be the wrong
+ * trade — but the cache is shared with nobody, and the worker process writes to
+ * the same table, so it also expires: a change made in one process is picked up
+ * by the other within TTL_MS rather than at the next restart.
+ */
+let overrides = null;
+let loadedAt = 0;
+const TTL_MS = 30_000;
+
+async function loadOverrides() {
+    const fresh = overrides !== null && Date.now() - loadedAt < TTL_MS;
+    if (fresh) return overrides;
+
     try {
-        const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
-        return row ? JSON.parse(row.value) : undefined;
+        const rows = await queryAll('SELECT key, value FROM settings');
+        overrides = new Map(rows.map(row => [row.key, JSON.parse(row.value)]));
+        loadedAt = Date.now();
     } catch (err) {
-        // A missing settings table (an old database that has not been migrated)
-        // must degrade to config.json rather than take the service down.
-        logger.warn({ key, err }, 'Failed to read setting override, falling back to config');
-        return undefined;
+        // An unmigrated database must degrade to config.json rather than take
+        // the service down.
+        logger.warn({ err }, 'Failed to read setting overrides, falling back to config');
+        overrides = new Map();
+        loadedAt = Date.now();
     }
+
+    return overrides;
+}
+
+/** Drop the cache so the next read goes to the database. */
+export function invalidateSettings() {
+    overrides = null;
 }
 
 /**
  * Resolve one setting through the full precedence chain.
  * @param {string} key
+ * @returns {Promise<unknown>}
  */
-export function getSetting(key) {
+export async function getSetting(key) {
     const descriptor = BY_KEY.get(key);
     if (!descriptor) throw new Error(`Unknown setting: ${key}`);
 
@@ -111,7 +137,7 @@ export function getSetting(key) {
         return coerce(descriptor.type, process.env[descriptor.env]);
     }
 
-    const override = readOverride(key);
+    const override = (await loadOverrides()).get(key);
     if (override !== undefined) return coerce(descriptor.type, override);
 
     return descriptor.fallback(config);
@@ -133,31 +159,32 @@ export function isEnvLocked(key) {
  * @param {unknown} value
  * @param {string} changedBy
  */
-export function setSetting(key, value, changedBy) {
+export async function setSetting(key, value, changedBy) {
     const descriptor = BY_KEY.get(key);
     if (!descriptor) throw new Error(`Setting is not writable: ${key}`);
 
     const coerced = coerce(descriptor.type, value);
 
-    getDb()
-        .prepare(
-            `INSERT INTO settings (key, value, updated_at, updated_by)
-             VALUES (@key, @value, datetime('now'), @changedBy)
-             ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = excluded.updated_at,
-                updated_by = excluded.updated_by`
-        )
-        .run({ key, value: JSON.stringify(coerced), changedBy: changedBy ?? null });
+    await query(
+        `INSERT INTO settings (key, value, updated_at, updated_by)
+         VALUES (@key, @value, now(), @changedBy)
+         ON CONFLICT (key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at,
+            updated_by = excluded.updated_by`,
+        { key, value: JSON.stringify(coerced), changedBy: changedBy ?? null }
+    );
 
+    invalidateSettings();
     logger.info({ key, changedBy }, 'Setting updated');
     return coerced;
 }
 
 /** Remove an override so the value falls back to config.json. */
-export function clearSetting(key) {
+export async function clearSetting(key) {
     if (!BY_KEY.has(key)) throw new Error(`Setting is not writable: ${key}`);
-    getDb().prepare('DELETE FROM settings WHERE key = ?').run(key);
+    await query('DELETE FROM settings WHERE key = @key', { key });
+    invalidateSettings();
     logger.info({ key }, 'Setting override cleared');
 }
 
@@ -165,26 +192,25 @@ export function clearSetting(key) {
  * Everything the console needs to render the settings page: current values,
  * where each one came from, and which credentials are present.
  */
-export function describeSettings() {
-    let overrides = new Map();
+export async function describeSettings() {
+    let stored = new Map();
     try {
-        overrides = new Map(
-            getDb().prepare('SELECT key, updated_at, updated_by FROM settings').all().map(row => [row.key, row])
-        );
+        const rows = await queryAll('SELECT key, updated_at, updated_by FROM settings');
+        stored = new Map(rows.map(row => [row.key, row]));
     } catch (err) {
         logger.warn({ err }, 'Failed to list setting overrides');
     }
 
-    const settings = WRITABLE_SETTINGS.map(descriptor => {
+    const settings = await Promise.all(WRITABLE_SETTINGS.map(async descriptor => {
         const envLocked = Boolean(descriptor.env && process.env[descriptor.env] !== undefined);
-        const override = overrides.get(descriptor.key);
+        const override = stored.get(descriptor.key);
 
         return {
             key: descriptor.key,
             label: descriptor.label,
             help: descriptor.help ?? null,
             type: descriptor.type,
-            value: getSetting(descriptor.key),
+            value: await getSetting(descriptor.key),
             // eslint-disable-next-line no-nested-ternary
             source: envLocked ? 'env' : override ? 'database' : 'config',
             // An env-pinned setting cannot be changed from the console; saying
@@ -194,7 +220,7 @@ export function describeSettings() {
             updatedAt: override?.updated_at ?? null,
             updatedBy: override?.updated_by ?? null,
         };
-    });
+    }));
 
     const credentials = SECRET_ENV_VARS.map(({ key, env, label }) => ({
         key,
