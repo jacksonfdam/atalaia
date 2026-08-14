@@ -136,5 +136,5 @@ export async function saveTeamsConfig(input, changedBy) {
     );
 
     logger.info({ changedBy }, 'Teams configuration saved');
-    return describeTeamsConfig();
+    return await describeTeamsConfig();
 }

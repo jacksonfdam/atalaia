@@ -16,7 +16,7 @@ import {
  * @returns {Promise<{ repoName: string, dependencyCount: number, ecosystems: string[], unmappedCount: number }>}
  */
 export async function scanRepository(repositoryId, provider, options = {}) {
-    const repo = getRepository(repositoryId);
+    const repo = await getRepository(repositoryId);
     if (!repo) throw new Error(`Repository ${repositoryId} not found`);
     if (repo.deleted_at) throw new Error(`Repository ${repositoryId} is deleted`);
 
@@ -42,7 +42,7 @@ export async function scanRepository(repositoryId, provider, options = {}) {
 
     if (parseJobs.length === 0) {
         logger.info({ repoId: repositoryId }, 'No manifest files found');
-        updateRepository(repositoryId, { lastScannedAt: new Date().toISOString() });
+        await updateRepository(repositoryId, { lastScannedAt: new Date().toISOString() });
         return { repoName: repo.name, dependencyCount: 0, ecosystems: [], unmappedCount: 0 };
     }
 
@@ -89,10 +89,10 @@ export async function scanRepository(repositoryId, provider, options = {}) {
     }
 
     // 5. Atomic replace in database
-    replaceDependencies(repositoryId, allDeps);
+    await replaceDependencies(repositoryId, allDeps);
 
     // 6. Update scan timestamp
-    updateRepository(repositoryId, { lastScannedAt: new Date().toISOString() });
+    await updateRepository(repositoryId, { lastScannedAt: new Date().toISOString() });
 
     const result = {
         repoName: repo.name,

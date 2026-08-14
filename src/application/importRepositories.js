@@ -36,8 +36,8 @@ async function fetchLanguages(provider, repos) {
 }
 
 /** The organization, refusing the ones that cannot be imported from. */
-function requireOrg(key) {
-    const org = getOrganizationByKey(key);
+async function requireOrg(key) {
+    const org = await getOrganizationByKey(key);
     if (!org) throw new Error(`Organization "${key}" not found`);
     if (org.deleted_at) throw new Error(`Organization "${key}" is deleted`);
     return org;
@@ -55,7 +55,7 @@ function requireOrg(key) {
  * @returns {Promise<{ org: string, login: string, count: number, repositories: object[] }>}
  */
 export async function previewOrgRepositories(key) {
-    const org = requireOrg(key);
+    const org = await requireOrg(key);
     const provider = providerForOrg(key);
 
     logger.info({ org: key, login: org.login }, 'Listing repositories for selection');
@@ -65,8 +65,8 @@ export async function previewOrgRepositories(key) {
     const access = await provider.describeAccess(org.login);
     const remote = await provider.listRepositories(org.login);
 
-    const repositories = remote.map(repo => {
-        const existing = getAnyRepositoryByUrl(repo.url);
+    const repositories = await Promise.all(remote.map(async repo => {
+        const existing = await getAnyRepositoryByUrl(repo.url);
 
         return {
             name: repo.name,
@@ -79,9 +79,9 @@ export async function previewOrgRepositories(key) {
             // 'tracked' is already imported, 'removed' was imported and then
             // deleted here, 'new' has never been seen.
             state: existing ? (existing.deleted_at ? 'removed' : 'tracked') : 'new',
-            enabled: existing ? existing.enabled === 1 : null,
+            enabled: existing ? existing.enabled : null,
         };
-    });
+    }));
 
     return { org: key, login: org.login, count: repositories.length, access, repositories };
 }
@@ -101,7 +101,7 @@ function isSelected(repo, wanted) {
  *                     skippedDeleted: string[], notFound: string[], archived: number }>}
  */
 export async function importOrgRepositories(key, options = {}) {
-    const org = requireOrg(key);
+    const org = await requireOrg(key);
 
     const withLanguages = options.withLanguages !== false;
     const selection = Array.isArray(options.only) && options.only.length > 0 ? options.only : null;
@@ -126,20 +126,25 @@ export async function importOrgRepositories(key, options = {}) {
     } else {
         // A repository the operator removed stays removed: a bulk re-import
         // must not resurrect it behind their back.
-        importable = found.filter(repo => {
-            const existing = getAnyRepositoryByUrl(repo.url);
+        //
+        // A loop rather than filter(): the check is a query per repository now,
+        // and an async predicate hands filter() a promise — truthy for every
+        // entry, so every removed repository would come straight back.
+        importable = [];
+        for (const repo of found) {
+            const existing = await getAnyRepositoryByUrl(repo.url);
             if (existing?.deleted_at) {
                 skippedDeleted.push(repo.name);
-                return false;
+                continue;
             }
-            return true;
-        });
+            importable.push(repo);
+        }
     }
 
     const languages = withLanguages ? await fetchLanguages(provider, importable) : new Map();
 
     for (const repo of importable) {
-        addRepository({
+        await addRepository({
             name: repo.name,
             url: repo.url,
             provider: repo.provider,
@@ -154,7 +159,7 @@ export async function importOrgRepositories(key, options = {}) {
         });
     }
 
-    updateOrganization(key, { lastImportAt: new Date().toISOString() });
+    await updateOrganization(key, { lastImportAt: new Date().toISOString() });
 
     const result = {
         org: key,
@@ -175,7 +180,7 @@ export async function importOrgRepositories(key, options = {}) {
  * @param {{ withLanguages?: boolean }} [options]
  */
 export async function importAllOrganizations(options = {}) {
-    const orgs = listOrganizations().filter(org => org.enabled === 1);
+    const orgs = (await listOrganizations()).filter(org => org.enabled);
     const results = [];
     const errors = [];
 

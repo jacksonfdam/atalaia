@@ -4,7 +4,6 @@ import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter
 import { correlateVulnerability } from './correlateVulnerability.js';
 import Vulnerability from '../domain/entities/Vulnerability.js';
 
-const llm = createLLMAdapter();
 
 /**
  * Acknowledge a vulnerability, transitioning its status from OPEN to ACKNOWLEDGED.
@@ -16,7 +15,7 @@ const llm = createLLMAdapter();
  * @returns {Promise<{ vuln: object, mitigation: string|null, affectedRepositories: object[], owners: object[] }>}
  */
 export async function acknowledgeVuln(cveId, changedBy, cache) {
-    const vuln = cache.get(cveId);
+    const vuln = await cache.get(cveId);
     if (!vuln) throw new Error(`CVE ${cveId} not found`);
 
     const currentStatus = vuln.status || Status.OPEN;
@@ -25,7 +24,7 @@ export async function acknowledgeVuln(cveId, changedBy, cache) {
     }
 
     const now = new Date().toISOString();
-    cache.update(cveId, {
+    await cache.update(cveId, {
         status: Status.ACKNOWLEDGED,
         statusChangedBy: changedBy,
         statusChangedAt: now,
@@ -45,7 +44,7 @@ export async function acknowledgeVuln(cveId, changedBy, cache) {
             exploited: vuln.exploited,
             affectedTechnologies: vuln.affectedTechnologies || [],
         });
-        correlation = correlateVulnerability(vulnEntity);
+        correlation = await correlateVulnerability(vulnEntity);
     } catch (err) {
         logger.warn({ cveId, err }, 'Correlation failed during acknowledge');
     }
@@ -68,16 +67,17 @@ export async function acknowledgeVuln(cveId, changedBy, cache) {
             owners: ownerNames,
         });
 
+        const llm = await createLLMAdapter();
         mitigation = await llm.complete(prompt);
         if (mitigation) {
-            cache.update(cveId, { clientExplanation: mitigation });
+            await cache.update(cveId, { clientExplanation: mitigation });
             logger.info({ cveId }, 'Mitigation guide generated');
         }
     } catch (err) {
         logger.warn({ cveId, err }, 'Mitigation guide generation failed');
     }
 
-    const updated = cache.get(cveId);
+    const updated = await cache.get(cveId);
     return {
         vuln: updated,
         mitigation,

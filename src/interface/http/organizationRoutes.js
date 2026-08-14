@@ -36,8 +36,8 @@ export function createOrganizationRoutes() {
     const router = express.Router();
 
     // GET /organizations
-    router.get('/', (req, res) => {
-        const organizations = listOrgs({ includeDeleted: req.query.includeDeleted === 'true' });
+    router.get('/', async (req, res) => {
+        const organizations = await listOrgs({ includeDeleted: req.query.includeDeleted === 'true' });
         res.json({ count: organizations.length, organizations });
     });
 
@@ -56,11 +56,11 @@ export function createOrganizationRoutes() {
     });
 
     // POST /organizations
-    router.post('/', (req, res) => {
+    router.post('/', async (req, res) => {
         const { key, login, name, token } = req.body ?? {};
 
         try {
-            res.status(201).json(addOrg({ key, login, name, token }));
+            res.status(201).json(await addOrg({ key, login, name, token }));
         } catch (error) {
             logger.warn({ login, err: error.message }, 'Failed to add organization');
             res.status(400).json({ error: error.message });
@@ -68,14 +68,14 @@ export function createOrganizationRoutes() {
     });
 
     // GET /organizations/:key
-    router.get('/:key', (req, res) => {
-        const organization = getOrg(req.params.key);
+    router.get('/:key', async (req, res) => {
+        const organization = await getOrg(req.params.key);
         if (!organization) return res.status(404).json({ error: 'Organization not found' });
         res.json(organization);
     });
 
     // PATCH /organizations/:key — rename, enable/disable, replace or clear the token
-    router.patch('/:key', (req, res) => {
+    router.patch('/:key', async (req, res) => {
         const { login, name, enabled, token } = req.body ?? {};
         const updates = {};
 
@@ -86,15 +86,15 @@ export function createOrganizationRoutes() {
         if (token !== undefined) updates.token = token || null;
 
         try {
-            res.json(updateOrg(req.params.key, updates));
+            res.json(await updateOrg(req.params.key, updates));
         } catch (error) {
             res.status(error.message.includes('not found') ? 404 : 400).json({ error: error.message });
         }
     });
 
     // DELETE /organizations/:key — soft delete, together with its repositories
-    router.delete('/:key', (req, res) => {
-        const removed = removeOrg(req.params.key);
+    router.delete('/:key', async (req, res) => {
+        const removed = await removeOrg(req.params.key);
         if (!removed) return res.status(404).json({ error: 'Organization not found' });
         res.json({ deleted: true, ...removed });
     });

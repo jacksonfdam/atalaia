@@ -5,8 +5,8 @@ export function createReportRoutes(cache) {
     const router = express.Router();
 
     // GET /reports/weekly — preview the digest without sending any email
-    router.get('/weekly', (_req, res) => {
-        const report = generateWeeklyReport(cache.getAll());
+    router.get('/weekly', async (_req, res) => {
+        const report = generateWeeklyReport(await cache.getAll());
         if (!report) {
             return res.json({
                 report: null,

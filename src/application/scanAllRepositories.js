@@ -25,7 +25,7 @@ const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..');
  * @returns {Promise<{ totalRepos: number, totalDeps: number, errors: string[] }>}
  */
 export async function scanAllRepositories(options = {}) {
-    const providers = organizationsToScan();
+    const providers = await organizationsToScan();
     // A no-op by default: a scan run from the CLI has the log for company.
     const report = options.onProgress ?? (() => {});
 
@@ -37,7 +37,7 @@ export async function scanAllRepositories(options = {}) {
     }
 
     // Seed vendor/product mappings on first run
-    seedMappingsIfNeeded();
+    await seedMappingsIfNeeded();
 
     let totalRepos = 0;
     let totalDeps = 0;
@@ -70,9 +70,9 @@ export async function scanAllRepositories(options = {}) {
  * config.json's `providers` that has no row of its own. Registered ones win, so
  * a token managed in the console is not shadowed by a stale config entry.
  */
-function organizationsToScan() {
-    const registered = listOrganizations()
-        .filter(org => org.enabled === 1)
+async function organizationsToScan() {
+    const registered = (await listOrganizations())
+        .filter(org => org.enabled)
         .map(org => ({ key: org.key, type: org.provider, org: org.login }));
 
     const keys = new Set(registered.map(entry => entry.key));
@@ -108,7 +108,7 @@ async function scanProvider(providerConfig, options, report = () => {}) {
     const remoteUrls = new Set();
     for (const repo of remoteRepos) {
         remoteUrls.add(repo.url);
-        addRepository({
+        await addRepository({
             name: repo.name,
             url: repo.url,
             provider: repo.provider,
@@ -123,16 +123,16 @@ async function scanProvider(providerConfig, options, report = () => {}) {
     }
 
     // 3. Soft-delete repos that were removed from the provider
-    const existingRepos = listRepositories().filter(r => r.org_key === key);
+    const existingRepos = (await listRepositories()).filter(r => r.org_key === key);
     for (const existing of existingRepos) {
         if (!remoteUrls.has(existing.url)) {
             logger.info({ repoId: existing.id, url: existing.url }, 'Repository removed from provider, soft-deleting');
-            softDeleteRepository(existing.id);
+            await softDeleteRepository(existing.id);
         }
     }
 
     // 4. Scan each active repo
-    const activeRepos = listRepositories().filter(r => r.org_key === key && r.enabled);
+    const activeRepos = (await listRepositories()).filter(r => r.org_key === key && r.enabled);
     let depCount = 0;
     const errors = [];
 
@@ -163,13 +163,13 @@ async function scanProvider(providerConfig, options, report = () => {}) {
  * Seed vendor/product mappings from config file (idempotent).
  */
 let seeded = false;
-function seedMappingsIfNeeded() {
+async function seedMappingsIfNeeded() {
     if (seeded) return;
     try {
         const seedPath = path.join(PROJECT_ROOT, 'config/vendor_product_seed.json');
         const data = readFileSync(seedPath, 'utf-8');
         const mappings = JSON.parse(data);
-        seedVendorProductMappings(mappings);
+        await seedVendorProductMappings(mappings);
         seeded = true;
     } catch (error) {
         logger.warn({ err: error.message }, 'Failed to seed vendor/product mappings');

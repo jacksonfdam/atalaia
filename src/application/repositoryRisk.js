@@ -21,7 +21,7 @@ function hydrate(row) {
         title: row.title,
         severity: row.severity ?? 'UNKNOWN',
         cvssScore: row.cvss_score,
-        exploited: row.exploited === 1,
+        exploited: row.exploited,
         status: row.status,
         source: row.source,
         firstSeenAt: row.first_seen_at,
@@ -37,11 +37,11 @@ export function worstSeverity(bySeverity = {}) {
  * @param {number} repositoryId
  * @param {{ includeResolved?: boolean }} [options]
  */
-export function getRepositoryVulnerabilities(repositoryId, options = {}) {
-    const repo = getRepository(repositoryId);
+export async function getRepositoryVulnerabilities(repositoryId, options = {}) {
+    const repo = await getRepository(repositoryId);
     if (!repo) return null;
 
-    const rows = findVulnerabilitiesForRepository(repositoryId, options);
+    const rows = await findVulnerabilitiesForRepository(repositoryId, options);
 
     // One row per (CVE, matching dependency): the same CVE can arrive through
     // two packages, and knowing which manifest to open is the point.
@@ -67,7 +67,7 @@ export function getRepositoryVulnerabilities(repositoryId, options = {}) {
     }
 
     return {
-        repository: { id: repo.id, name: repo.name, url: repo.url, enabled: repo.enabled === 1 },
+        repository: { id: repo.id, name: repo.name, url: repo.url, enabled: repo.enabled },
         count: vulnerabilities.length,
         exploited: vulnerabilities.filter(vuln => vuln.exploited).length,
         bySeverity,
@@ -80,12 +80,12 @@ export function getRepositoryVulnerabilities(repositoryId, options = {}) {
  * Exposure for every repository at once, keyed by id.
  * @returns {Map<number, { total: number, bySeverity: Record<string, number>, exploited: number, worst: string|null }>}
  */
-export function summarizeFleetRisk() {
-    const summary = summarizeRepositoryExposure();
+export async function summarizeFleetRisk() {
+    const summary = await summarizeRepositoryExposure();
 
     for (const [, entry] of summary) {
         entry.worst = worstSeverity(entry.bySeverity);
-        entry.exploited = entry.exploited === 1 || entry.exploited === true;
+        entry.exploited = Boolean(entry.exploited);
     }
 
     return summary;

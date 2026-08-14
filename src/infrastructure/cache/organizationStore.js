@@ -55,7 +55,7 @@ export async function addOrganization({ key, login, name = null, provider = 'git
     );
 
     logger.info({ key, login, id: result?.id }, 'Organization added/restored');
-    return result ?? getOrganizationByKey(key);
+    return result ?? await getOrganizationByKey(key);
 }
 
 export async function getOrganizationByKey(key) {
@@ -91,12 +91,12 @@ export async function updateOrganization(key, updates) {
         values.hint = updates.token ? maskSecret(updates.token) : null;
     }
 
-    if (fields.length === 0) return getOrganizationByKey(key);
+    if (fields.length === 0) return await getOrganizationByKey(key);
 
     fields.push('updated_at = now()');
     await query(`UPDATE organizations SET ${fields.join(', ')} WHERE key = @key`, values);
 
-    return getOrganizationByKey(key);
+    return await getOrganizationByKey(key);
 }
 
 /**

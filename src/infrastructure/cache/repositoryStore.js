@@ -75,7 +75,7 @@ export async function addRepository({
     );
 
     logger.info({ url, id: row?.id }, 'Repository added/restored');
-    return row ?? getRepositoryByUrl(url);
+    return row ?? await getRepositoryByUrl(url);
 }
 
 export async function softDeleteRepository(id) {
@@ -130,7 +130,7 @@ export async function restoreRepository(id) {
     });
 
     logger.info({ id }, 'Repository restored');
-    return getRepository(id);
+    return await getRepository(id);
 }
 
 export async function listRepositories({ includeDeleted = false } = {}) {
@@ -256,7 +256,7 @@ export async function addOwner({ name, email, slackUserId = null }) {
     );
 
     logger.info({ email, id: row?.id }, 'Owner added/restored');
-    return row ?? getOwnerByEmail(email);
+    return row ?? await getOwnerByEmail(email);
 }
 
 export async function softDeleteOwner(id) {

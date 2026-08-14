@@ -9,7 +9,7 @@ import { requireSlackSignature, createSlackActionHandler } from '../slack/slackA
  * Kept separate from the process entry point so tests can mount the same app
  * without opening a port, starting the scheduler, or running a feed cycle.
  *
- * @param {object} cache sqliteCache module (or a compatible stub)
+ * @param {object} cache postgresCache module (or a compatible stub)
  * @returns {import('express').Express}
  */
 export function createApp(cache) {

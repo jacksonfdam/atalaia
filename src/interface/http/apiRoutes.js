@@ -19,7 +19,7 @@ import logger from '../../infrastructure/logger.js';
  * this module only wires them together and keeps the two legacy top-level
  * endpoints (/stats, /query) at their published paths.
  *
- * @param {object} cache sqliteCache module
+ * @param {object} cache postgresCache module
  * @returns {express.Router}
  */
 export function createApiRoutes(cache) {
@@ -38,12 +38,12 @@ export function createApiRoutes(cache) {
     router.use('/reports', createReportRoutes(cache));
 
     // GET /stats
-    router.get('/stats', (_req, res) => {
-        res.json(cache.stats());
+    router.get('/stats', async (_req, res) => {
+        res.json(await cache.stats());
     });
 
     // POST /query — query vulns by technology
-    router.post('/query', (req, res) => {
+    router.post('/query', async (req, res) => {
         const { technologies } = req.body ?? {};
 
         if (!Array.isArray(technologies)) {
@@ -54,7 +54,7 @@ export function createApiRoutes(cache) {
         }
 
         logger.info({ techs: technologies }, 'Vulnerability query');
-        const results = queryByTech(technologies, cache);
+        const results = await queryByTech(technologies, cache);
         res.json({ count: results.length, vulnerabilities: results });
     });
 

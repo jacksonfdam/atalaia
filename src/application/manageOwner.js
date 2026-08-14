@@ -17,11 +17,11 @@ import {
  * @param {{ name: string, email: string, slackUserId?: string }} data
  * @returns {object}
  */
-export function addOwner(data) {
+export async function addOwner(data) {
     if (!data.name || !data.email) {
         throw new Error('Name and email are required');
     }
-    const owner = storeAdd(data);
+    const owner = await storeAdd(data);
     logger.info({ email: data.email }, 'System owner added');
     return owner;
 }
@@ -31,10 +31,10 @@ export function addOwner(data) {
  * @param {number} id
  * @returns {boolean}
  */
-export function removeOwner(id) {
-    const owner = storeGet(id);
+export async function removeOwner(id) {
+    const owner = await storeGet(id);
     if (!owner) return false;
-    storeSoftDelete(id);
+    await storeSoftDelete(id);
     return true;
 }
 
@@ -43,8 +43,8 @@ export function removeOwner(id) {
  * @param {{ includeDeleted?: boolean }} [options]
  * @returns {object[]}
  */
-export function listOwners(options = {}) {
-    return storeList(options);
+export async function listOwners(options = {}) {
+    return await storeList(options);
 }
 
 /**
@@ -52,10 +52,10 @@ export function listOwners(options = {}) {
  * @param {number} id
  * @returns {{ owner: object, assignments: object[] } | null}
  */
-export function getOwnerWithAssignments(id) {
-    const owner = storeGet(id);
+export async function getOwnerWithAssignments(id) {
+    const owner = await storeGet(id);
     if (!owner) return null;
-    const assignments = storeGetAssignments(id);
+    const assignments = await storeGetAssignments(id);
     return { owner, assignments };
 }
 
@@ -64,8 +64,8 @@ export function getOwnerWithAssignments(id) {
  * @param {number} id
  * @param {{ name?: string, email?: string, slackUserId?: string }} updates
  */
-export function updateOwner(id, updates) {
-    storeUpdate(id, updates);
+export async function updateOwner(id, updates) {
+    await storeUpdate(id, updates);
 }
 
 /**
@@ -75,15 +75,15 @@ export function updateOwner(id, updates) {
  * @param {string} targetValue - e.g. 'npm', 'express', 'https://github.com/org/repo'
  * @returns {object}
  */
-export function assignOwner(ownerId, targetType, targetValue) {
+export async function assignOwner(ownerId, targetType, targetValue) {
     if (!isValidTargetType(targetType)) {
         throw new Error(`Invalid target type: ${targetType}. Must be: ecosystem, dependency, or repository`);
     }
 
-    const owner = storeGet(ownerId);
+    const owner = await storeGet(ownerId);
     if (!owner) throw new Error(`Owner ${ownerId} not found`);
 
-    const assignment = storeAddAssignment({ ownerId, targetType, targetValue });
+    const assignment = await storeAddAssignment({ ownerId, targetType, targetValue });
     logger.info({ ownerId, targetType, targetValue }, 'Owner assigned');
     return assignment;
 }
@@ -93,7 +93,7 @@ export function assignOwner(ownerId, targetType, targetValue) {
  * @param {number} assignmentId
  * @returns {boolean}
  */
-export function unassignOwner(assignmentId) {
-    storeSoftDeleteAssignment(assignmentId);
+export async function unassignOwner(assignmentId) {
+    await storeSoftDeleteAssignment(assignmentId);
     return true;
 }

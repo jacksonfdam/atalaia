@@ -29,8 +29,8 @@ function parseJson(value, fallback) {
  * @param {number} repositoryId
  * @returns {object|null}
  */
-export function getRepositoryTechnologies(repositoryId) {
-    const repo = getRepository(repositoryId);
+export async function getRepositoryTechnologies(repositoryId) {
+    const repo = await getRepository(repositoryId);
     if (!repo) return null;
 
     const languageBytes = parseJson(repo.languages, {});
@@ -44,7 +44,7 @@ export function getRepositoryTechnologies(repositoryId) {
             share: totalBytes > 0 ? Math.round((bytes / totalBytes) * 1000) / 10 : null,
         }));
 
-    const dependencies = getDependenciesByRepo(repositoryId);
+    const dependencies = await getDependenciesByRepo(repositoryId);
     const byEcosystem = new Map();
 
     for (const dependency of dependencies) {
@@ -71,7 +71,7 @@ export function getRepositoryTechnologies(repositoryId) {
  * @param {number} repositoryId
  */
 export async function refreshRepositoryLanguages(repositoryId) {
-    const repo = getRepository(repositoryId);
+    const repo = await getRepository(repositoryId);
     if (!repo) throw new Error(`Repository ${repositoryId} not found`);
 
     const provider = providerForOrg(repo.org_key);
@@ -82,8 +82,8 @@ export async function refreshRepositoryLanguages(repositoryId) {
     const primaryLanguage =
         Object.entries(languages).sort((a, b) => b[1] - a[1])[0]?.[0] ?? repo.primary_language;
 
-    updateRepository(repositoryId, { languages, primaryLanguage });
+    await updateRepository(repositoryId, { languages, primaryLanguage });
 
     logger.info({ repoId: repositoryId, languages: Object.keys(languages).length }, 'Languages refreshed');
-    return getRepositoryTechnologies(repositoryId);
+    return await getRepositoryTechnologies(repositoryId);
 }

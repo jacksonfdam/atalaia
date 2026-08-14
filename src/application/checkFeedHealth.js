@@ -79,9 +79,9 @@ export async function checkFeedHealth({ force = false } = {}) {
     // Disabled feeds are reported without being called: probing a source we
     // deliberately turned off would just produce a misleading error row.
     const results = await Promise.all(
-        listFeeds().map(feed =>
+        (await listFeeds()).map(async feed =>
             feed.enabled
-                ? probe(feed)
+                ? await probe(feed)
                 : Promise.resolve({
                       name: feed.name,
                       label: feed.label,

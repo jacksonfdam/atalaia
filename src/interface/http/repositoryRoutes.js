@@ -21,8 +21,8 @@ import { compareVersions } from '../../application/versionComparison.js';
 import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
 import logger from '../../infrastructure/logger.js';
 
-function resolveRepo(idOrUrl) {
-    return /^\d+$/.test(idOrUrl) ? getRepo(parseInt(idOrUrl, 10)) : getRepoByUrl(idOrUrl);
+async function resolveRepo(idOrUrl) {
+    return /^\d+$/.test(idOrUrl) ? await getRepo(parseInt(idOrUrl, 10)) : await getRepoByUrl(idOrUrl);
 }
 
 export function createRepositoryRoutes() {
@@ -32,13 +32,13 @@ export function createRepositoryRoutes() {
     //
     // Exposure comes along for the ride: the list is where an operator notices
     // something is wrong, and asking per repository would be one request per row.
-    router.get('/', (req, res) => {
-        res.json(listRepositoriesPage(req.query));
+    router.get('/', async (req, res) => {
+        res.json(await listRepositoriesPage(req.query));
     });
 
     // GET /repositories/scan-all — progress of the running scan, or the last one.
     // Declared before /:idOrUrl so "scan-all" is not parsed as an identifier.
-    router.get('/scan-all', (_req, res) => {
+    router.get('/scan-all', async (_req, res) => {
         res.json(fleetScanState());
     });
 
@@ -46,7 +46,7 @@ export function createRepositoryRoutes() {
     //
     // Scanning a hundred repositories takes far longer than any HTTP client
     // waits, so the work is detached and the caller polls the GET above.
-    router.post('/scan-all', (req, res) => {
+    router.post('/scan-all', async (req, res) => {
         const result = startFleetScan({ skipVendorLookup: req.body?.skipVendorLookup === true });
 
         if (!result.accepted) {
@@ -58,7 +58,7 @@ export function createRepositoryRoutes() {
     });
 
     // POST /repositories
-    router.post('/', (req, res) => {
+    router.post('/', async (req, res) => {
         const { url, name, provider, orgKey, defaultBranch } = req.body ?? {};
 
         if (!url || typeof url !== 'string') {
@@ -66,7 +66,7 @@ export function createRepositoryRoutes() {
         }
 
         try {
-            const repository = addRepo(url, { name, provider, orgKey, defaultBranch });
+            const repository = await addRepo(url, { name, provider, orgKey, defaultBranch });
             res.status(201).json(repository);
         } catch (error) {
             logger.warn({ url, err: error }, 'Failed to add repository');
@@ -75,15 +75,15 @@ export function createRepositoryRoutes() {
     });
 
     // GET /repositories/:idOrUrl
-    router.get('/:idOrUrl', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.get('/:idOrUrl', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
         res.json(repository);
     });
 
     // PATCH /repositories/:idOrUrl — enable/disable, rename, change branch
-    router.patch('/:idOrUrl', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.patch('/:idOrUrl', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         const { enabled } = req.body ?? {};
@@ -91,40 +91,40 @@ export function createRepositoryRoutes() {
             return res.status(400).json({ error: 'enabled must be a boolean' });
         }
 
-        res.json(setRepoEnabled(repository.id, enabled));
+        res.json(await setRepoEnabled(repository.id, enabled));
     });
 
     // POST /repositories/:idOrUrl/restore — undo a soft delete
-    router.post('/:idOrUrl/restore', (req, res) => {
+    router.post('/:idOrUrl/restore', async (req, res) => {
         const { idOrUrl } = req.params;
-        const restored = restoreRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
+        const restored = await restoreRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
         if (!restored) return res.status(404).json({ error: 'Repository not found' });
         res.json(restored);
     });
 
     // GET /repositories/:idOrUrl/vulnerabilities — what reaches this repository,
     // and through which dependency
-    router.get('/:idOrUrl/vulnerabilities', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.get('/:idOrUrl/vulnerabilities', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         res.json(
-            getRepositoryVulnerabilities(repository.id, {
+            await getRepositoryVulnerabilities(repository.id, {
                 includeResolved: req.query.includeResolved === 'true',
             })
         );
     });
 
     // GET /repositories/:idOrUrl/technologies
-    router.get('/:idOrUrl/technologies', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.get('/:idOrUrl/technologies', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
-        res.json(getRepositoryTechnologies(repository.id));
+        res.json(await getRepositoryTechnologies(repository.id));
     });
 
     // POST /repositories/:idOrUrl/technologies — re-read languages from the provider
     router.post('/:idOrUrl/technologies', async (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         try {
@@ -136,20 +136,20 @@ export function createRepositoryRoutes() {
     });
 
     // DELETE /repositories/:idOrUrl — soft delete
-    router.delete('/:idOrUrl', (req, res) => {
+    router.delete('/:idOrUrl', async (req, res) => {
         const { idOrUrl } = req.params;
-        const removed = removeRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
+        const removed = await removeRepo(/^\d+$/.test(idOrUrl) ? parseInt(idOrUrl, 10) : idOrUrl);
         if (!removed) return res.status(404).json({ error: 'Repository not found' });
         res.json({ deleted: true, repository: idOrUrl });
     });
 
     // GET /repositories/:idOrUrl/dependencies — every dependency, with whatever
     // freshness has already been resolved
-    router.get('/:idOrUrl/dependencies', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.get('/:idOrUrl/dependencies', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
-        let dependencies = getDependenciesByRepo(repository.id);
+        let dependencies = await getDependenciesByRepo(repository.id);
         if (req.query.ecosystem) {
             const wanted = String(req.query.ecosystem).toUpperCase();
             dependencies = dependencies.filter(d => String(d.ecosystem).toUpperCase() === wanted);
@@ -202,8 +202,8 @@ export function createRepositoryRoutes() {
     });
 
     // GET /repositories/:idOrUrl/versions — progress of the freshness check
-    router.get('/:idOrUrl/versions', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.get('/:idOrUrl/versions', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         res.json(versionCheckState(repository.id));
@@ -211,12 +211,12 @@ export function createRepositoryRoutes() {
 
     // POST /repositories/:idOrUrl/versions — look up the latest published
     // version of each dependency, in the background
-    router.post('/:idOrUrl/versions', (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+    router.post('/:idOrUrl/versions', async (req, res) => {
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         try {
-            const result = startVersionCheck(repository.id, {
+            const result = await startVersionCheck(repository.id, {
                 force: req.body?.force === true,
                 maxAgeHours: req.body?.maxAgeHours,
             });
@@ -233,11 +233,11 @@ export function createRepositoryRoutes() {
 
     // POST /repositories/:idOrUrl/scan
     router.post('/:idOrUrl/scan', async (req, res) => {
-        const repository = resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepo(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         try {
-            const result = await scanRepository(repository.id, providerForOrg(repository.org_key), {
+            const result = await scanRepository(repository.id, await providerForOrg(repository.org_key), {
                 skipVendorLookup: req.body?.skipVendorLookup === true,
             });
             res.json(result);

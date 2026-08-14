@@ -9,7 +9,7 @@ import logger from '../infrastructure/logger.js';
  * @returns {object} Updated vulnerability row
  */
 export async function resolveVuln(cveId, changedBy, cache) {
-    const vuln = cache.get(cveId);
+    const vuln = await cache.get(cveId);
     if (!vuln) throw new Error(`CVE ${cveId} not found`);
 
     const currentStatus = vuln.status || Status.OPEN;
@@ -18,7 +18,7 @@ export async function resolveVuln(cveId, changedBy, cache) {
     }
 
     const now = new Date().toISOString();
-    cache.update(cveId, {
+    await cache.update(cveId, {
         status: Status.RESOLVED,
         statusChangedBy: changedBy,
         statusChangedAt: now,
@@ -26,5 +26,5 @@ export async function resolveVuln(cveId, changedBy, cache) {
     });
 
     logger.info({ cveId, changedBy, from: currentStatus, to: Status.RESOLVED }, 'Vulnerability resolved');
-    return cache.get(cveId);
+    return await cache.get(cveId);
 }

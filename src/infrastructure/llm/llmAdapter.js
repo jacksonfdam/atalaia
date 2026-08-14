@@ -19,8 +19,8 @@ class NoOpProvider {
  * Resolved per call rather than once at startup: the console can change the
  * provider while the service runs, and an explanation is not worth a restart.
  */
-export function createLLMAdapter() {
-    const config = resolveLlmConfig();
+export async function createLLMAdapter() {
+    const config = await resolveLlmConfig();
 
     if (!config.ready) {
         logger.debug({ reason: config.reason }, 'No LLM configured, explanations disabled');
@@ -49,11 +49,12 @@ export function createLLMAdapter() {
  * @returns {Promise<{ ok: boolean, provider?: string, model?: string, sample?: string, error?: string }>}
  */
 export async function testLLM() {
-    const config = resolveLlmConfig();
+    const config = await resolveLlmConfig();
     if (!config.ready) return { ok: false, error: config.reason ?? 'No model configured' };
 
     const started = Date.now();
-    const answer = await createLLMAdapter().complete(
+    const adapter = await createLLMAdapter();
+    const answer = await adapter.complete(
         'Reply with one short sentence confirming you can summarise security advisories.'
     );
 

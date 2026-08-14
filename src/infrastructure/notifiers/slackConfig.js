@@ -327,5 +327,5 @@ export async function saveSlackConfig(input, changedBy) {
     );
 
     logger.info({ mode: input.mode, destination, changedBy }, 'Slack configuration saved');
-    return describeSlackConfig();
+    return await describeSlackConfig();
 }

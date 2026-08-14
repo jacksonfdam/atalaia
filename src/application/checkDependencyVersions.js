@@ -42,15 +42,15 @@ export function versionCheckState(repositoryId) {
  *   By default a dependency checked recently is left alone; `force` re-checks
  *   everything.
  */
-export function startVersionCheck(repositoryId, options = {}) {
+export async function startVersionCheck(repositoryId, options = {}) {
     if (runs.has(repositoryId)) {
         return { accepted: false, state: versionCheckState(repositoryId) };
     }
 
-    const repo = getRepository(repositoryId);
+    const repo = await getRepository(repositoryId);
     if (!repo) throw new Error(`Repository ${repositoryId} not found`);
 
-    const dependencies = getDependenciesByRepo(repositoryId);
+    const dependencies = await getDependenciesByRepo(repositoryId);
     const maxAgeMs = (options.maxAgeHours ?? 24) * 3_600_000;
 
     const pending = dependencies.filter(dependency => {
@@ -67,7 +67,7 @@ export function startVersionCheck(repositoryId, options = {}) {
     runs.set(repositoryId, { startedAt, progress });
 
     // Not awaited: the caller gets an answer now and polls for the rest.
-    run(repositoryId, pending, progress)
+    await run(repositoryId, pending, progress)
         .then(() => {
             lastRuns.set(repositoryId, {
                 startedAt,
@@ -107,7 +107,7 @@ async function run(repositoryId, dependencies, progress) {
 
                 // Written here, one row at a time, rather than in a batch at the
                 // end: partial results are useful, a lost batch is not.
-                setDependencyLatestVersion(dependency.id, { latest, error });
+                await setDependencyLatestVersion(dependency.id, { latest, error });
 
                 progress.done += 1;
                 if (error) progress.failed += 1;

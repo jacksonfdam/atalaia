@@ -24,7 +24,7 @@ export async function sendWeeklyEmail(report) {
         return;
     }
 
-    const config = resolveEmailConfig();
+    const config = await resolveEmailConfig();
     if (!config.ready) {
         logger.warn({ reason: config.reason, source: config.source }, 'Email not configured, skipping weekly report');
         return;
@@ -63,7 +63,7 @@ export async function sendWeeklyEmail(report) {
  * @returns {Promise<{ ok: boolean, provider: string, host?: string, port?: number, error?: string }>}
  */
 export async function verifyEmailTransport() {
-    const config = resolveEmailConfig();
+    const config = await resolveEmailConfig();
 
     // A verify only needs a reachable server and valid credentials; missing
     // recipients would fail the readiness check but not the connection.
@@ -89,7 +89,7 @@ export async function verifyEmailTransport() {
  * @returns {Promise<{ ok: boolean, to?: string[], messageId?: string, error?: string }>}
  */
 export async function sendTestEmail(report = null) {
-    const config = resolveEmailConfig();
+    const config = await resolveEmailConfig();
     if (!config.ready) {
         return { ok: false, error: config.reason ?? 'Email is not configured' };
     }

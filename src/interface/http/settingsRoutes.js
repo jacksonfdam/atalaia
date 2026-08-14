@@ -39,17 +39,17 @@ export function createSettingsRoutes(cache) {
     const router = express.Router();
 
     // GET /settings
-    router.get('/', (_req, res) => {
-        res.json(describeSettings());
+    router.get('/', async (_req, res) => {
+        res.json(await describeSettings());
     });
 
     // GET /settings/email — provider catalog plus the current configuration
-    router.get('/email', (_req, res) => {
-        res.json(describeEmailConfig());
+    router.get('/email', async (_req, res) => {
+        res.json(await describeEmailConfig());
     });
 
     // PUT /settings/email — pick a provider and store its credentials
-    router.put('/email', (req, res) => {
+    router.put('/email', async (req, res) => {
         if (isEnvConfigured()) {
             return res.status(409).json({
                 error: 'Email is pinned by SMTP_HOST in the environment',
@@ -65,7 +65,7 @@ export function createSettingsRoutes(cache) {
         }
 
         try {
-            const result = saveEmailConfig(
+            const result = await saveEmailConfig(
                 { provider, host, port, username, secret, from, recipients, template, enabled },
                 changedBy ?? 'api'
             );
@@ -77,19 +77,19 @@ export function createSettingsRoutes(cache) {
     });
 
     // GET /settings/slack — where alerts go, and how
-    router.get('/slack', (_req, res) => {
-        res.json(describeSlackConfig());
+    router.get('/slack', async (_req, res) => {
+        res.json(await describeSlackConfig());
     });
 
     // PUT /settings/slack — webhook or bot token, plus the destination
-    router.put('/slack', (req, res) => {
+    router.put('/slack', async (req, res) => {
         const body = req.body ?? {};
 
         // Field by field rather than all or nothing: SLACK_WEBHOOK_URL pins how
         // alerts are delivered, but the signing secret and the app credentials
         // can still be managed here.
         const pinned = [];
-        const pins = (value, envVar) => {
+        const pins = async (value, envVar) => {
             // Empty is not a pin. `SLACK_SIGNING_SECRET=` in a .env leaves the
             // variable defined but carrying nothing, and everywhere else in the
             // product that reads as unset — including the field the console
@@ -138,7 +138,7 @@ export function createSettingsRoutes(cache) {
 
         try {
             res.json(
-                saveSlackConfig(
+                await saveSlackConfig(
                     { mode, webhookUrl, botToken, signingSecret, appToken, appId, destination, notifyOwners, enabled },
                     changedBy ?? 'api'
                 )
@@ -161,12 +161,12 @@ export function createSettingsRoutes(cache) {
     });
 
     // GET /settings/teams — the channel webhook, if any
-    router.get('/teams', (_req, res) => {
-        res.json(describeTeamsConfig());
+    router.get('/teams', async (_req, res) => {
+        res.json(await describeTeamsConfig());
     });
 
     // PUT /settings/teams
-    router.put('/teams', (req, res) => {
+    router.put('/teams', async (req, res) => {
         if (isTeamsEnvConfigured()) {
             return res.status(409).json({
                 error: 'Teams is pinned by TEAMS_WEBHOOK_URL in the environment',
@@ -177,7 +177,7 @@ export function createSettingsRoutes(cache) {
         const { webhookUrl, enabled, changedBy } = req.body ?? {};
 
         try {
-            res.json(saveTeamsConfig({ webhookUrl, enabled }, changedBy ?? 'api'));
+            res.json(await saveTeamsConfig({ webhookUrl, enabled }, changedBy ?? 'api'));
         } catch (error) {
             logger.warn({ err: error }, 'Teams configuration update failed');
             res.status(400).json({ error: error.message });
@@ -196,12 +196,12 @@ export function createSettingsRoutes(cache) {
     });
 
     // GET /settings/llm — provider catalog and the current model
-    router.get('/llm', (_req, res) => {
-        res.json(describeLlmConfig());
+    router.get('/llm', async (_req, res) => {
+        res.json(await describeLlmConfig());
     });
 
     // PUT /settings/llm — pick a model, local or hosted
-    router.put('/llm', (req, res) => {
+    router.put('/llm', async (req, res) => {
         if (isLlmEnvConfigured()) {
             return res.status(409).json({
                 error: 'The LLM provider is pinned by LLM_PROVIDER in the environment',
@@ -214,7 +214,7 @@ export function createSettingsRoutes(cache) {
         if (!provider) return res.status(400).json({ error: 'provider is required' });
 
         try {
-            res.json(saveLlmConfig({ provider, model, baseUrl, apiKey, enabled }, changedBy ?? 'api'));
+            res.json(await saveLlmConfig({ provider, model, baseUrl, apiKey, enabled }, changedBy ?? 'api'));
         } catch (error) {
             logger.warn({ err: error }, 'LLM configuration update failed');
             res.status(400).json({ error: error.message });
@@ -243,7 +243,7 @@ export function createSettingsRoutes(cache) {
 
             // Sends the current digest when there is one, so the operator sees
             // the real template rather than an empty sample.
-            const report = cache ? generateWeeklyReport(cache.getAll()) : null;
+            const report = cache ? generateWeeklyReport(await cache.getAll()) : null;
             const result = await sendTestEmail(report);
 
             res.status(result.ok ? 200 : 400).json(result);

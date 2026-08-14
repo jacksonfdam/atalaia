@@ -5,11 +5,11 @@ import logger from "./logger.js";
 import monitorVulns from "../application/monitorVulns.js";
 import { generateWeeklyReport } from "../application/generateWeeklyReport.js";
 import { sendWeeklyEmail } from "./notifiers/emailNotifier.js";
-import { getAll } from "./cache/sqliteCache.js";
+import { getAll } from "./cache/postgresCache.js";
 import { scanAllRepositories } from "../application/scanAllRepositories.js";
 
-function startScheduler() {
-    const pattern = getSetting('cronSchedule');
+async function startScheduler() {
+    const pattern = await getSetting('cronSchedule');
     logger.info({ cron: pattern }, 'Starting scheduler');
 
     cron.schedule(pattern, async () => {
@@ -23,14 +23,14 @@ function startScheduler() {
 
     cron.schedule(weeklyPattern, async () => {
         logger.info("Running weekly report generation");
-        const vulns = getAll();
+        const vulns = await getAll();
         const report = generateWeeklyReport(vulns);
         await sendWeeklyEmail(report);
     });
 
     // Repository scanning (default: daily 3 AM)
-    if (getSetting('repositories.autoScan') && (config.providers || []).length > 0) {
-        const scanPattern = getSetting('repositories.scanCron');
+    if ((await getSetting('repositories.autoScan')) && (config.providers || []).length > 0) {
+        const scanPattern = await getSetting('repositories.scanCron');
         logger.info({ cron: scanPattern }, 'Starting repository scan schedule');
 
         cron.schedule(scanPattern, async () => {

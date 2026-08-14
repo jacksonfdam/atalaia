@@ -8,7 +8,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
 import { notifyTeams } from '../infrastructure/notifiers/notifyTeams.js';
-import { has, add } from '../infrastructure/cache/sqliteCache.js';
+import { has, add } from '../infrastructure/cache/postgresCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
 import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
@@ -16,7 +16,6 @@ import { correlateVulnerability } from './correlateVulnerability.js';
 import { getAllUniqueDependencies, listRepositories } from '../infrastructure/cache/repositoryStore.js';
 
 const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
-const llm = createLLMAdapter();
 
 const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
 
@@ -132,14 +131,14 @@ function loadTechFilters() {
  * Returns null if no repos are configured or autoFilterFromDeps is disabled.
  * @returns {string[] | null}
  */
-function loadDynamicTechFilters() {
+async function loadDynamicTechFilters() {
     if (!config.repositories?.autoFilterFromDeps) return null;
 
     try {
-        const repos = listRepositories();
+        const repos = await listRepositories();
         if (repos.length === 0) return null;
 
-        const deps = getAllUniqueDependencies();
+        const deps = await getAllUniqueDependencies();
         if (deps.length === 0) return null;
 
         const filters = new Set();
@@ -155,9 +154,9 @@ function loadDynamicTechFilters() {
     }
 }
 
-function filterByTechnology(vulns) {
+async function filterByTechnology(vulns) {
     // Priority 1: Dynamic filter from scanned repos
-    const dynamicFilters = loadDynamicTechFilters();
+    const dynamicFilters = await loadDynamicTechFilters();
     if (dynamicFilters && dynamicFilters.length > 0) {
         logger.info({ count: dynamicFilters.length }, 'Filtering from scanned repository dependencies');
         return vulns.filter(vuln => {
@@ -191,7 +190,7 @@ function filterByTechnology(vulns) {
 
 async function fetchAllFeeds() {
     const allVulns = [];
-    const feeds = enabledFeeds();
+    const feeds = await enabledFeeds();
 
     const results = await Promise.allSettled(
         feeds.map(async (feed, index) => {
@@ -228,13 +227,20 @@ async function monitorVulns() {
         const mergedVulns = deduplicateAndMerge(allVulns);
         logger.info({ unique: mergedVulns.length }, 'Unique vulnerabilities after merge');
 
-        const relevantVulns = filterByTechnology(mergedVulns);
+        const relevantVulns = await filterByTechnology(mergedVulns);
         if (config.filterSettings?.enabled) {
             logger.info({ remaining: relevantVulns.length }, 'Vulnerabilities after technology filter');
         }
 
-        // Deduplicate against cache (already persisted vulns)
-        const newVulns = relevantVulns.filter(vuln => vuln.cveId && !has(vuln.cveId));
+        // Deduplicate against what is already stored. A loop, not filter():
+        // has() is a query, and an async predicate makes filter() keep
+        // everything — every CVE would be re-notified on every cycle.
+        const newVulns = [];
+        for (const vuln of relevantVulns) {
+            if (!vuln.cveId) continue;
+            if (await has(vuln.cveId)) continue;
+            newVulns.push(vuln);
+        }
 
         if (newVulns.length === 0) {
             logger.info('No new, relevant vulnerabilities found');
@@ -255,6 +261,7 @@ async function monitorVulns() {
                     exploited: vuln.exploited,
                     technologies: (vuln.affectedTechnologies || []).join(', '),
                 });
+                const llm = await createLLMAdapter();
                 const explanation = await llm.complete(prompt);
                 if (explanation) {
                     vuln.clientExplanation = explanation;
@@ -266,7 +273,7 @@ async function monitorVulns() {
             // Correlate with repositories and owners
             let correlation = { affectedRepositories: [], owners: [] };
             try {
-                correlation = correlateVulnerability(vuln);
+                correlation = await correlateVulnerability(vuln);
             } catch (err) {
                 logger.warn({ cveId: vuln.cveId, err }, 'Vulnerability correlation failed');
             }
@@ -275,7 +282,7 @@ async function monitorVulns() {
             // Both channels, each deciding for itself whether it is configured.
             await notifySlack(vuln, highlight, correlation);
             await notifyTeams(vuln, highlight, correlation);
-            add(vuln);
+            await add(vuln);
         }
 
         logger.info('Monitoring cycle completed');
