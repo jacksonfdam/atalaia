@@ -22,4 +22,8 @@ npm-debug.log
 /ui/node_modules/
 /ui/dist/
 
+# Documentation site: installed packages and rendered HTML
+/docs/node_modules/
+/docs/dist/
+
 .DS_Store

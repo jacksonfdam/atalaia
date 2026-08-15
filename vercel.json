@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm --filter atalaia-docs build",
+  "installCommand": "pnpm install --filter atalaia-docs...",
+  "outputDirectory": "docs/dist",
+  "framework": null,
+  "trailingSlash": true,
+  "github": { "silent": true },
+  "headers": [
+    {
+      "source": "/(tokens.css|styles.css|favicon.svg)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }]
+    },
+    {
+      "source": "/screenshots/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=604800, immutable" }]
+    }
+  ]
+}

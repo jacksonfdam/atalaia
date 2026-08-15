@@ -1,5 +1,7 @@
 # Atalaia documentation
 
+Published at **[atalaia-console.vercel.app](https://atalaia-console.vercel.app)** — these files are the source, rendered in the console's own chrome by `pnpm --filter atalaia-docs build`. This table is the site's navigation, so a document added here appears there.
+
 | Document | What is in it |
 |----------|---------------|
 | [Running Atalaia](running.md) | The launcher, Docker, plain Node, development mode |
@@ -13,5 +15,3 @@
 | [REST API](api.md) | Every endpoint under `/api/v1` |
 | [MCP server](mcp.md) | The tools agents get at `/mcp`, and how to connect one |
 | [Troubleshooting](troubleshooting.md) | Symptom → cause → fix |
-
-Longer-form guides live in the [GitHub Wiki](https://github.com/jacksonfdam/atalaia/wiki).
