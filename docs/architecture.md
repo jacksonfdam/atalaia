@@ -25,6 +25,9 @@ ui/                   # Console service — no imports from src/
 ├── server/           # BFF: session auth + API-key-injecting proxy
 └── src/              # React client
 
+docs/                 # This documentation, and the site built from it
+└── site/             # The renderer: Markdown in, static HTML out
+
 config/               # Technology filter, vendor mappings, database catalog
 db/migrations/        # SQL migrations, applied on boot behind an advisory lock
 supabase/             # Local Supabase stack definition (development)
@@ -105,5 +108,3 @@ its own Postgres schema — and its own pg-boss schema — through `search_path`
 suites cannot see each other's rows and none of them can see a developer's
 running worker. Without `TEST_DATABASE_URL` they skip themselves and say why, so
 the unit suites still run anywhere.
-
-Full architecture guide: [Wiki — Architecture](https://github.com/jacksonfdam/atalaia/wiki/Architecture)
