@@ -50,7 +50,7 @@ Clean Architecture with strict layer boundaries — **`src/domain/` has zero ext
   - `llm/` — provider catalog (`llmProviders.js`) plus OpenAI-compatible, Anthropic and Ollama adapters; prompts in `llm/prompts/*.txt`
   - `providers/githubProvider.js` — **read-only**; every request goes through one GET helper and a test fails the build if a write call appears there
   - `registries/` — latest-version lookups per ecosystem; `crypto.js` — AES-256-GCM for secrets at rest; `config.js`, `settings.js` (read-through cache, 30s TTL), `logger.js` (Pino)
-- **`src/interface/`** — `index.js` is the API's composition root (dotenv, `await initializeDatabase()`, `createApp(cache)`, listen, dev-only ngrok/Slack bootstrap). `worker.js` is the worker's: migrate, register workers, register schedules. Routes split per resource under `http/`; `slack/slackActions.js` handles signature-verified button callbacks
+- **`src/interface/`** — `index.js` is the API's composition root (dotenv, `await initializeDatabase()`, `createApp(cache)`, listen, dev-only ngrok/Slack bootstrap). `worker.js` is the worker's: migrate, register workers, register schedules. Routes split per resource under `http/`; `slack/slackActions.js` handles signature-verified button callbacks; `mcp/` is the agent-facing Model Context Protocol server (`tools.js` is the one list, `server.js` builds it), mounted stateless at `/mcp` behind the same API key
 - **`src/cli/`** — commander commands plus an Ink dashboard, over HTTP (`lib/api.ts`); `--api <url>` or `ATALAIA_API_URL`
 - **`ui/`** — separate service, **no imports from `src/`**. `server/` is a BFF (session cookie auth, injects `X-API-Key` server-side); `src/` is the React client
 
@@ -58,7 +58,7 @@ Clean Architecture with strict layer boundaries — **`src/domain/` has zero ext
 
 - **Everything is async.** Postgres is not synchronous the way better-sqlite3 was. Four traps found the hard way during the migration, all the same shape — a promise where a value was expected: `filter()` with an async predicate keeps *everything* (a promise is truthy), a route helper returning a promise makes every 404 a 200, a route/handler factory must **not** be async because Express needs a function, and anything built at import time cannot read the database.
 - **Long work is a job, not a request.** If it can outlive an HTTP timeout it belongs in `queue/jobs.js` and runs in the worker. `exclusive` queue policy is how "only one at a time" is enforced — in the database, so it survives a restart and holds across containers.
-- **Registries over switches.** New feed, parser, LLM provider, email provider or queue → add the file *and* register it. Never a second list.
+- **Registries over switches.** New feed, parser, LLM provider, email provider, queue or MCP tool → add the file *and* register it. Never a second list.
 - **Environment beats database beats `config.json`.** An env-pinned value turns the matching console field read-only; a write that would have no effect is refused with `409`.
 - **Secrets encrypted at rest, never returned.** Tokens, SMTP passwords, Slack credentials and LLM keys go through `crypto.js`; the API exposes only "configured" plus the last four characters.
 - **Read-only outward.** GitHub, feeds and package registries are read, never written.

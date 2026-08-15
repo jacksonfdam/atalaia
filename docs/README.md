@@ -11,6 +11,7 @@
 | [Console and CLI](console-and-cli.md) | The management console and the terminal client |
 | [Architecture](architecture.md) | Layers, data flow, tech stack, development commands |
 | [REST API](api.md) | Every endpoint under `/api/v1` |
+| [MCP server](mcp.md) | The tools agents get at `/mcp`, and how to connect one |
 | [Troubleshooting](troubleshooting.md) | Symptom → cause → fix |
 
 Longer-form guides live in the [GitHub Wiki](https://github.com/jacksonfdam/atalaia/wiki).

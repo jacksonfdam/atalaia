@@ -17,7 +17,8 @@ src/
 ├── interface/
 │   ├── index.js      # The API: HTTP server, REST routes, Slack callbacks
 │   ├── worker.js     # The worker: no port, takes jobs off the queue
-│   └── http/         # Routes, one file per resource
+│   ├── http/         # Routes, one file per resource
+│   └── mcp/          # MCP tools for agents, served at /mcp by the API
 └── cli/              # Ink terminal client (TypeScript), an HTTP client
 
 ui/                   # Console service — no imports from src/
