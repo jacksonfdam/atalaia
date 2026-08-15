@@ -2,8 +2,7 @@ import express from 'express';
 import {
     addRepo,
     removeRepo,
-    getRepo,
-    getRepoByUrl,
+    resolveRepository,
     restoreRepo,
     setRepoEnabled,
 } from '../../application/manageRepository.js';
@@ -15,13 +14,8 @@ import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.j
 import { listRepositoriesPage } from '../../application/listRepositories.js';
 import { enqueue, queueState, cancelQueued } from '../../infrastructure/queue/boss.js';
 import { QUEUES } from '../../infrastructure/queue/jobs.js';
-import { compareVersions } from '../../application/versionComparison.js';
-import { getDependenciesByRepo } from '../../infrastructure/cache/repositoryStore.js';
+import { listRepositoryDependencies } from '../../application/listDependencies.js';
 import logger from '../../infrastructure/logger.js';
-
-async function resolveRepo(idOrUrl) {
-    return /^\d+$/.test(idOrUrl) ? await getRepo(parseInt(idOrUrl, 10)) : await getRepoByUrl(idOrUrl);
-}
 
 export function createRepositoryRoutes() {
     const router = express.Router();
@@ -107,14 +101,14 @@ export function createRepositoryRoutes() {
 
     // GET /repositories/:idOrUrl
     router.get('/:idOrUrl', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
         res.json(repository);
     });
 
     // PATCH /repositories/:idOrUrl — enable/disable, rename, change branch
     router.patch('/:idOrUrl', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         const { enabled } = req.body ?? {};
@@ -136,7 +130,7 @@ export function createRepositoryRoutes() {
     // GET /repositories/:idOrUrl/vulnerabilities — what reaches this repository,
     // and through which dependency
     router.get('/:idOrUrl/vulnerabilities', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         res.json(
@@ -148,14 +142,14 @@ export function createRepositoryRoutes() {
 
     // GET /repositories/:idOrUrl/technologies
     router.get('/:idOrUrl/technologies', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
         res.json(await getRepositoryTechnologies(repository.id));
     });
 
     // POST /repositories/:idOrUrl/technologies — re-read languages from the provider
     router.post('/:idOrUrl/technologies', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         try {
@@ -177,64 +171,23 @@ export function createRepositoryRoutes() {
     // GET /repositories/:idOrUrl/dependencies — every dependency, with whatever
     // freshness has already been resolved
     router.get('/:idOrUrl/dependencies', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
-        let dependencies = await getDependenciesByRepo(repository.id);
-        if (req.query.ecosystem) {
-            const wanted = String(req.query.ecosystem).toUpperCase();
-            dependencies = dependencies.filter(d => String(d.ecosystem).toUpperCase() === wanted);
-        }
-
-        const enriched = dependencies.map(dependency => {
-            // Computed here rather than stored: it compares two columns, and a
-            // third column would be one more thing to keep in sync.
-            const comparison = compareVersions(
-                dependency.ecosystem,
-                dependency.version,
-                dependency.latest_version
-            );
-
-            return {
-                ...dependency,
-                versionState: comparison.state,
-                versionGap: comparison.gap,
-                versionNote: comparison.reason,
-                outdated: comparison.state === 'behind',
-            };
+        const listing = await listRepositoryDependencies(repository.id, {
+            ecosystem: req.query.ecosystem,
         });
 
-        // Grouped by ecosystem: a repository can carry Gradle, GitHub Actions,
-        // Fastlane gems and npm at once, and they are read one type at a time.
-        const groups = new Map();
-        for (const dependency of enriched) {
-            const group = groups.get(dependency.ecosystem) ?? {
-                ecosystem: dependency.ecosystem,
-                count: 0,
-                outdated: 0,
-                unchecked: 0,
-            };
-
-            group.count += 1;
-            if (dependency.outdated) group.outdated += 1;
-            if (!dependency.latest_checked_at) group.unchecked += 1;
-            groups.set(dependency.ecosystem, group);
-        }
-
         res.json({
-            count: enriched.length,
-            outdated: enriched.filter(dependency => dependency.outdated).length,
-            unchecked: enriched.filter(dependency => !dependency.latest_checked_at).length,
-            groups: [...groups.values()].sort((a, b) => b.count - a.count),
+            ...listing,
             repository,
-            dependencies: enriched,
             versionCheck: await queueState(QUEUES.DEPS_VERSIONS, `repo:${repository.id}`),
         });
     });
 
     // GET /repositories/:idOrUrl/versions — progress of the freshness check
     router.get('/:idOrUrl/versions', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         res.json(await queueState(QUEUES.DEPS_VERSIONS, `repo:${repository.id}`));
@@ -243,7 +196,7 @@ export function createRepositoryRoutes() {
     // POST /repositories/:idOrUrl/versions — look up the latest published
     // version of each dependency, in the background
     router.post('/:idOrUrl/versions', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         // singletonKey scopes the queue's exclusivity to this repository: two
@@ -272,7 +225,7 @@ export function createRepositoryRoutes() {
 
     // POST /repositories/:idOrUrl/scan
     router.post('/:idOrUrl/scan', async (req, res) => {
-        const repository = await resolveRepo(req.params.idOrUrl);
+        const repository = await resolveRepository(req.params.idOrUrl);
         if (!repository) return res.status(404).json({ error: 'Repository not found' });
 
         // Queued rather than run here: a scan reads every manifest in the
