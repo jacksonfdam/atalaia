@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!-- A watchtower on the neon desktop: the same four colours as the console's brand bar. -->
+  <rect width="32" height="32" fill="#000080" />
+  <rect x="2" y="2" width="28" height="4" fill="#ff0077" />
+  <rect x="2" y="26" width="28" height="4" fill="#00e7ff" />
+  <path d="M9 24 L12 12 L20 12 L23 24 Z" fill="#ccff00" />
+  <rect x="11" y="7" width="10" height="5" fill="#ffffff" />
+  <rect x="15" y="16" width="2" height="8" fill="#000080" />
+</svg>

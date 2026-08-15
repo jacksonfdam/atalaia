@@ -1,10 +1,12 @@
 # pnpm settings. As of pnpm 11 these live here, not in package.json's "pnpm" field.
 
-# Two services: the API (root) and the management console (ui). The console has
-# its own package.json so React and Vite never enter the API's dependency tree.
+# Two services and a site: the API (root), the management console (ui) and the
+# documentation site (docs). Each has its own package.json so React, Vite and the
+# Markdown renderer never enter the API's dependency tree.
 packages:
   - '.'
   - 'ui'
+  - 'docs'
 
 # Security pins for transitive dependencies with known advisories.
 # Each entry corresponds to a GitHub advisory that `pnpm audit` reported;
