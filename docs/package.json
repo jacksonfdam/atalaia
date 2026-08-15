@@ -1,0 +1,17 @@
+{
+  "name": "atalaia-docs",
+  "version": "1.0.0",
+  "description": "The documentation site — the Markdown in this directory, rendered in the console's own chrome.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node site/build.mjs",
+    "dev": "node site/build.mjs --serve"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "marked": "^18.0.9"
+  }
+}

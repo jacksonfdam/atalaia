@@ -61,5 +61,3 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/reports/weekly` | The digest the email sends: `affecting` grouped by repository, `infrastructure` and `other` capped, `dependencies` behind. `?windowDays=N` changes the period. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 | `POST` | `/mcp` | Model Context Protocol, for agents. Stateless; `GET`/`DELETE` answer `405`. |
-
-Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)

@@ -5,7 +5,7 @@
 Atalaia watches 14 public vulnerability sources — NVD, CISA KEV, MITRE, GHSA, EUVD, OpenCVE, Snyk, VulDB and vendor/regional feeds — filters what they publish against the technologies you actually ship, works out which of your GitHub repositories each finding reaches, and alerts the people responsible through Slack, Microsoft Teams or email.
 
 - **Stack-aware filtering** — only the CVEs that touch your technologies, with the rest one click away
-- **Read-only GitHub import** — several organizations, each with its own token; dependencies parsed from 14 ecosystems
+- **Read-only GitHub import** — several organizations, each with its own token; dependencies parsed from 12 ecosystems
 - **Repository correlation** — which repository a CVE lands in, and through which manifest file
 - **Slack-native triage** — Block Kit alerts with Acknowledge/Resolve buttons
 - **Weekly executive report** — severity-grouped HTML email
@@ -49,15 +49,13 @@ Apple's runtime, scaling the worker, and developing against the stack are in [do
 
 ## Documentation
 
-Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md), [MCP server](docs/mcp.md) and [troubleshooting](docs/troubleshooting.md).
+The same pages, rendered: **[atalaia-console.vercel.app](https://atalaia-console.vercel.app)**.
 
-Longer-form guides are in the [GitHub Wiki](https://github.com/jacksonfdam/atalaia/wiki).
+Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md), [MCP server](docs/mcp.md) and [troubleshooting](docs/troubleshooting.md).
 
 ## Credits
 
-**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Mobile and Security Engineer.
-
-Built from the ground up starting September 2025 — from initial concept through architecture, feed integration, Slack workflows, email reporting and LLM-powered intelligence — a solo effort to give engineering teams the vulnerability visibility they deserve.
+**Created by [Jackson Mafra](https://github.com/jacksonfdam)** — Mobile and Security Engineer. Built and maintained solo since September 2025.
 
 ## License
 

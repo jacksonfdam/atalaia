@@ -10,7 +10,7 @@ Atalaia monitors public vulnerability feeds, filters findings against the techno
 
 ES modules throughout (`"type": "module"`); the CLI under `src/cli/` is TypeScript compiled to `dist/`, and is an HTTP client of the API.
 
-User-facing documentation lives in `README.md` (short) and `docs/` (everything else). Keep both in step with behaviour changes.
+User-facing documentation lives in `README.md` (short) and `docs/` (everything else). Keep both in step with behaviour changes. `docs/` is also the published site (`docs/site/build.mjs` → Vercel): the index table in `docs/README.md` is its navigation, so a new page must be listed there to exist.
 
 ## Commands
 
