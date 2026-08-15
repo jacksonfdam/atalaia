@@ -1,6 +1,6 @@
 # REST API
 
-Everything under `/api/v1` requires the `X-API-Key` header. `/health` is public; `/api/v1/slack/actions` authenticates by Slack signature instead.
+Everything under `/api/v1` requires the `X-API-Key` header. `/health` is public; `/api/v1/slack/actions` authenticates by Slack signature instead. `/mcp` serves the same data to agents over Model Context Protocol, behind the same key — see [mcp.md](mcp.md).
 
 Anything that outlives a request is queued rather than run: those endpoints answer `202` with a `jobId`, refuse a second concurrent run with `409`, and report progress on a `GET` at the same path. See [queues.md](queues.md).
 
@@ -60,5 +60,6 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | The digest the email sends: `affecting` grouped by repository, `infrastructure` and `other` capped, `dependencies` behind. `?windowDays=N` changes the period. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
+| `POST` | `/mcp` | Model Context Protocol, for agents. Stateless; `GET`/`DELETE` answer `405`. |
 
 Full API reference: [Wiki — API Reference](https://github.com/jacksonfdam/atalaia/wiki/API-Reference)

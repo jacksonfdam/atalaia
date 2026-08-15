@@ -11,6 +11,7 @@ Atalaia watches 14 public vulnerability sources — NVD, CISA KEV, MITRE, GHSA, 
 - **Weekly executive report** — severity-grouped HTML email
 - **Optional plain-English explanations** — local (Ollama, LM Studio) or hosted models
 - **Management console and CLI** — a React console on port 3001 and an Ink terminal dashboard
+- **MCP server for agents** — twelve tools at `/mcp`, all reads bar the one that asks a model for an explanation
 - **Durable jobs** — feed cycles, scans and freshness checks run in a worker, queued in Postgres
 
 Atalaia only ever reads: it never opens a pull request, never edits a manifest and never gates a build.
@@ -48,7 +49,7 @@ Apple's runtime, scaling the worker, and developing against the stack are in [do
 
 ## Documentation
 
-Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md) and [troubleshooting](docs/troubleshooting.md).
+Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md), [MCP server](docs/mcp.md) and [troubleshooting](docs/troubleshooting.md).
 
 Longer-form guides are in the [GitHub Wiki](https://github.com/jacksonfdam/atalaia/wiki).
 

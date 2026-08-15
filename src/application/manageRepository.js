@@ -102,6 +102,21 @@ export async function getRepoByUrl(url) {
 }
 
 /**
+ * Get a repository from whatever identifier the caller happens to hold.
+ *
+ * The HTTP API and the MCP server both take `:idOrUrl` — a numeric id from a
+ * list response, or the URL a human pasted — and both must read it the same
+ * way, so the rule lives here rather than in each interface.
+ *
+ * @param {number|string} idOrUrl
+ * @returns {Promise<object|null>}
+ */
+export async function resolveRepository(idOrUrl) {
+    const value = String(idOrUrl);
+    return /^\d+$/.test(value) ? await getRepo(parseInt(value, 10)) : await getRepoByUrl(value);
+}
+
+/**
  * Restore a soft-deleted repository, together with its dependencies.
  * @param {number|string} idOrUrl
  * @returns {object|null}

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { createApiRoutes } from './apiRoutes.js';
+import { createMcpRoutes } from './mcpRoutes.js';
 import { requireSlackSignature, createSlackActionHandler } from '../slack/slackActions.js';
 
 /**
@@ -55,6 +56,10 @@ export function createApp(cache) {
     app.post('/api/v1/slack/actions', requireSlackSignature, createSlackActionHandler(cache));
 
     app.use('/api/v1', createApiRoutes(cache));
+
+    // MCP, for agents. Outside /api/v1 because it is a protocol of its own
+    // rather than another REST resource, but behind the same API key.
+    app.use('/mcp', createMcpRoutes(cache));
 
     return app;
 }
