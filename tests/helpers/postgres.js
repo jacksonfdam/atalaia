@@ -11,8 +11,8 @@
  * suites skip themselves, so `pnpm test` still runs the unit tests on a machine
  * with no Postgres.
  *
- *   supabase start
- *   TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54622/postgres pnpm test
+ *   docker run -d -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+ *   TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres pnpm test
  */
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? null;

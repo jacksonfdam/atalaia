@@ -15,7 +15,7 @@ Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `co
 | `HOST` | `0.0.0.0` | API bind address. |
 | `NODE_ENV` | — | `production` disables the ngrok/Slack dev bootstrap. |
 | `LOG_LEVEL` | `info` | Pino level: `trace`…`fatal`. |
-| `DATABASE_URL` | — | **Required.** Postgres (Supabase). Use the **session** connection on port 5432, not the 6543 transaction pooler: pgbouncer in transaction mode breaks prepared statements and `LISTEN`, and the queue needs both. Keep the *host's* address here (`127.0.0.1` for a local stack) — the launcher translates it to `host.docker.internal` for the containers, so one value serves the host tools and the containers alike. |
+| `DATABASE_URL` | — | **Required.** Any Postgres 13+. Use the **session** connection on port 5432, not a 6543 transaction pooler: pgbouncer in transaction mode breaks prepared statements and `LISTEN`, and the queue needs both. Keep the *host's* address here (`127.0.0.1` for a database on this machine) — the launcher translates it to `host.docker.internal` for the containers, so one value serves the host tools and the containers alike. |
 | `DATABASE_POOL_MAX` | `10` | Connections per process. |
 | `PGBOSS_SCHEMA` | `pgboss` | Schema the queue keeps its own tables in. |
 | `CRON_SCHEDULE` | `0 * * * *` | Monitoring cycle; overrides `config.json`. Registered in the database by the worker, so a change takes effect when the worker restarts. |

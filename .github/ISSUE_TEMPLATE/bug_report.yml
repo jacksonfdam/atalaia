@@ -55,6 +55,6 @@ body:
     attributes:
       label: Environment
       description: |
-        Docker or Apple's `container`; Supabase or your own Postgres; the Postgres version;
+        Docker or Apple's `container`; which Postgres and which version;
         the host OS. `./scripts/atalaia.sh doctor` prints most of it.
       render: text

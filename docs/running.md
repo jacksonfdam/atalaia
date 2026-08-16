@@ -2,21 +2,19 @@
 
 Atalaia runs in containers. There are three of them — the **API** (port 3000), the **worker** (no port) and the **management console** (port 3001) — and they all talk to one Postgres.
 
-That Postgres is **Supabase**, and it is deliberately not one of the containers: locally it is the stack the `supabase` CLI brings up, in production it is a cloud project. Either way the services reach it through `DATABASE_URL`.
+That Postgres is deliberately not one of the containers. Atalaia needs a connection string and nothing else — no extension, no managed feature, nothing that ties it to one host — so bring whichever Postgres 13 or later you already have.
 
 ## The database first
 
 ```bash
-supabase start
+docker run -d --name atalaia-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
 ```
 
-The CLI prints a connection string when it finishes. This repository's `supabase/config.toml` moves the stack to ports `546xx` (the usual `5432x` were taken by other projects on the machine this was set up on), so the local database is:
-
 ```
-postgresql://postgres:postgres@127.0.0.1:54622/postgres
+postgresql://postgres:postgres@127.0.0.1:5432/postgres
 ```
 
-Put it in `.env` as `DATABASE_URL`. In production, use your project's **session** connection string — port 5432, not the 6543 pooler. `./scripts/atalaia.sh doctor` warns if it sees 6543: pgbouncer in transaction mode breaks prepared statements and `LISTEN`, and the queue needs both.
+Put it in `.env` as `DATABASE_URL`. A managed instance works the same way, as does a local Supabase, Neon or anything else — with one thing to watch: use the **session** connection, port 5432, not a 6543 transaction pooler. `./scripts/atalaia.sh doctor` warns when it sees 6543, because pgbouncer in transaction mode breaks prepared statements and `LISTEN`, and the queue needs both. The failure it causes is intermittent and reads as a bug in the queue.
 
 Migrations run themselves. Both the API and the worker apply any pending ones on boot, behind an advisory lock so they cannot race.
 
@@ -76,7 +74,7 @@ Nothing mounts a volume: there is no state on this side any more.
 
 One thing the launcher does that a bare `docker compose up` does not: **translate the database host**.
 
-A local Supabase lives on the host, so `.env` says `127.0.0.1` — which is what the CLI, the tests and `doctor` need. Inside a container that address is the container itself, and the connection is refused with `ECONNREFUSED 127.0.0.1:54622`. Compose reads `.env` for interpolation, so it passes the host-shaped URL straight through.
+A database on this machine means `.env` says `127.0.0.1` — which is what the CLI, the tests and `doctor` need. Inside a container that address is the container itself, and the connection is refused with `ECONNREFUSED 127.0.0.1:5432`. Compose reads `.env` for interpolation, so it passes the host-shaped URL straight through.
 
 Export a container-reachable URL yourself, or use the launcher:
 
@@ -121,8 +119,7 @@ The services still run in containers; the tooling around them does not.
 corepack enable
 pnpm install                                   # root + ui workspaces
 
-supabase start
-TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54622/postgres pnpm test
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres pnpm test
 
 pnpm --filter atalaia-console run dev:client   # Vite on :5173, proxying to the console
 pnpm run dev:cli                               # the terminal client from source

@@ -5,17 +5,19 @@ Thanks for looking. This is a small project with a specific shape, and most of w
 ## Getting it running
 
 ```bash
-supabase start                   # Postgres, locally
+docker run -d --name atalaia-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+echo "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres" >> .env
+
 ./scripts/atalaia.sh up          # API, worker and console in containers
 ```
 
-Put the connection string `supabase start` prints into `.env` as `DATABASE_URL`. The launcher fills in everything else. Thirteen seconds on a machine that already has the images, a few minutes on one that has to build them.
+Any Postgres 13 or later will do — a container like that one, or something you already run. Atalaia uses no extension and no managed feature; it wants a connection string. The launcher fills in the rest, and takes about ten seconds on a machine that already has the images.
 
 **pnpm only.** A `preinstall` hook refuses npm and yarn, because the lockfile carries security overrides that npm drops. Node 24+, pnpm 11+.
 
 ```bash
 pnpm test                        # unit tests
-TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54622/postgres pnpm test
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres pnpm test
 ```
 
 Without `TEST_DATABASE_URL` the integration suites skip themselves and say so. Each suite takes its own schema, so they run in parallel against one database.
