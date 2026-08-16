@@ -42,6 +42,20 @@ The rest of the difference is disposition. It is read-only by construction, it r
 - **Durable jobs** — feed cycles, scans and freshness checks in a worker, queued in Postgres
 - **Passkeys** — no shared console password, with recovery codes
 
+## Is this AI slop?
+
+Most of Atalaia was written by a language model under my direction, and I would rather you heard that from me than worked it out from the commit history. For a lot of projects that is a footnote. For a vulnerability scanner it is not: one that quietly misses things is worse than none at all, because it replaces "I do not know what I am exposed to" with false confidence.
+
+So the useful question is not whether a model typed the code. It is what stops the output from being wrong.
+
+**Nothing that decides is generated.** Severity, CVSS, exploited status and advisory links are read from the feed and stored as they arrived. No model ranks, scores, filters or de-duplicates anything. A model is asked for three things, all of them prose, all of them after triage — `grep -rln "createLLMAdapter" src/` returns four files, and the fourth is the adapter. Where that prose appears it is labelled *written by a model* or *from the advisory*, from one definition every channel reads.
+
+**Read-only is enforced, not promised.** A test greps the GitHub provider for write calls and asserts every request goes through the single GET helper, so no future method can route around it.
+
+**I read all of it,** slowly, and more than once for anything in the correlation path. Any mistakes left in the codebase are mine.
+
+That is the honest list, and it is shorter than I would like. Correlation currently matches CVEs to repositories by package name rather than by advisory version range; most parsers are untested. Both are written up, with the rest of what I do not claim, in **[docs/correctness.md](docs/correctness.md)** — along with the commands to check any of it yourself.
+
 ## Run it
 
 Containers: Docker with Compose v2, or Apple's `container` on macOS 15+. One Postgres, anywhere you like.
@@ -83,7 +97,7 @@ Apple's runtime, scaling the worker, and developing against the stack are in [do
 
 The same pages, rendered: **[atalaia-console.vercel.app](https://atalaia-console.vercel.app)**.
 
-Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [authentication](docs/authentication.md), [security](docs/security.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md), [MCP server](docs/mcp.md) and [troubleshooting](docs/troubleshooting.md).
+Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [authentication](docs/authentication.md), [security](docs/security.md), [correctness](docs/correctness.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md), [MCP server](docs/mcp.md) and [troubleshooting](docs/troubleshooting.md).
 
 ## Contributing
 
