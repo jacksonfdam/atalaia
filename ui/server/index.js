@@ -64,10 +64,45 @@ function recordFailure(ip) {
     attempts.set(ip, record);
 }
 
+/**
+ * What the page is allowed to load, and where it may talk.
+ *
+ * The bundle is served from this origin and the API is reached through this
+ * origin, so almost everything is 'self'. The two exceptions are Google Fonts,
+ * which index.html links — worth self-hosting, since it is a third party
+ * learning the address of every console and every operator who opens one.
+ *
+ * `style-src` keeps 'unsafe-inline' because the console styles elements with
+ * React's `style` prop, and a style attribute is inline style as far as the
+ * policy is concerned. `script-src` does not, which is the half that matters.
+ */
+const CSP = [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    'font-src https://fonts.gstatic.com',
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "form-action 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+].join('; ');
+
 export function createServer() {
     const app = express();
 
     app.disable('x-powered-by');
+
+    // Off unless a deployment says otherwise, and that is the safe default: a
+    // service that believes X-Forwarded-For without a proxy in front lets any
+    // caller claim any address, which is the throttling below defeated in one
+    // header. Behind a real proxy it has to be on, or every operator shares one
+    // address and one of them failing locks out the rest.
+    if (process.env.TRUST_PROXY) {
+        app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : process.env.TRUST_PROXY);
+    }
+
     app.use(express.json({ limit: '1mb' }));
     app.use(parseCookies);
 
@@ -75,6 +110,10 @@ export function createServer() {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'DENY');
         res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+        res.setHeader('Content-Security-Policy', CSP);
+        // The console has no reason to reach for any of these, and saying so
+        // stops a compromised dependency reaching for them either.
+        res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
         next();
     });
 
