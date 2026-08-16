@@ -30,6 +30,44 @@ const attempts = new Map();
 const MAX_ATTEMPTS = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
 
+/**
+ * Exactly which paths the sign-in relay forwards.
+ *
+ * This relay cannot require a session — it is how a session comes to exist — so
+ * it is the one place in the console that talks to the API on behalf of somebody
+ * who has not proved anything. It therefore cannot be a prefix check.
+ *
+ * It was one, and `/auth/../organizations` walked straight out of it: the path
+ * resolved back inside /api/v1, so the containment check let it through, and an
+ * anonymous visitor got the organizations, the repositories and the owners with
+ * the console's API key attached. A list of what this relay serves is the only
+ * shape that cannot be walked out of.
+ */
+const UUID = '[0-9a-fA-F-]{36}';
+
+const AUTH_ROUTES = [
+    ['GET', /^\/state$/],
+    ['GET', /^\/me$/],
+    ['POST', /^\/registration\/(options|verify)$/],
+    ['POST', /^\/authentication\/(options|verify)$/],
+    ['POST', /^\/logout$/],
+    ['GET', /^\/credentials$/],
+    ['POST', /^\/credentials$/],
+    ['PATCH', new RegExp(`^/credentials/${UUID}$`)],
+    ['DELETE', new RegExp(`^/credentials/${UUID}$`)],
+    ['POST', /^\/recovery\/(verify|codes)$/],
+    ['GET', /^\/users$/],
+    ['POST', new RegExp(`^/users/${UUID}/reset$`)],
+    ['GET', /^\/invites$/],
+    ['POST', /^\/invites$/],
+    ['DELETE', new RegExp(`^/invites/${UUID}$`)],
+];
+
+/** @returns {boolean} whether this relay serves that method and path */
+export function servesAuthRoute(method, path) {
+    return AUTH_ROUTES.some(([verb, pattern]) => verb === method && pattern.test(path));
+}
+
 /** The ceremonies worth throttling: the ones that end in a session. */
 const THROTTLED = new Set([
     '/authentication/verify',
@@ -153,6 +191,10 @@ export function createServer() {
      * reaches the page.
      */
     app.use('/auth', requireCsrfHeader, async (req, res) => {
+        if (!servesAuthRoute(req.method, req.path)) {
+            return res.status(404).json({ error: 'No such endpoint' });
+        }
+
         const ip = req.ip ?? 'unknown';
         const throttled = THROTTLED.has(req.path);
 

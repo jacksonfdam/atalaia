@@ -12,7 +12,7 @@ import http from 'node:http';
 process.env.API_KEY = 'super-secret-api-key';
 process.env.ATALAIA_API_URL = 'http://atalaia-api.test';
 
-const { createServer, resetThrottle } = await import('../../../ui/server/index.js');
+const { createServer, resetThrottle, servesAuthRoute } = await import('../../../ui/server/index.js');
 const { COOKIE_NAME } = await import('../../../ui/server/session.js');
 const { resolveTarget } = await import('../../../ui/server/proxy.js');
 
@@ -180,6 +180,35 @@ describe('what the console may reach', () => {
             const status = await raw(escape);
 
             expect(status).toBe(400);
+            expect(globalThis.fetch).not.toHaveBeenCalled();
+        }
+    });
+});
+
+describe('the sign-in relay', () => {
+    // It cannot require a session — it is how a session comes to exist — so it
+    // is the one path in the console that reaches the API on behalf of somebody
+    // who has proved nothing. A prefix check is not enough there: `..` resolves
+    // back inside /api/v1, so containment passes and an anonymous visitor gets
+    // the organizations, the repositories and the owners.
+    test('serves the sign-in endpoints and refuses everything else', () => {
+        expect(servesAuthRoute('GET', '/state')).toBe(true);
+        expect(servesAuthRoute('POST', '/authentication/verify')).toBe(true);
+        expect(servesAuthRoute('DELETE', '/credentials/0c70add1-afe7-4052-af32-aa2665396aab')).toBe(true);
+
+        expect(servesAuthRoute('GET', '/../organizations')).toBe(false);
+        expect(servesAuthRoute('GET', '/../../mcp')).toBe(false);
+        expect(servesAuthRoute('GET', '/organizations')).toBe(false);
+        expect(servesAuthRoute('DELETE', '/credentials')).toBe(false);
+        // Right shape, wrong verb.
+        expect(servesAuthRoute('DELETE', '/state')).toBe(false);
+    });
+
+    test('an anonymous visitor cannot read the fleet through it', async () => {
+        for (const escape of ['/auth/../organizations', '/auth/%2e%2e/organizations', '/auth/../stats']) {
+            const status = await raw(escape);
+
+            expect(status).toBe(404);
             expect(globalThis.fetch).not.toHaveBeenCalled();
         }
     });
