@@ -198,8 +198,12 @@ async function screenshots() {
 
     const shots = files
         .map(
+            // Linked to itself: a screen shrunk into a grid cell is unreadable,
+            // and the full-size image is the only honest way to look closer.
             file => `            <figure class="shot">
-              <img src="/screenshots/${encodeURIComponent(file)}" alt="${escape(caption(file))}" loading="lazy" />
+              <a href="/screenshots/${encodeURIComponent(file)}">
+                <img src="/screenshots/${encodeURIComponent(file)}" alt="${escape(caption(file))}" loading="lazy" />
+              </a>
               <figcaption>${escape(caption(file))}</figcaption>
             </figure>`
         )

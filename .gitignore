@@ -27,3 +27,5 @@ npm-debug.log
 /docs/dist/
 
 .DS_Store
+.vercel
+.env*
