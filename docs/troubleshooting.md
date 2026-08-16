@@ -3,7 +3,12 @@
 | Symptom | Cause and fix |
 |---------|---------------|
 | `Refusing to install with npm` | The repo is pnpm-only — the lockfile carries the security overrides. `corepack enable && pnpm install`. |
-| `UI_SESSION_SECRET is not set` | The console refuses to start without it. `openssl rand -hex 32`, or run `./scripts/atalaia.sh init`. |
+| `Refusing to start: passkey configuration is invalid` | `WEBAUTHN_ORIGINS` is not under `WEBAUTHN_RP_ID`, is plain `http` outside loopback, or `WEBAUTHN_RP_ID` has a scheme or a port. The log names the value. See [Authentication](authentication.md). |
+| Nobody can sign in after a domain change | `WEBAUTHN_RP_ID` changed, so every passkey registered under the old one is orphaned. The API logs both values at boot. Restore the old value, or have everyone re-enroll with a recovery code. |
+| The console offers a setup form on an installation that already has accounts | The `auth.bootstrapped` row is missing from `settings`. Whoever registers next becomes an administrator — existing accounts are untouched. |
+| Every passkey and every recovery code is gone | `AUTH_ALLOW_BREAKGLASS=true` plus `SETUP_PASSWORD` enrolls a passkey for an existing account. Turn it back off afterwards. |
+| `Signature counter went backwards` | The authenticator reported a lower use count than last time, which is what a cloned key looks like. The sign-in is refused and `auth.counter_regressed` is written. A synced passkey reporting zero forever is normal and is accepted. |
+| Console requests fail with `Missing console request header` | Something other than the console's own JavaScript is posting to it. That header is the CSRF check. |
 | `Console is misconfigured: API_KEY is not set` | The console process did not get `API_KEY`. Export it or start via the launcher. |
 | Console loads but every request 401s | `API_KEY` in the console's environment does not match the API's. |
 | Port already in use | Another instance is running: `./scripts/atalaia.sh status`, then `down`. Or change `PORT` / `UI_PORT`. |

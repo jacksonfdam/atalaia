@@ -13,6 +13,7 @@ src/
 │   ├── feeds/        # One file per source, listed in feedRegistry.js
 │   ├── parsers/      # One file per ecosystem, listed in parserRegistry.js
 │   ├── notifiers/    # Slack, Teams, email
+│   ├── auth/         # Passkey ceremonies, sessions, recovery codes, audit
 │   └── llm/          # Provider catalog and adapters
 ├── interface/
 │   ├── index.js      # The API: HTTP server, REST routes, Slack callbacks
@@ -22,7 +23,7 @@ src/
 └── cli/              # Ink terminal client (TypeScript), an HTTP client
 
 ui/                   # Console service — no imports from src/
-├── server/           # BFF: session auth + API-key-injecting proxy
+├── server/           # BFF: holds the session cookie, injects the API key
 └── src/              # React client
 
 docs/                 # This documentation, and the site built from it
