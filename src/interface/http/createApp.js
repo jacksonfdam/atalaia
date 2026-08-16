@@ -3,6 +3,7 @@ import cors from 'cors';
 import { createApiRoutes } from './apiRoutes.js';
 import { createMcpRoutes } from './mcpRoutes.js';
 import { requireSlackSignature, createSlackActionHandler } from '../slack/slackActions.js';
+import { requireTelegramSecret, createTelegramUpdateHandler } from '../telegram/telegramActions.js';
 
 /**
  * Build the HTTP application.
@@ -54,6 +55,10 @@ export function createApp(cache) {
     // Slack interactive actions — mounted before the API routes so it is not
     // caught by the API key middleware (Slack authenticates by signature).
     app.post('/api/v1/slack/actions', requireSlackSignature, createSlackActionHandler(cache));
+
+    // Telegram's buttons, likewise: it authenticates with the secret token it
+    // was given at registration, not with the API key.
+    app.post('/api/v1/telegram/webhook', requireTelegramSecret, createTelegramUpdateHandler(cache));
 
     app.use('/api/v1', createApiRoutes(cache));
 

@@ -1,6 +1,7 @@
 import logger from './logger.js';
 import { updateSlackRequestUrl } from './slackUrlUpdater.js';
 import { resolveAppCredentials } from './notifiers/slackConfig.js';
+import { registerTelegramWebhook } from './notifiers/telegramWebhook.js';
 
 /**
  * Telling the chat platforms where to call back.
@@ -28,10 +29,10 @@ export function resolvePublicUrl() {
 
 /**
  * @param {string} publicUrl Base URL, no trailing slash
- * @returns {Promise<{ slack: boolean }>} Which platforms accepted it
+ * @returns {Promise<{ slack: boolean, telegram: boolean }>} Which platforms accepted it
  */
 export async function publishCallbackUrl(publicUrl) {
-    const results = { slack: false };
+    const results = { slack: false, telegram: false };
 
     try {
         // Environment first, then whatever the console stored.
@@ -39,6 +40,16 @@ export async function publishCallbackUrl(publicUrl) {
         results.slack = await updateSlackRequestUrl(publicUrl, appToken, appId);
     } catch (err) {
         logger.warn({ err }, 'Could not update the Slack request URL');
+    }
+
+    try {
+        const telegram = await registerTelegramWebhook(publicUrl);
+        results.telegram = telegram.registered;
+        if (!telegram.registered && telegram.reason) {
+            logger.debug({ reason: telegram.reason }, 'Telegram webhook not registered');
+        }
+    } catch (err) {
+        logger.warn({ err }, 'Could not register the Telegram webhook');
     }
 
     logger.info({ publicUrl, ...results }, 'Callback URL published');

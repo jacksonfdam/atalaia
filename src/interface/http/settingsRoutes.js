@@ -30,6 +30,18 @@ import {
     isEnvConfigured as isTeamsEnvConfigured,
 } from '../../infrastructure/notifiers/teamsConfig.js';
 import { sendTeamsTestMessage } from '../../infrastructure/notifiers/notifyTeams.js';
+import {
+    describeTelegramConfig,
+    saveTelegramConfig,
+    isEnvConfigured as isTelegramEnvConfigured,
+} from '../../infrastructure/notifiers/telegramConfig.js';
+import { sendTelegramTestMessage } from '../../infrastructure/notifiers/notifyTelegram.js';
+import {
+    registerTelegramWebhook,
+    describeTelegramWebhook,
+    deleteTelegramWebhook,
+} from '../../infrastructure/notifiers/telegramWebhook.js';
+import { resolvePublicUrl } from '../../infrastructure/callbackUrls.js';
 import { buildReport } from '../../application/buildReport.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -192,6 +204,88 @@ export function createSettingsRoutes(cache) {
         } catch (error) {
             logger.error({ err: error }, 'Teams test failed');
             res.status(500).json({ error: error.message });
+        }
+    });
+
+    // GET /settings/telegram — the bot, the chat, and what Telegram was told
+    router.get('/telegram', async (_req, res) => {
+        const described = await describeTelegramConfig();
+
+        // What Telegram itself thinks, including its last delivery error —
+        // the only place a webhook that stopped working ever says so.
+        let live = null;
+        try {
+            live = await describeTelegramWebhook();
+        } catch (error) {
+            logger.debug({ err: error }, 'Could not read the Telegram webhook state');
+        }
+
+        res.json({ ...described, webhook: { ...described.webhook, live } });
+    });
+
+    // PUT /settings/telegram
+    router.put('/telegram', async (req, res) => {
+        if (isTelegramEnvConfigured()) {
+            return res.status(409).json({
+                error: 'Telegram is pinned by TELEGRAM_BOT_TOKEN in the environment',
+                hint: 'Unset TELEGRAM_BOT_TOKEN to manage it from the console.',
+            });
+        }
+
+        const { botToken, chatId, notifyOwners, enabled, changedBy } = req.body ?? {};
+
+        try {
+            res.json(
+                await saveTelegramConfig({ botToken, chatId, notifyOwners, enabled }, changedBy ?? 'api')
+            );
+        } catch (error) {
+            logger.warn({ err: error }, 'Telegram configuration update failed');
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // POST /settings/telegram/test — post a real message to the chat
+    router.post('/telegram/test', async (_req, res) => {
+        try {
+            const result = await sendTelegramTestMessage();
+            res.status(result.ok ? 200 : 400).json(result);
+        } catch (error) {
+            logger.error({ err: error }, 'Telegram test failed');
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // POST /settings/telegram/webhook — point the bot at this instance.
+    //
+    // The URL is not something the console can know: it is where *this* API
+    // answers from, which is PUBLIC_URL, or the tunnel the process opened.
+    router.post('/telegram/webhook', async (req, res) => {
+        const url = req.body?.url ?? resolvePublicUrl();
+
+        if (!url) {
+            return res.status(400).json({
+                error: 'No public URL to register',
+                hint: 'Set PUBLIC_URL, start a tunnel (TUNNEL_PROVIDER), or pass { "url": "https://…" }.',
+            });
+        }
+
+        try {
+            const result = await registerTelegramWebhook(url, { force: true });
+            res.status(result.registered ? 200 : 400).json(result);
+        } catch (error) {
+            logger.warn({ err: error }, 'Telegram webhook registration failed');
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // DELETE /settings/telegram/webhook — stop Telegram calling a dead tunnel
+    router.delete('/telegram/webhook', async (_req, res) => {
+        try {
+            const removed = await deleteTelegramWebhook();
+            if (!removed) return res.status(400).json({ error: 'Telegram is not configured' });
+            res.json({ removed: true });
+        } catch (error) {
+            res.status(400).json({ error: error.message });
         }
     });
 
