@@ -58,6 +58,8 @@ Telegram only calls an address it has been given, so the buttons do nothing unti
 | `PUBLIC_URL` | A real deployment. Wins over any tunnel — a hostname you own should not be replaced by a throwaway one. |
 | A tunnel | Development, or wherever `TUNNEL_PROVIDER` is set. `auto` takes ngrok when `NGROK_AUTH_TOKEN` is present, and Cloudflare's quick tunnel otherwise, which needs no account at all. `none` opens nothing. |
 
+In containers `NODE_ENV` is `production`, so no tunnel opens unless `TUNNEL_PROVIDER` says so — a public hostname is not something to hand out by accident. Set `TUNNEL_PROVIDER=cloudflared` in `.env` and `./scripts/atalaia.sh up` prints the address it got.
+
 The registration is skipped when the URL has not changed, so a restart does not disturb a working webhook. When a development tunnel hands out a new hostname, **Register webhook** in the console points Telegram at it again.
 
 There is no request signature to verify: Telegram signs nothing. What it offers instead is a secret token, chosen at registration and returned in a header on every callback. Atalaia generates one, stores it encrypted, and compares it in constant time — and a configuration with no stored secret accepts nothing rather than accepting everything.

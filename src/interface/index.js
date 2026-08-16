@@ -4,8 +4,7 @@ import logger from "../infrastructure/logger.js";
 import { initializeDatabase } from "../infrastructure/cache/postgresCache.js";
 import * as cache from "../infrastructure/cache/postgresCache.js";
 import { createApp } from "./http/createApp.js";
-import { startTunnel } from "../infrastructure/tunnels/tunnelRegistry.js";
-import { publishCallbackUrl, resolvePublicUrl } from "../infrastructure/callbackUrls.js";
+import { establishCallbackUrl } from "../infrastructure/callbackUrls.js";
 
 // quiet: dotenv v17 otherwise prints a banner that breaks the structured log stream
 dotenv.config({ quiet: true });
@@ -24,23 +23,16 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, HOST, async () => {
     logger.info({ host: HOST, port: PORT }, 'Atalaia server running');
 
-    // Where the chat integrations should call back.
-    //
-    // A real deployment sets PUBLIC_URL and needs no tunnel. A laptop has no
-    // address to give Slack or Telegram, so one is borrowed — by default only
-    // outside production, unless TUNNEL_PROVIDER says otherwise.
-    try {
-        const configured = resolvePublicUrl();
-        const wantsTunnel =
-            process.env.TUNNEL_PROVIDER !== undefined || process.env.NODE_ENV !== 'production';
+    // Where the chat integrations should call back: PUBLIC_URL, or a tunnel.
+    // Logged as one line so `atalaia.sh up` and `docker logs` both show the
+    // address without anyone having to ask the API for it.
+    const callback = await establishCallbackUrl(PORT);
 
-        const tunnel = configured || !wantsTunnel ? null : await startTunnel(PORT);
-        const publicUrl = configured ?? tunnel?.url ?? null;
-
-        if (publicUrl) await publishCallbackUrl(publicUrl);
-    } catch (error) {
-        // A callback URL is a convenience: the API serves requests either way.
-        logger.warn({ err: error }, 'Could not publish the callback URL');
+    if (callback.url) {
+        logger.info(
+            { url: callback.url, source: callback.source, provider: callback.provider },
+            'Callbacks reach this instance'
+        );
     }
 
     // No scheduler and no first cycle here any more: both belong to the worker

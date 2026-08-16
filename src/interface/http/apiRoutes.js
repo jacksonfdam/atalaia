@@ -10,6 +10,8 @@ import { createOwnerRoutes } from './ownerRoutes.js';
 import { createSettingsRoutes } from './settingsRoutes.js';
 import { createScanRoutes } from './scanRoutes.js';
 import { createReportRoutes } from './reportRoutes.js';
+import { currentCallbackUrl } from '../../infrastructure/callbackUrls.js';
+import { describeTunnels } from '../../infrastructure/tunnels/tunnelRegistry.js';
 import logger from '../../infrastructure/logger.js';
 
 /**
@@ -40,6 +42,15 @@ export function createApiRoutes(cache) {
     // GET /stats
     router.get('/stats', async (_req, res) => {
         res.json(await cache.stats());
+    });
+
+    // GET /callbacks — the address Slack and Telegram were given.
+    //
+    // Only this process knows it: on a tunnel the hostname is handed out at
+    // boot and is different every restart, so the launcher, the console and
+    // whoever is holding a bot token all have to ask rather than guess.
+    router.get('/callbacks', (_req, res) => {
+        res.json({ ...currentCallbackUrl(), providers: describeTunnels() });
     });
 
     // POST /query — query vulns by technology

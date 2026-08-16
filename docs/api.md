@@ -19,6 +19,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/health` | Liveness. No auth. |
 | `GET` | `/api/v1/stats` | Counts by severity, status, source and technology, plus 30 days of activity. |
 | `POST` | `/api/v1/query` | Query by technology list. |
+| `GET` | `/api/v1/callbacks` | The public URL Slack and Telegram were given, where it came from, and the tunnel providers available. |
 | `GET` | `/api/v1/vulnerabilities` | List with filters and pagination, including `relevance`. |
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
