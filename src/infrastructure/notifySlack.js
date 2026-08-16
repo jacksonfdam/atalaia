@@ -2,6 +2,7 @@ import axios from "axios";
 import logger from "./logger.js";
 import { resolveSlackConfig, describeDestination } from "./notifiers/slackConfig.js";
 import { describeWebhookFailure } from "./notifiers/webhookError.js";
+import { shortVersion } from "./notifiers/shortVersion.js";
 
 const SLACK_API = "https://slack.com/api/chat.postMessage";
 const TIMEOUT_MS = 10_000;
@@ -43,15 +44,18 @@ export function buildVulnerabilityMessage(vuln, highlight = false, correlation =
         },
     ];
 
-    // Client explanation from LLM, fallback to truncated description
-    const explanation = vuln.clientExplanation
-        || (vuln.description
-            ? vuln.description.substring(0, 300) + (vuln.description.length > 300 ? "..." : "")
-            : "_No description available_");
+    // The model's paragraph when there is one, the advisory's own words when
+    // there is not — and the heading says which, because they read alike.
+    const short = shortVersion(vuln, 300);
 
     blocks.push({
         type: "section",
-        text: { type: "mrkdwn", text: `*What this means:*\n${explanation}` },
+        text: {
+            type: "mrkdwn",
+            text: short
+                ? `*What this means:*  _${short.source}_\n${short.text}`
+                : "*What this means:*\n_No description available_",
+        },
     });
 
     // What of ours it touches. This is the difference between "a CVE exists"

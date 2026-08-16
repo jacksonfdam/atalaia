@@ -31,10 +31,10 @@
 | GHSA returns 403 | Unauthenticated GitHub calls get 60 requests/hour per IP. Set `GITHUB_TOKEN`. |
 | `Cannot decrypt the token for "…"` | `TOKEN_ENCRYPTION_KEY` (or `API_KEY`, when it is the fallback) is not the value the token was stored with. Save the token again. |
 | `GitHub rejected the token for this organization` | The token expired or cannot see that organization. Replace it under **Settings → Organizations**. |
-| `DATABASE_URL is not set` | Atalaia has no database of its own. `supabase start` locally, then put the connection string in `.env`. |
+| `DATABASE_URL is not set` | Atalaia has no database of its own. Start one — `docker run -d -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17` — and put the connection string in `.env`. |
 | A container dies with `ECONNREFUSED 127.0.0.1:5432x` | Inside a container, `127.0.0.1` is that container. Start with `./scripts/atalaia.sh up`, which translates the loopback host, or export `DATABASE_URL` with `host.docker.internal` before a bare `docker compose up`. |
 | The queue never picks anything up | Nothing is consuming it. Check the worker: `./scripts/atalaia.sh logs atalaia-worker`. The API only enqueues. |
-| Odd `prepared statement` or `LISTEN` errors | `DATABASE_URL` points at Supabase's 6543 transaction pooler. Use the session connection on 5432; `doctor` flags this. |
+| Odd `prepared statement` or `LISTEN` errors | `DATABASE_URL` points at a transaction-mode pooler, usually on port 6543. Use the session connection on 5432; `doctor` flags this. |
 | A scan says `409` and nothing is running | A worker was killed mid-job (rebuilding the containers does this), so the job is still `active` and an exclusive queue refuses new work until its expiry window passes. `atalaia repo scan-cancel`, or `DELETE /api/v1/repositories/scan-all`. |
 | `LOG_LEVEL=... is not a pino level` | Only `trace debug info warn error fatal silent` exist. The service carries on at `info` rather than refusing to boot. |
 | No console bundle in the image | `./scripts/atalaia.sh up --build`. |

@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first: the answer that matters is
+# about the current head, and two runs of a suite that takes a database is waste.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    # The integration suites skip themselves without TEST_DATABASE_URL, and a
+    # skipped suite reads as a passing one. A real Postgres here is the
+    # difference between "517 tests pass" and "the unit tests pass".
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # No version here: package.json's `packageManager` is the one pin, and
+      # action-setup v4 refuses to start when it is told twice.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # --frozen-lockfile, so a pull request that changes a dependency without
+      # updating the lockfile fails here rather than resolving to something
+      # nobody reviewed. The lockfile carries this project's security overrides.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Tests
+        run: pnpm test
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+      - name: Console typecheck
+        run: pnpm --filter atalaia-console run typecheck
+
+      - name: Console build
+        run: pnpm --filter atalaia-console run build
+
+      - name: Documentation site build
+        run: pnpm --filter atalaia-docs run build
+
+  image:
+    name: Container
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build the production image
+        run: docker build -t atalaia:ci .
+
+      # The image once shipped without package.json, and the API crash-looped on
+      # boot while the worker stayed healthy — so the stack looked half-alive
+      # rather than broken. Importing the composition root inside the container
+      # needs no database and catches that whole class of missing file.
+      - name: The image can load the application
+        run: |
+          docker run --rm atalaia:ci node \
+            --input-type=module \
+            -e "await import('/app/src/interface/http/createApp.js'); console.log('composition root loads')"
+
+      - name: Build the console image
+        run: docker build -f ui/Dockerfile -t atalaia-console:ci .

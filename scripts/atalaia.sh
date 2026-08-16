@@ -11,8 +11,8 @@
 #   ./scripts/atalaia.sh up --container   # force Apple's container CLI
 #   ./scripts/atalaia.sh --help
 #
-# Postgres is not one of these services: it is Supabase, local (`supabase
-# start`) or cloud, reached through DATABASE_URL.
+# Postgres is not one of these services. Bring your own — a container, a managed
+# instance, anything speaking 13+ — and point DATABASE_URL at it.
 #
 set -euo pipefail
 
@@ -197,11 +197,11 @@ DATABASE_URL_() {
 
 # The same URL, as a container has to see it.
 #
-# A local Supabase is on the host, so .env says 127.0.0.1 — which is what the
-# CLI, the tests and `doctor` need. Inside a container that address is the
-# container itself, and the connection is refused. Rather than asking for two
-# connection strings that must be kept in step, the loopback host is translated
-# here, once, on the way in.
+# A database on this machine means .env says 127.0.0.1 — which is what the CLI,
+# the tests and `doctor` need. Inside a container that address is the container
+# itself, and the connection is refused. Rather than asking for two connection
+# strings that must be kept in step, the loopback host is translated here, once,
+# on the way in.
 #
 # A remote database is left alone: its host is on the network already.
 container_database_url() {
@@ -449,7 +449,7 @@ cmd_up() {
 
     is_placeholder "$(env_get API_KEY)" && die "API_KEY is not configured in .env"
 
-    [ -n "$(DATABASE_URL_)" ] || die "DATABASE_URL is not set. Point it at Supabase — 'supabase start' locally, or your project's session connection string."
+    [ -n "$(DATABASE_URL_)" ] || die "DATABASE_URL is not set. Start one with: docker run -d --name atalaia-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17"
 
     case "$(resolve_runtime)" in
         docker)    up_docker ;;
@@ -514,16 +514,19 @@ cmd_doctor() {
     container_ready && dim "container Apple container service running" || dim "container not available"
     docker_ready || container_ready || warn "No container runtime — Atalaia only runs in containers"
     have curl   || warn "curl is not installed — health checks will be skipped"
-    have supabase && dim "supabase  $(supabase --version 2>/dev/null | head -1)" || dim "supabase  CLI not installed (only needed for a local database)"
+    have psql   && dim "psql      $(psql --version 2>/dev/null | head -1)" || dim "psql      not installed (optional)"
 
     log "Database"
     local url; url="$(DATABASE_URL_)"
     if [ -z "$url" ]; then
-        warn "DATABASE_URL is not set — run 'supabase start' and point it at the local stack, or use your project's connection string"
+        warn "DATABASE_URL is not set — start a Postgres and point it at that: docker run -d -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17"
     else
         case "$url" in
             *:6543/*)
-                warn "DATABASE_URL uses port 6543, Supabase's transaction pooler. Use the session connection on 5432: pgbouncer in transaction mode breaks prepared statements and LISTEN, which the queue needs." ;;
+                # 6543 is where Supabase and several other hosts put pgbouncer.
+                # Worth naming even though nothing here depends on Supabase: the
+                # failure it causes is intermittent and reads as a queue bug.
+                warn "DATABASE_URL uses port 6543, which is usually a transaction-mode pooler. Use the session connection on 5432: pgbouncer in transaction mode breaks prepared statements and LISTEN, which the queue needs." ;;
             *) dim "DATABASE_URL set" ;;
         esac
 
@@ -606,8 +609,8 @@ Atalaia launcher — start the API, the worker and the management console.
 
 Usage: ./scripts/atalaia.sh <command> [options]
 
-Atalaia runs in containers. Postgres is not one of them: it is Supabase, local
-(`supabase start`) or a cloud project, reached through DATABASE_URL.
+Atalaia runs in containers. Postgres is not one of them: bring your own, local
+or managed, and point DATABASE_URL at it.
 
 Commands:
   up                 Start everything. Docker if it answers, else Apple container.

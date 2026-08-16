@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Atalaia monitors public vulnerability feeds, filters findings against the technologies the user ships, correlates them with imported GitHub repositories, and alerts through Slack, Microsoft Teams and email.
 
-**Three processes, one Postgres.** The **API** (`src/interface/index.js`, Express, port 3000) serves requests and enqueues work. The **worker** (`src/interface/worker.js`, no port) takes jobs off the queue and does it. The **console** (`ui/`, React + a BFF, port 3001) talks only to the API. The database is Supabase — local stack in development, cloud project in production — reached through `DATABASE_URL`, and it also holds the queue (pg-boss) and the schedules.
+**Three processes, one Postgres.** The **API** (`src/interface/index.js`, Express, port 3000) serves requests and enqueues work. The **worker** (`src/interface/worker.js`, no port) takes jobs off the queue and does it. The **console** (`ui/`, React + a BFF, port 3001) talks only to the API. The database is any Postgres 13+, reached through `DATABASE_URL`, and it also holds the queue (pg-boss) and the schedules. Nothing host-specific is used, so a container, a managed instance or a local Supabase all work the same.
 
 ES modules throughout (`"type": "module"`); the CLI under `src/cli/` is TypeScript compiled to `dist/`, and is an HTTP client of the API.
 
@@ -15,7 +15,7 @@ User-facing documentation lives in `README.md` (short) and `docs/` (everything e
 ## Commands
 
 ```bash
-supabase start                   # the local Postgres; DATABASE_URL points at it
+docker run -d --name atalaia-db -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17   # DATABASE_URL points at it
 ./scripts/atalaia.sh up          # API + worker + console (Docker, else Apple container)
 ./scripts/atalaia.sh down|status|logs|doctor
 

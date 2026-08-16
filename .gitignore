@@ -29,3 +29,7 @@ npm-debug.log
 .DS_Store
 .vercel
 .env*
+
+# Anyone who points a local Supabase at this repo gets a supabase/ of CLI state.
+# Atalaia does not ship one: it needs a connection string, not a host.
+/supabase/

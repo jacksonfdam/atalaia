@@ -145,6 +145,7 @@ export function Reports({ onAuthLost }: { onAuthLost: () => void }) {
 
                         {vuln.explanation ? (
                           <p className="muted" style={{ marginTop: '0.2rem' }}>
+                            {vuln.explanationSource ? <em>{vuln.explanationSource} — </em> : null}
                             {vuln.explanation}
                           </p>
                         ) : null}

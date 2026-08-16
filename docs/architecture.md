@@ -31,12 +31,11 @@ docs/                 # This documentation, and the site built from it
 
 config/               # Technology filter, vendor mappings, database catalog
 db/migrations/        # SQL migrations, applied on boot behind an advisory lock
-supabase/             # Local Supabase stack definition (development)
 scripts/atalaia.sh    # Launcher: Docker Compose or Apple container
 ```
 
 **Three processes, one database.** The API serves requests and enqueues work. The
-worker runs it. The console talks only to the API. Postgres (Supabase) holds the
+worker runs it. The console talks only to the API. One Postgres holds the
 data, the queue and the schedules — which is what makes "is a scan running?" a
 question with one answer no matter how many containers are up.
 
@@ -78,7 +77,7 @@ console or the CLI.
 | Layer | Technology |
 |-------|-----------|
 | Runtime | Node.js 24 LTS (ES Modules) |
-| Database | Postgres, via Supabase (local stack in development, cloud project in production) |
+| Database | Postgres 13+, whichever one you point DATABASE_URL at. Nothing host-specific is used |
 | Queue | pg-boss, in the same Postgres — no Redis |
 | Package manager | pnpm 11 workspaces (root + `ui`) |
 | Framework | Express 5 |
@@ -95,11 +94,10 @@ console or the CLI.
 
 ```bash
 pnpm install                  # root + ui workspaces
-supabase start                # the local database
 
 pnpm run dev                  # API with hot-reload
 pnpm run dev:worker           # worker with hot-reload
-TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54622/postgres pnpm test
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres pnpm test
 pnpm --filter atalaia-console run typecheck
 ./scripts/atalaia.sh doctor   # runtime, database and configuration
 ```

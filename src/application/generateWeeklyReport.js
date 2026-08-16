@@ -1,5 +1,6 @@
 import { Status } from '../domain/enums/Status.js';
 import { compareVersions } from './versionComparison.js';
+import { shortVersion } from '../infrastructure/notifiers/shortVersion.js';
 
 /**
  * The weekly digest.
@@ -65,23 +66,6 @@ function countBySeverity(vulns) {
     return counts;
 }
 
-/**
- * The short version, for someone who does not read CVSS vectors for a living.
- *
- * The model's explanation when there is one, otherwise the advisory text cut to
- * a paragraph — the same fallback the Slack message uses, so "the short version"
- * means one thing across every channel.
- */
-function explain(vuln, limit = 280) {
-    const explanation = vuln.client_explanation ?? vuln.clientExplanation;
-    if (explanation) return explanation;
-
-    const description = vuln.description ?? '';
-    if (!description) return null;
-
-    return description.length > limit ? `${description.slice(0, limit - 1)}…` : description;
-}
-
 /** The shape every section lists a vulnerability in. */
 function present(vuln) {
     return {
@@ -93,7 +77,20 @@ function present(vuln) {
         status: vuln.status ?? Status.OPEN,
         source: vuln.source ?? null,
         sourceUrl: vuln.source_url ?? vuln.link ?? null,
-        explanation: explain(vuln),
+        ...summarize(vuln),
+    };
+}
+
+/**
+ * The short version, for someone who does not read CVSS vectors for a living —
+ * and which of the two it is, because a model's paragraph and the advisory's
+ * own words read alike.
+ */
+function summarize(vuln) {
+    const short = shortVersion(vuln, 280);
+    return {
+        explanation: short?.text ?? null,
+        explanationSource: short?.source ?? null,
     };
 }
 

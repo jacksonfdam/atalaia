@@ -32,7 +32,7 @@ export function connectionString() {
     const url = process.env.DATABASE_URL;
     if (!url) {
         throw new Error(
-            'DATABASE_URL is not set. Point it at your Supabase database — the session connection on port 5432, not the transaction pooler on 6543.'
+            'DATABASE_URL is not set. Point it at a Postgres — the session connection, usually port 5432, not a transaction pooler on 6543.'
         );
     }
     return url;
@@ -48,7 +48,7 @@ export function getPool() {
         connectionTimeoutMillis: 10_000,
     });
 
-    // An idle client erroring out (a Supabase restart, a dropped connection)
+    // An idle client erroring out (a database restart, a dropped connection)
     // reaches the pool, not any one query. Unhandled, it takes the process down.
     pool.on('error', err => logger.error({ err }, 'Idle Postgres client errored'));
 

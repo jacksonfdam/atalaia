@@ -1,9 +1,9 @@
 # Three services, no database.
 #
-# Postgres is Supabase: the local stack in development (`supabase start`, which
-# brings up its own containers) or a cloud project in production. Either way it
-# is reached through DATABASE_URL, which is why nothing here declares a volume —
-# there is no longer any state on this side to keep.
+# Postgres is not here on purpose: bring your own — a container, a managed
+# instance, anything speaking 13 or later — and reach it through DATABASE_URL.
+# Which is why nothing here declares a volume: there is no state on this side
+# to keep.
 services:
   atalaia:
     build:
@@ -18,7 +18,7 @@ services:
     environment:
       - NODE_ENV=production
       # Required, and it has to be reachable *from inside a container*: a local
-      # Supabase on 127.0.0.1 is the container itself in here. The launcher
+      # A database on 127.0.0.1 is the container itself in here. The launcher
       # translates loopback to host.docker.internal for you; running compose by
       # hand means exporting it yourself.
       - DATABASE_URL=${DATABASE_URL:?set it to a URL a container can reach, or run ./scripts/atalaia.sh up}

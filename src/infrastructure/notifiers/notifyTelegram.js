@@ -1,6 +1,7 @@
 import axios from 'axios';
 import logger from '../logger.js';
 import { resolveTelegramConfig } from './telegramConfig.js';
+import { shortVersion } from './shortVersion.js';
 
 /**
  * Telegram alerts.
@@ -68,9 +69,15 @@ export function buildVulnerabilityMessage(vuln, correlation = {}) {
     const technologies = (vuln.affectedTechnologies ?? []).join(', ');
     if (technologies) lines.push(`<b>Technologies:</b> ${escapeHtml(technologies)}`);
 
-    const explanation = vuln.clientExplanation || vuln.description;
-    if (explanation) {
-        lines.push('', `<b>What this means:</b>`, escapeHtml(truncate(explanation, 700)));
+    // The heading names the source: a model's paragraph and the advisory's own
+    // words read alike, and only one of them is authoritative.
+    const short = shortVersion(vuln);
+    if (short) {
+        lines.push(
+            '',
+            `<b>What this means:</b> <i>${escapeHtml(short.source)}</i>`,
+            escapeHtml(truncate(short.text, 700))
+        );
     }
 
     // What of ours it touches — the difference between "a CVE exists" and "a
