@@ -1,6 +1,6 @@
 {
   "name": "atalaia-console",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Management console for Atalaia — a separate service that talks to the Atalaia API over HTTP.",
   "private": true,
   "type": "module",
