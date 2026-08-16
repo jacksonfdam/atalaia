@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { createRequire } from 'module';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -183,20 +184,40 @@ export const LOG_SAFETY = {
     redact: { paths: REDACT_PATHS, censor: MASK },
 };
 
+/**
+ * Readable output in development, and nothing at all if it is not installed.
+ *
+ * pino-pretty is a devDependency, so the image — built with `pnpm install
+ * --prod` — does not carry it. Handing pino a transport it cannot resolve
+ * throws at import, which meant an image run without NODE_ENV=production did
+ * not boot: no log line, no port, a stack trace from inside pino. Same
+ * disposition as the level above — degrade to JSON rather than take the
+ * process down over how the output looks.
+ */
+function prettyTransport() {
+    if (isProduction) return {};
+
+    try {
+        createRequire(import.meta.url).resolve('pino-pretty');
+    } catch {
+        return {};
+    }
+
+    return {
+        transport: {
+            target: 'pino-pretty',
+            options: {
+                colorize: true,
+                translateTime: 'SYS:standard',
+            },
+        },
+    };
+}
+
 const logger = pino({
     level: resolveLevel(),
     ...LOG_SAFETY,
-    ...(isProduction
-        ? {}
-        : {
-              transport: {
-                  target: 'pino-pretty',
-                  options: {
-                      colorize: true,
-                      translateTime: 'SYS:standard',
-                  },
-              },
-          }),
+    ...prettyTransport(),
 });
 
 export default logger;
