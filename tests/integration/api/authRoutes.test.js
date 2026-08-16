@@ -30,6 +30,7 @@ const { initializeDatabase } = await import('#app/infrastructure/cache/postgresC
 const cache = await import('#app/infrastructure/cache/postgresCache.js');
 const { createApp } = await import('#app/interface/http/createApp.js');
 const { query, queryAll, queryOne } = await import('#app/infrastructure/db/pool.js');
+const { resetRateLimits } = await import('#app/middleware/rateLimit.js');
 
 const KEY = { 'X-API-Key': 'test-api-key' };
 const RP = { rpId: 'localhost', origin: 'http://localhost:3001' };
@@ -110,6 +111,9 @@ afterAll(async () => {
 beforeEach(async () => {
     if (!hasDatabase) return;
     await truncateAll();
+    // The limiter keeps its buckets in memory, so without this the suite would
+    // lock itself out somewhere around the fifth bootstrap.
+    resetRateLimits();
 });
 
 describe('before the first account exists', () => {
@@ -136,6 +140,45 @@ describe('before the first account exists', () => {
             .expect(401);
 
         expect(body).toEqual({ error: 'Authentication failed' });
+    });
+});
+
+describe('what is rate limited', () => {
+    test('guessing the setup password, aggressively', async () => {
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            await request(app)
+                .post('/api/v1/auth/registration/options')
+                .set(KEY)
+                .send({ username: 'jackson', setupPassword: `wrong-${attempt}` })
+                .expect(401);
+        }
+
+        const { body, status } = await request(app)
+            .post('/api/v1/auth/registration/options')
+            .set(KEY)
+            .send({ username: 'jackson', setupPassword: 'the-setup-password' });
+
+        expect(status).toBe(429);
+        expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    });
+
+    test('guessing a recovery code, per account named', async () => {
+        await bootstrapAdmin(createAuthenticator());
+
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            await request(app)
+                .post('/api/v1/auth/recovery/verify')
+                .set(KEY)
+                .send({ username: 'jackson', code: `WRONG0-WRONG0-WRONG0-WRONG${attempt}` })
+                .expect(401);
+        }
+
+        const { status } = await request(app)
+            .post('/api/v1/auth/recovery/verify')
+            .set(KEY)
+            .send({ username: 'jackson', code: 'WRONG0-WRONG0-WRONG0-WRONG9' });
+
+        expect(status).toBe(429);
     });
 });
 

@@ -37,6 +37,7 @@ import { createInvite, consumeInvite, listInvites, revokeInvite } from '../../in
 import { isBootstrapped, markBootstrapped } from '../../infrastructure/auth/authState.js';
 import { AUTH_EVENTS, recordAuthEvent, clientIp } from '../../infrastructure/auth/auditLog.js';
 import { attachSession, requireUser, requireFullSession, requireAdmin } from '../../middleware/session.js';
+import { attempt, clearAttempts, tooManyAttempts } from '../../middleware/rateLimit.js';
 
 /**
  * Sign-in, enrollment and account management.
@@ -74,6 +75,24 @@ async function padTo(startedAt) {
     if (elapsed >= FAILURE_FLOOR_MS) return;
     await new Promise(resolve => setTimeout(resolve, FAILURE_FLOOR_MS - elapsed));
 }
+
+const QUARTER_HOUR = 15 * 60 * 1000;
+
+/**
+ * How often each thing may be tried.
+ *
+ * Bootstrap is the tightest: until the first account exists it is a password
+ * prompt with no second factor, and it is the weakest surface in the system.
+ * The rest are generous enough that nobody legitimate meets them.
+ */
+const LIMITS = {
+    bootstrap: { max: 5, windowMs: QUARTER_HOUR },
+    breakglass: { max: 5, windowMs: QUARTER_HOUR },
+    recovery: { max: 5, windowMs: QUARTER_HOUR },
+    assertion: { max: 15, windowMs: QUARTER_HOUR },
+    invite: { max: 20, windowMs: QUARTER_HOUR },
+    challenges: { max: 240, windowMs: 60 * 1000 },
+};
 
 /** The setup password, from either name. UI_PASSWORD is what existing installs have. */
 function setupPassword() {
@@ -175,6 +194,9 @@ export function createAuthRoutes() {
             // for exactly this.
             user = await findUserById(req.user.id);
         } else if (!bootstrapped) {
+            const allowed = attempt('bootstrap', LIMITS.bootstrap);
+            if (!allowed.allowed) return tooManyAttempts(res, allowed.retryAfterSeconds);
+
             if (!setupPassword()) {
                 return res.status(500).json({
                     error: 'No setup password is configured',
@@ -193,8 +215,13 @@ export function createAuthRoutes() {
 
             const result = await userForRegistration({ username, displayName, isAdmin: true });
             if (result.conflict) return res.status(409).json({ error: 'That username is taken' });
+
+            clearAttempts('bootstrap');
             user = result.user;
         } else if (req.body?.inviteToken) {
+            const allowed = attempt('invite', LIMITS.invite);
+            if (!allowed.allowed) return tooManyAttempts(res, allowed.retryAfterSeconds);
+
             const invite = await consumeInvite(req.body.inviteToken);
             if (!invite) {
                 return res.status(401).json({ error: 'That invitation is not valid any more' });
@@ -210,6 +237,9 @@ export function createAuthRoutes() {
         } else if (breakglassEnabled() && req.body?.setupPassword) {
             // The documented way back in when every passkey is gone and the
             // recovery codes went with them. Off unless somebody turned it on.
+            const allowed = attempt('breakglass', LIMITS.breakglass);
+            if (!allowed.allowed) return tooManyAttempts(res, allowed.retryAfterSeconds);
+
             if (!setupPasswordMatches(req.body.setupPassword)) {
                 await recordAuthEvent({ event: AUTH_EVENTS.SIGN_IN_FAILED, ip, metadata: { stage: 'breakglass' } });
                 return res.status(401).json(FAILED);
@@ -331,6 +361,11 @@ export function createAuthRoutes() {
     // -------------------------------------------------------------- authentication
 
     router.post('/authentication/options', async (_req, res) => {
+        // Not about guessing — nothing is guessed here. It stops an unattended
+        // loop filling the challenge table faster than the sweep empties it.
+        const allowed = attempt('challenges', LIMITS.challenges);
+        if (!allowed.allowed) return tooManyAttempts(res, allowed.retryAfterSeconds);
+
         const options = await buildAuthenticationOptions();
         await issueChallenge({ challenge: options.challenge, ceremony: 'authentication' });
         res.json(options);
@@ -357,6 +392,12 @@ export function createAuthRoutes() {
 
         const credential = await findCredentialWithUser(fromBase64url(response.id));
         if (!credential || credential.disabled_at) return fail({ reason: 'unknown-credential' });
+
+        // Keyed by credential rather than by account: an attacker who cannot
+        // produce a signature cannot get here at all, and one who can is
+        // holding the key. This bounds a grinding attempt against one of them.
+        const allowed = attempt(`assertion:${credential.id}`, LIMITS.assertion);
+        if (!allowed.allowed) return tooManyAttempts(res, allowed.retryAfterSeconds);
 
         let verification;
         try {
@@ -410,6 +451,8 @@ export function createAuthRoutes() {
             userId: credential.user_id,
             userAgent: req.headers['user-agent'],
         });
+
+        clearAttempts(`assertion:${credential.id}`);
 
         await recordAuthEvent({
             userId: credential.user_id,
@@ -517,6 +560,12 @@ export function createAuthRoutes() {
     router.post('/recovery/verify', async (req, res) => {
         const startedAt = Date.now();
         const ip = clientIp(req);
+        const claimed = normalizeUsername(req.body?.username).toLowerCase();
+
+        // Keyed by the name that was claimed, whether or not it exists — an
+        // unknown one must cost the same as a known one, including this.
+        const allowed = attempt(`recovery:${claimed}`, LIMITS.recovery);
+        if (!allowed.allowed) return tooManyAttempts(res, allowed.retryAfterSeconds);
 
         const user = await findUserByUsername(normalizeUsername(req.body?.username));
         const accepted = user && !user.disabled_at
@@ -542,6 +591,7 @@ export function createAuthRoutes() {
             userAgent: req.headers['user-agent'],
         });
 
+        clearAttempts(`recovery:${claimed}`);
         await recordAuthEvent({ userId: user.id, event: AUTH_EVENTS.RECOVERY_USED, ip });
 
         res.json({
