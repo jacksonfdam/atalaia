@@ -11,6 +11,7 @@
 | Telegram buttons do nothing | No webhook registered, or it points at a tunnel that has since changed. **Settings → Telegram** shows where Telegram calls and its last delivery error; **Register webhook** points it here again. |
 | Telegram says "chat not found" | The bot is not in that group or channel, or the chat id is wrong. Add the bot, then use the numeric id — groups start with `-100`. |
 | Telegram says "bot can't initiate conversation with a user" | Send `/start` to the bot from that account first. A bot cannot open a conversation. |
+| `setWebhook`: "Failed to resolve host" after a restart | `PUBLIC_URL` is pinned to an old tunnel hostname. Those change every run and `PUBLIC_URL` wins over the tunnel — unset it and keep `TUNNEL_PROVIDER`. The console says so under **Settings → General**. |
 | `setWebhook`: "Failed to resolve host" | The address is not one the internet can reach — `localhost`, a private IP, or a container name like `atalaia`. Set `PUBLIC_URL` to a real hostname, or `TUNNEL_PROVIDER=cloudflared` and let the tunnel supply one. **Settings → General** shows what this instance is currently using. |
 | `setWebhook` refuses the port | Telegram calls 443, 80, 88 and 8443 only. Put a reverse proxy in front, or use a tunnel. |
 | `getUpdates` answers 409 | A webhook is registered; the two are mutually exclusive. Remove it (`DELETE /api/v1/settings/telegram/webhook`), read what you need, register it again. |

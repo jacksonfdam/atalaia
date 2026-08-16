@@ -214,8 +214,40 @@ export async function sendTelegramTestMessage() {
         return { ok: true, chat: result?.chat?.title ?? result?.chat?.username ?? config.chatId };
     } catch (err) {
         logger.warn({ err }, 'Telegram test message failed');
-        return { ok: false, error: err.message };
+        return { ok: false, error: err.message, hint: hintFor(err.message, config.chatId) };
     }
+}
+
+/**
+ * What "chat not found" usually means, given what the chat id looks like.
+ *
+ * Telegram returns the same sentence whether the bot was never spoken to, was
+ * never added to the group, or the id is simply wrong — and the shape of the id
+ * is enough to tell which is likely.
+ */
+export function hintFor(message, chatId) {
+    if (!/chat not found/i.test(message ?? '')) {
+        if (/bot can't initiate conversation/i.test(message ?? '')) {
+            return 'Send /start to the bot from that account first — a bot cannot open a conversation.';
+        }
+        return undefined;
+    }
+
+    const id = String(chatId ?? '').trim();
+
+    if (id.startsWith('@')) {
+        return `${id} works only for a public channel, and the bot has to be an administrator of it. For a person or a group, use the numeric id — message the bot and it replies with the chat's id.`;
+    }
+
+    if (id.startsWith('-100')) {
+        return 'That is a group id, so the bot has to be a member of the group. Add it, then try again.';
+    }
+
+    if (/^-/.test(id)) {
+        return 'A supergroup id starts with -100. Re-check it: message the bot in that group and it replies with the id to use.';
+    }
+
+    return 'For a private chat, send /start to the bot from that account first — Telegram reports a chat the bot has never spoken to as "not found". The bot answers with the id to paste here.';
 }
 
 export default notifyTelegram;

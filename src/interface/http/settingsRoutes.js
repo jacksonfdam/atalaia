@@ -36,6 +36,7 @@ import {
     isEnvConfigured as isTelegramEnvConfigured,
 } from '../../infrastructure/notifiers/telegramConfig.js';
 import { sendTelegramTestMessage } from '../../infrastructure/notifiers/notifyTelegram.js';
+import { listChats } from '../../infrastructure/cache/telegramChatStore.js';
 import {
     registerTelegramWebhook,
     describeTelegramWebhook,
@@ -242,6 +243,15 @@ export function createSettingsRoutes(cache) {
             logger.warn({ err: error }, 'Telegram configuration update failed');
             res.status(400).json({ error: error.message });
         }
+    });
+
+    // GET /settings/telegram/chats — every chat that has written to the bot.
+    //
+    // The chat id is the one setting nobody can look up: Telegram hands it out
+    // when a conversation happens. This is that list.
+    router.get('/telegram/chats', async (_req, res) => {
+        const chats = await listChats();
+        res.json({ count: chats.length, chats });
     });
 
     // POST /settings/telegram/test — post a real message to the chat

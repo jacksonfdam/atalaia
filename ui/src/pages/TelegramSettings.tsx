@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
-import type { CallbackState, TelegramPayload } from '../types';
+import type { CallbackState, TelegramChats, TelegramPayload } from '../types';
 
 /**
  * Telegram delivery, and the callback the buttons come back through.
@@ -21,6 +21,8 @@ export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
   const payload = useApi<TelegramPayload>('/settings/telegram', onAuthLost);
   // Where this instance is reachable, which is what the buttons depend on.
   const callbacks = useApi<CallbackState>('/callbacks', onAuthLost);
+  // Chats that have written to the bot: the only way a chat id is ever known.
+  const chats = useApi<TelegramChats>('/settings/telegram/chats', onAuthLost);
 
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
@@ -66,10 +68,15 @@ export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
             disabled={busy}
             onClick={() =>
               run(async () => {
-                const result = await api.post<{ ok: boolean; error?: string; chat?: string }>(
-                  '/settings/telegram/test'
-                );
-                if (!result.ok) throw new Error(result.error ?? 'Test failed');
+                const result = await api.post<{
+                  ok: boolean;
+                  error?: string;
+                  hint?: string;
+                  chat?: string;
+                }>('/settings/telegram/test');
+                if (!result.ok) {
+                  throw new Error([result.error, result.hint].filter(Boolean).join(' — '));
+                }
                 return `Test message posted to ${result.chat ?? 'the chat'}`;
               })
             }
@@ -180,6 +187,30 @@ export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
             Also message owners directly
           </label>
         </div>
+
+        {chats.data && chats.data.count > 0 ? (
+          <div style={{ margin: '0.4rem 0 0.6rem' }}>
+            <p className="eyebrow">Chats the bot has heard from</p>
+            <div className="row" style={{ flexWrap: 'wrap', gap: '0.35rem' }}>
+              {chats.data.chats.map(chat => (
+                <button
+                  key={chat.chat_id}
+                  onClick={() => setChatId(chat.chat_id)}
+                  title={`Use ${chat.chat_id}`}
+                >
+                  {chat.title ?? chat.username ?? chat.chat_id}
+                  <span className="muted mono"> {chat.chat_id}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="muted">
+            No chat has written to the bot yet. Send it <code className="mono">/start</code> — it
+            replies with that chat's id, and the id appears here to pick from. A bot cannot open a
+            conversation, which is why Telegram answers “chat not found” until you do.
+          </p>
+        )}
 
         <p className="muted">
           Talk to <code className="mono">@BotFather</code> to create a bot and get its token. For the

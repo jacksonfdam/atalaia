@@ -273,7 +273,7 @@ describe('registering the webhook', () => {
         expect(res.body.hint).toContain('PUBLIC_URL');
     });
 
-    test('registers the callback path and asks only for button presses', async () => {
+    test('registers the callback path, asking for buttons and messages', async () => {
         await saveTelegramConfig({ botToken: TOKEN, chatId: '-100', enabled: true }, 'test');
 
         const res = await request(app)
@@ -285,7 +285,7 @@ describe('registering the webhook', () => {
         expect(res.body.url).toBe('https://example.trycloudflare.com/api/v1/telegram/webhook');
 
         const call = post.mock.calls.find(([url]) => url.includes('setWebhook'));
-        expect(call[1].allowed_updates).toEqual(['callback_query']);
+        expect(call[1].allowed_updates).toEqual(['callback_query', 'message']);
         expect(call[1].secret_token).toHaveLength(64);
     });
 });
@@ -385,5 +385,88 @@ describe('registering without a bot token', () => {
         } finally {
             delete process.env.PUBLIC_URL;
         }
+    });
+});
+
+describe('learning a chat id', () => {
+    test('a message to the bot is remembered and answered with the id', async () => {
+        const secret = await ensureWebhookSecret();
+        // No destination yet: this is the setup conversation.
+        await saveTelegramConfig({ botToken: TOKEN, enabled: true }, 'test');
+
+        const res = await request(app)
+            .post('/api/v1/telegram/webhook')
+            .set('X-Telegram-Bot-Api-Secret-Token', secret)
+            .send({
+                message: {
+                    text: '/start',
+                    chat: { id: 987654321, type: 'private', first_name: 'Jackson', username: 'jack' },
+                },
+            });
+
+        expect(res.status).toBe(200);
+
+        const listed = await request(app).get('/api/v1/settings/telegram/chats').set(KEY);
+        expect(listed.body.count).toBe(1);
+        expect(listed.body.chats[0]).toMatchObject({ chat_id: '987654321', type: 'private' });
+
+        // The reply carries the id, because that is the whole point.
+        const reply = post.mock.calls.find(([url]) => url.includes('sendMessage'));
+        expect(reply[1].chat_id).toBe(987654321);
+        expect(reply[1].text).toContain('987654321');
+    });
+
+    test('a group is remembered under the id a bot must send to', async () => {
+        const secret = await ensureWebhookSecret();
+        await saveTelegramConfig({ botToken: TOKEN, enabled: true }, 'test');
+
+        await request(app)
+            .post('/api/v1/telegram/webhook')
+            .set('X-Telegram-Bot-Api-Secret-Token', secret)
+            .send({ message: { text: 'hi', chat: { id: -1001234567890, type: 'supergroup', title: 'Security' } } });
+
+        const listed = await request(app).get('/api/v1/settings/telegram/chats').set(KEY);
+        expect(listed.body.chats[0]).toMatchObject({ chat_id: '-1001234567890', title: 'Security' });
+    });
+
+    test('"chat not found" is explained by the shape of the id', async () => {
+        const { hintFor } = await import('#app/infrastructure/notifiers/notifyTelegram.js');
+
+        expect(hintFor('chat not found', '123456789')).toContain('/start');
+        expect(hintFor('chat not found', '-1001234567890')).toContain('member of the group');
+        expect(hintFor('chat not found', '@someone')).toContain('public channel');
+        expect(hintFor('chat not found', '-42')).toContain('-100');
+        expect(hintFor('something else', '1')).toBeUndefined();
+    });
+});
+
+describe('once a destination is configured', () => {
+    test('a stranger writing to the bot is ignored, not answered', async () => {
+        const secret = await ensureWebhookSecret();
+        await saveTelegramConfig({ botToken: TOKEN, chatId: '111', enabled: true }, 'test');
+
+        const res = await request(app)
+            .post('/api/v1/telegram/webhook')
+            .set('X-Telegram-Bot-Api-Secret-Token', secret)
+            .send({ message: { text: '/start', chat: { id: 999, type: 'private', first_name: 'Nosy' } } });
+
+        expect(res.status).toBe(200);
+        // Neither remembered nor replied to: the bot is not an id lookup service.
+        expect(post.mock.calls.filter(([url]) => url.includes('sendMessage'))).toHaveLength(0);
+
+        const listed = await request(app).get('/api/v1/settings/telegram/chats').set(KEY);
+        expect(listed.body.count).toBe(0);
+    });
+
+    test('the configured chat still gets an answer', async () => {
+        const secret = await ensureWebhookSecret();
+        await saveTelegramConfig({ botToken: TOKEN, chatId: '111', enabled: true }, 'test');
+
+        await request(app)
+            .post('/api/v1/telegram/webhook')
+            .set('X-Telegram-Bot-Api-Secret-Token', secret)
+            .send({ message: { text: 'hi', chat: { id: 111, type: 'private', first_name: 'Jackson' } } });
+
+        expect(post.mock.calls.some(([url]) => url.includes('sendMessage'))).toBe(true);
     });
 });

@@ -115,9 +115,10 @@ export async function registerTelegramWebhook(publicUrl, options = {}) {
     await callTelegram(config.botToken, 'setWebhook', {
         url,
         secret_token: secret,
-        // Only what the buttons need. Every other update type would arrive,
-        // be ignored, and cost a request each.
-        allowed_updates: ['callback_query'],
+        // Button presses, and messages — the second is how a chat id becomes
+        // knowable at all. Every other update type would arrive, be ignored,
+        // and cost a request each.
+        allowed_updates: ['callback_query', 'message'],
         drop_pending_updates: true,
     });
 

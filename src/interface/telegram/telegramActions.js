@@ -4,6 +4,7 @@ import { acknowledgeVuln } from '../../application/acknowledgeVuln.js';
 import { resolveVuln } from '../../application/resolveVuln.js';
 import { resolveWebhookSecret, resolveTelegramConfig } from '../../infrastructure/notifiers/telegramConfig.js';
 import { callTelegram, escapeHtml } from '../../infrastructure/notifiers/notifyTelegram.js';
+import { rememberChat } from '../../infrastructure/cache/telegramChatStore.js';
 
 /**
  * The Acknowledge and Resolve buttons, coming back from Telegram.
@@ -56,6 +57,37 @@ function describeUser(from) {
 }
 
 /**
+ * Answer a message with the chat's own id.
+ *
+ * This is the whole reason the bot listens to messages at all: "chat not found"
+ * is what Telegram says until it has one, and there is no way to look it up.
+ */
+async function replyWithChatId(message) {
+    const config = await resolveTelegramConfig();
+    if (!config.botToken) return;
+
+    // Anyone who finds the bot's @name can write to it. While no destination is
+    // configured that is the setup conversation and it gets an answer; once one
+    // is, strangers get silence rather than a bot that echoes ids on demand.
+    if (config.chatId && String(message.chat.id) !== String(config.chatId)) {
+        logger.debug({ chatId: message.chat.id }, 'Ignoring a message from an unconfigured chat');
+        return;
+    }
+
+    try {
+        await callTelegram(config.botToken, 'sendMessage', {
+            chat_id: message.chat.id,
+            parse_mode: 'HTML',
+            text:
+                `👋 <b>Atalaia</b>\n\nThis chat's id is <code>${escapeHtml(message.chat.id)}</code>.\n` +
+                'Paste it into Settings → Telegram to receive alerts here.',
+        });
+    } catch (err) {
+        logger.debug({ err }, 'Could not answer with the chat id');
+    }
+}
+
+/**
  * Handle one update from Telegram.
  *
  * Telegram retries an update it considers undelivered, so this answers 200 for
@@ -66,11 +98,32 @@ function describeUser(from) {
  */
 export function createTelegramUpdateHandler(cache) {
     return async (req, res) => {
+        const message = req.body?.message ?? req.body?.channel_post;
+
+        // Somebody wrote to the bot. That is how a chat id comes into
+        // existence, so it is remembered and answered with itself: the id is
+        // the one setting nobody can look up anywhere else.
+        if (message?.chat) {
+            const config = await resolveTelegramConfig();
+
+            // Only chats that could plausibly be a destination: the configured
+            // one, or anyone at all while none is configured yet.
+            if (!config.chatId || String(message.chat.id) === String(config.chatId)) {
+                await rememberChat(message.chat);
+            }
+
+            await replyWithChatId(message);
+            return res.json({ ok: true });
+        }
+
         const callback = req.body?.callback_query;
 
-        // Anything else — a plain message, a channel post, a bot added to a
-        // group — is not ours to act on, and is not an error either.
+        // Anything else — a bot added to a group, an edited message — is not
+        // ours to act on, and is not an error either.
         if (!callback) return res.json({ ok: true });
+
+        // A button press also proves the chat exists.
+        if (callback.message?.chat) await rememberChat(callback.message.chat);
 
         const parsed = parseCallbackData(callback.data);
         const config = await resolveTelegramConfig();

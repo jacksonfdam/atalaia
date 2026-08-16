@@ -456,6 +456,17 @@ export interface TeamsPayload {
   status: { ready: boolean; reason: string | null; source: 'env' | 'database' | 'none' };
 }
 
+export interface TelegramChats {
+  count: number;
+  chats: {
+    chat_id: string;
+    type: string | null;
+    title: string | null;
+    username: string | null;
+    last_seen_at: string;
+  }[];
+}
+
 export interface CallbackState {
   url: string | null;
   source: 'PUBLIC_URL' | 'tunnel' | 'none';

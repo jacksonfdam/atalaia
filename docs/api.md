@@ -62,6 +62,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/reports/weekly` | The digest the email sends: `affecting` grouped by repository, `infrastructure` and `other` capped, `dependencies` behind. `?windowDays=N` changes the period. |
 | `GET` `PUT` | `/api/v1/settings/telegram` | Bot token, chat id, and what Telegram was told to call. |
 | `POST` | `/api/v1/settings/telegram/test` | Post a real message to the configured chat. |
+| `GET` | `/api/v1/settings/telegram/chats` | Chats the bot has heard from, newest first — where a chat id comes from. |
 | `POST` `DELETE` | `/api/v1/settings/telegram/webhook` | Register the callback at `PUBLIC_URL`, the tunnel, or a URL you pass / remove it. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 | `POST` | `/api/v1/telegram/webhook` | Telegram button callbacks (secret-token-verified). |

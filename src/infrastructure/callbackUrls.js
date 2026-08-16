@@ -17,6 +17,24 @@ import { startTunnel, resolveTunnelProvider } from './tunnels/tunnelRegistry.js'
  * might as well not be open.
  */
 
+/**
+ * Hostnames that are handed out per run.
+ *
+ * Pinning one in PUBLIC_URL is a trap worth naming: it wins over the tunnel, so
+ * the instance keeps announcing an address that stopped existing at the last
+ * restart, and every integration is told to call a host that no longer resolves.
+ */
+const EPHEMERAL_HOSTS = [/\.trycloudflare\.com$/i, /\.ngrok(-free)?\.(app|io|dev)$/i];
+
+export function looksEphemeral(url) {
+    try {
+        const { hostname } = new URL(url);
+        return EPHEMERAL_HOSTS.some(pattern => pattern.test(hostname));
+    } catch {
+        return false;
+    }
+}
+
 /** The last thing establishCallbackUrl() worked out, for whoever asks. */
 let current = {
     url: null,
@@ -95,11 +113,22 @@ export async function establishCallbackUrl(port) {
     const configured = resolvePublicUrl();
 
     if (configured) {
+        const stale = looksEphemeral(configured);
+
+        if (stale) {
+            logger.warn(
+                { publicUrl: configured },
+                'PUBLIC_URL is a tunnel hostname — those change on every restart. Unset it and let TUNNEL_PROVIDER open one'
+            );
+        }
+
         current = {
             url: configured,
             source: 'PUBLIC_URL',
             provider: null,
-            reason: null,
+            reason: stale
+                ? 'PUBLIC_URL is a tunnel hostname: it changes on every restart, and it wins over the tunnel this process could open. Unset it.'
+                : null,
             establishedAt: new Date().toISOString(),
             published: await publishCallbackUrl(configured),
         };

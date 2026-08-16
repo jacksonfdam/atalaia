@@ -59,7 +59,11 @@ Messages carry the severity, the affected repositories, the owners and the plain
 | **A group** | starts with `-100`, e.g. `-1001234567890` | to be a member of the group |
 | **A channel** | `@channelname`, or the numeric id for a private one | to be an administrator of the channel |
 
-**3. Find the id.** Send `/start` to your bot, then ask [`@userinfobot`](https://t.me/userinfobot) for your own id, or read it from the API:
+**3. Find the id — the bot tells you.** Once the webhook is registered, send the bot any message and it answers with that chat's id, ready to paste. Every chat it hears from also appears in **Settings → Telegram** as a button that fills the field in.
+
+That is the whole reason the bot listens to messages at all: a chat id cannot be looked up anywhere. It exists only after a conversation, which is why Telegram says "chat not found" until one has happened.
+
+Without a webhook yet, ask [`@userinfobot`](https://t.me/userinfobot), or read it from the API:
 
 ```bash
 curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" \
@@ -69,6 +73,38 @@ curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" \
 `getUpdates` and a registered webhook are mutually exclusive — Telegram answers `409 Conflict` while a webhook is set. Remove it first (**Settings → Telegram**, or `DELETE /api/v1/settings/telegram/webhook`), read the id, then register again.
 
 **4. Save it.** Paste the token and the chat id in the console, tick *Send alerts to Telegram*, **Save**, then **Send test**. A message in the chat means both halves are right.
+
+### Keeping the bot to yourself
+
+A bot is discoverable by its `@name`, so anyone who finds it can write to it. Two things keep that harmless:
+
+- **Atalaia only answers the configured chat.** While no chat id is saved, whoever writes gets the setup reply with their id — that is the conversation you are trying to have. Once one is saved, everything from any other chat is ignored: not remembered, not answered.
+- **`@BotFather` can stop it being added to groups.** `/setjoingroups` → *Disable*. `/setprivacy` → *Enable* additionally means that, in any group it is already in, it only sees messages addressed to it.
+
+Nothing is ever *sent* anywhere except the configured chat and, when enabled, the owners' own chats. The bot token is what would let somebody post as the bot, and that never leaves the server.
+
+### Giving the bot a face
+
+`@BotFather` holds the bot's identity, not Atalaia — these are one-off commands in that chat:
+
+| Command | What it sets |
+|---|---|
+| `/setuserpic` | The avatar. One is provided at [`docs/site/assets/brand/telegram-bot-avatar.png`](https://github.com/jacksonfdam/atalaia/blob/main/docs/site/assets/brand/telegram-bot-avatar.png) — 512×512, drawn to survive Telegram's circular crop. |
+| `/setdescription` | Shown on the empty chat, before the first message |
+| `/setabouttext` | Shown on the bot's profile |
+| `/setcommands` | The command menu |
+
+Text that fits the product:
+
+> **Description** — Atalaia watches public vulnerability feeds, filters them against the technologies you ship, and tells you which of your repositories each finding reaches. Send /start to get this chat's id.
+
+> **About** — Vulnerability intelligence for engineering teams. Alerts with Acknowledge and Resolve, and a weekly digest.
+
+```
+start - Show this chat's id, to paste into Atalaia
+```
+
+`/start` is the only command: everything else Atalaia does happens through the buttons on an alert, or in the console.
 
 Turning on **also message owners directly** sends the same alert to each correlated owner's own chat, on top of the main destination. Each owner needs a Telegram chat id on their record (**Settings → Slack**, where owners live) and needs to have started a conversation with the bot — for the same reason as above.
 
