@@ -5,6 +5,8 @@ import { initializeDatabase } from "../infrastructure/cache/postgresCache.js";
 import * as cache from "../infrastructure/cache/postgresCache.js";
 import { createApp } from "./http/createApp.js";
 import { establishCallbackUrl } from "../infrastructure/callbackUrls.js";
+import { checkWebauthnConfig } from "../infrastructure/auth/webauthnConfig.js";
+import { reconcileRpId } from "../infrastructure/auth/authState.js";
 
 // quiet: dotenv v17 otherwise prints a banner that breaks the structured log stream
 dotenv.config({ quiet: true });
@@ -13,6 +15,18 @@ dotenv.config({ quiet: true });
 // entry point can do this, and starting the server on an unmigrated database
 // only moves the failure to the first query.
 await initializeDatabase();
+
+// Sign-in configuration, checked before anything can try to use it. A relying
+// party id the browser would reject is not a degraded login, it is no login,
+// and the error surfaces in a browser console rather than here.
+const webauthn = checkWebauthnConfig();
+
+if (!webauthn.ok) {
+    logger.fatal({ reason: webauthn.error }, 'Refusing to start: passkey configuration is invalid');
+    process.exit(1);
+}
+
+await reconcileRpId(webauthn.config.rpID);
 
 const app = createApp(cache);
 
