@@ -18,10 +18,22 @@ export class ApiError extends Error {
 /** Raised when the session cookie is missing or expired. */
 export class AuthError extends ApiError {}
 
+/**
+ * A header a cross-origin form cannot set.
+ *
+ * The session cookie is SameSite=Lax, so a third-party page cannot POST with it
+ * attached; this is the second lock on the same door. The server refuses any
+ * state-changing request that arrives without it.
+ */
+export const CONSOLE_HEADER = { 'X-Atalaia-Console': '1' };
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/bff${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    headers:
+      body === undefined
+        ? CONSOLE_HEADER
+        : { ...CONSOLE_HEADER, 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: 'same-origin',
   });
@@ -54,27 +66,56 @@ export const api = {
   del: <T>(path: string) => call<T>('DELETE', path),
 };
 
+export interface Account {
+  id: string;
+  username: string;
+  displayName: string;
+  isAdmin: boolean;
+}
+
+export interface SessionInfo {
+  authenticated: boolean;
+  user?: Account;
+  /** A recovery session may only enroll a passkey. */
+  scope?: 'full' | 'recovery';
+  credentialCount?: number;
+  recoveryCodesRemaining?: number;
+}
+
+export interface AuthState {
+  bootstrapped: boolean;
+  setupPasswordConfigured: boolean;
+  breakglassEnabled: boolean;
+}
+
+/**
+ * The sign-in endpoints sit beside /bff rather than under it: they are how a
+ * session comes to exist, so they cannot require one.
+ */
+async function authCall<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`/auth${path}`, {
+    method,
+    headers:
+      body === undefined
+        ? CONSOLE_HEADER
+        : { ...CONSOLE_HEADER, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: 'same-origin',
+  });
+
+  const parsed = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const message = (parsed as { error?: string })?.error ?? `${method} ${path} failed (${res.status})`;
+    throw new ApiError(message, res.status, parsed);
+  }
+
+  return parsed as T;
+}
+
 export const auth = {
-  async session(): Promise<boolean> {
-    const res = await fetch('/auth/session', { credentials: 'same-origin' });
-    if (!res.ok) return false;
-    return (await res.json()).authenticated === true;
-  },
-
-  async login(password: string): Promise<{ ok: boolean; error?: string }> {
-    const res = await fetch('/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-      credentials: 'same-origin',
-    });
-
-    if (res.ok) return { ok: true };
-    const body = await res.json().catch(() => ({}));
-    return { ok: false, error: body.error ?? `Login failed (${res.status})` };
-  },
-
-  async logout(): Promise<void> {
-    await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
-  },
+  session: () => authCall<SessionInfo>('GET', '/session'),
+  state: () => authCall<AuthState>('GET', '/state'),
+  logout: () => authCall<unknown>('POST', '/logout').catch(() => undefined),
+  call: authCall,
 };

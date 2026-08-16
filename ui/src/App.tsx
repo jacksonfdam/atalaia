@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
-import { auth } from './api/client';
+import { auth, type SessionInfo } from './api/client';
 import { useApi } from './hooks/useApi';
 import { useDesktopAlerts } from './hooks/useDesktopAlerts';
 import { Login } from './pages/Login';
@@ -23,7 +23,7 @@ const NAV = [
   { to: '/settings', label: 'Settings' },
 ];
 
-function Shell({ onAuthLost }: { onAuthLost: () => void }) {
+function Shell({ onAuthLost, session }: { onAuthLost: () => void; session: SessionInfo }) {
   const stats = useApi<Stats>('/stats', onAuthLost);
   const health = useApi<FeedHealthReport>('/feeds/health', onAuthLost);
 
@@ -64,6 +64,17 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
 
         <div className="sidebar-foot">
           <div>{stats.data ? `${stats.data.total} CVEs tracked` : 'connecting…'}</div>
+
+          {/* One passkey is a single point of failure that looks fine right up
+              until the device is gone. Said here, on every page, until there
+              are two. */}
+          {(session.credentialCount ?? 0) <= 1 ? (
+            <NavLink to="/settings/account" className="sidebar-warning">
+              Only one passkey — add another
+            </NavLink>
+          ) : null}
+
+          <div className="muted">{session.user?.username}</div>
           <button
             style={{ marginTop: '0.4rem', width: '100%' }}
             onClick={async () => {
@@ -89,8 +100,11 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
               now, and the old links still land where they moved to. */}
           <Route path="/organizations" element={<Navigate to="/settings/organizations" replace />} />
           <Route path="/owners" element={<Navigate to="/settings/slack" replace />} />
-          <Route path="/settings" element={<Settings onAuthLost={onAuthLost} />} />
-          <Route path="/settings/:tab" element={<Settings onAuthLost={onAuthLost} />} />
+          <Route path="/settings" element={<Settings onAuthLost={onAuthLost} session={session} />} />
+          <Route
+            path="/settings/:tab"
+            element={<Settings onAuthLost={onAuthLost} session={session} />}
+          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
@@ -99,23 +113,28 @@ function Shell({ onAuthLost }: { onAuthLost: () => void }) {
 }
 
 export function App() {
-  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
+  const [session, setSession] = useState<SessionInfo | null>(null);
 
-  useEffect(() => {
-    auth.session().then(setAuthenticated);
+  const load = useCallback(() => {
+    auth
+      .session()
+      .then(setSession)
+      .catch(() => setSession({ authenticated: false }));
   }, []);
+
+  useEffect(load, [load]);
 
   // Any 401 from the BFF drops the whole console back to the login screen,
   // rather than leaving individual panels showing an auth error.
-  const onAuthLost = useCallback(() => setAuthenticated(false), []);
+  const onAuthLost = useCallback(() => setSession({ authenticated: false }), []);
 
-  if (authenticated === null) {
+  if (session === null) {
     return <div className="loading">Starting console…</div>;
   }
 
-  if (!authenticated) {
-    return <Login onAuthenticated={() => setAuthenticated(true)} />;
+  if (!session.authenticated) {
+    return <Login onAuthenticated={load} />;
   }
 
-  return <Shell onAuthLost={onAuthLost} />;
+  return <Shell onAuthLost={onAuthLost} session={session} />;
 }
