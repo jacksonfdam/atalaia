@@ -1,6 +1,6 @@
 {
   "name": "atalaia",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A Node.js service that monitors security vulnerabilities in real-time and sends alerts to Slack, Microsoft Teams and email.",
   "license": "MIT",
   "author": "Jackson Mafra (https://github.com/jacksonfdam)",
