@@ -95,6 +95,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+    // Re-asserted per test rather than only at import: jest runs several suites
+    // in one worker process, and they share process.env. Setting it once at the
+    // top leaves the value at the mercy of whichever file was evaluated last.
+    process.env.API_KEY = 'test-api-key';
+    delete process.env.MCP_API_KEY;
+
     if (!hasDatabase) return;
     await truncateAll();
 });

@@ -109,6 +109,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+    // Suites share one worker process and one process.env, so the values this
+    // suite authenticates with are re-asserted per test rather than trusted to
+    // still be whatever was set when the file was imported.
+    process.env.API_KEY = 'test-api-key';
+    process.env.SETUP_PASSWORD = 'the-setup-password';
+
     if (!hasDatabase) return;
     await truncateAll();
     // The limiter keeps its buckets in memory, so without this the suite would
