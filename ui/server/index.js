@@ -1,10 +1,17 @@
 import express from 'express';
-import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { COOKIE_NAME, issue, cookieOptions, parseCookies, requireSession, verify } from './session.js';
-import { createProxy, API_BASE } from './proxy.js';
+import {
+    COOKIE_NAME,
+    parseCookies,
+    requireSession,
+    requireCsrfHeader,
+    readToken,
+    setSession,
+    clearSession,
+} from './session.js';
+import { createProxy, callApi, API_BASE } from './proxy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(__dirname, '..', 'dist');
@@ -12,10 +19,24 @@ const DIST = path.join(__dirname, '..', 'dist');
 const PORT = parseInt(process.env.UI_PORT, 10) || 3001;
 const HOST = process.env.UI_HOST || '0.0.0.0';
 
-/** Login throttling, per IP. In-memory is enough for a single-instance console. */
+/**
+ * Sign-in throttling, per IP.
+ *
+ * It lives here rather than in the API because this is the only process that
+ * knows who is calling: every request the API sees comes from this service, so
+ * per-IP limiting there would count the whole console as one client.
+ */
 const attempts = new Map();
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 10;
 const LOCKOUT_MS = 15 * 60 * 1000;
+
+/** The ceremonies worth throttling: the ones that end in a session. */
+const THROTTLED = new Set([
+    '/authentication/verify',
+    '/recovery/verify',
+    '/registration/options',
+    '/registration/verify',
+]);
 
 function throttle(ip) {
     const record = attempts.get(ip);
@@ -43,16 +64,6 @@ function recordFailure(ip) {
     attempts.set(ip, record);
 }
 
-function passwordMatches(candidate) {
-    const expected = process.env.UI_PASSWORD;
-    if (!expected) return false;
-
-    // Hash both sides so the comparison is constant-time regardless of length.
-    const a = crypto.createHash('sha256').update(String(candidate)).digest();
-    const b = crypto.createHash('sha256').update(expected).digest();
-    return crypto.timingSafeEqual(a, b);
-}
-
 export function createServer() {
     const app = express();
 
@@ -69,42 +80,81 @@ export function createServer() {
 
     app.get('/healthz', (_req, res) => res.json({ status: 'ok', api: API_BASE }));
 
-    app.get('/auth/session', (req, res) => {
-        res.json({ authenticated: verify(req.cookies?.[COOKIE_NAME]) });
+    /**
+     * Whether this browser is signed in, and as whom.
+     *
+     * Answered by the API, because this service cannot tell: the cookie is an
+     * opaque token and only the database knows whether the row behind it is
+     * still live.
+     */
+    app.get('/auth/session', async (req, res) => {
+        const token = readToken(req);
+        if (!token) return res.json({ authenticated: false });
+
+        try {
+            const upstream = await callApi('/auth/me', { token });
+
+            if (upstream.status !== 200) {
+                clearSession(res);
+                return res.json({ authenticated: false });
+            }
+
+            res.json({ authenticated: true, ...upstream.body });
+        } catch (error) {
+            res.status(502).json({ error: 'Atalaia API is unreachable', detail: error.message });
+        }
     });
 
-    app.post('/auth/login', (req, res) => {
+    /**
+     * Everything else under /auth is relayed to the API as it stands.
+     *
+     * The one thing this service does to the exchange is the cookie: a reply
+     * carrying a session token means a ceremony just succeeded, so the token
+     * becomes an HttpOnly cookie here and is removed from the body. It never
+     * reaches the page.
+     */
+    app.use('/auth', requireCsrfHeader, async (req, res) => {
         const ip = req.ip ?? 'unknown';
-        const { locked, retryAfterMs } = throttle(ip);
+        const throttled = THROTTLED.has(req.path);
 
-        if (locked) {
-            return res.status(429).json({
-                error: 'Too many failed attempts',
-                retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
+        if (throttled) {
+            const { locked, retryAfterMs } = throttle(ip);
+            if (locked) {
+                return res.status(429).json({
+                    error: 'Too many attempts',
+                    retryAfterSeconds: Math.ceil(retryAfterMs / 1000),
+                });
+            }
+        }
+
+        try {
+            const upstream = await callApi(`/auth${req.path}`, {
+                method: req.method,
+                body: ['GET', 'HEAD'].includes(req.method) ? undefined : (req.body ?? {}),
+                token: readToken(req),
             });
+
+            if (throttled) {
+                if (upstream.status === 401) recordFailure(ip);
+                else if (upstream.status < 400) attempts.delete(ip);
+            }
+
+            const { token, ...body } = upstream.body ?? {};
+
+            if (upstream.status < 400 && typeof token === 'string') {
+                setSession(res, token, body.expiresAt);
+            }
+
+            if (req.path === '/logout') clearSession(res);
+
+            res.status(upstream.status).json(body);
+        } catch (error) {
+            res.status(502).json({ error: 'Atalaia API is unreachable', detail: error.message });
         }
-
-        if (!process.env.UI_PASSWORD) {
-            return res.status(500).json({ error: 'Console is misconfigured: UI_PASSWORD is not set' });
-        }
-
-        if (!passwordMatches(req.body?.password ?? '')) {
-            recordFailure(ip);
-            return res.status(401).json({ error: 'Invalid password' });
-        }
-
-        attempts.delete(ip);
-        res.cookie(COOKIE_NAME, issue(), cookieOptions());
-        res.json({ authenticated: true });
-    });
-
-    app.post('/auth/logout', (_req, res) => {
-        res.clearCookie(COOKIE_NAME, { ...cookieOptions(), maxAge: undefined });
-        res.json({ authenticated: false });
     });
 
     // Everything under /bff requires a session and is forwarded to the API.
-    app.use('/bff', requireSession, createProxy());
+    app.use('/bff', requireCsrfHeader, requireSession, createProxy());
 
     // Static bundle. Absent in dev, where Vite serves the client itself.
     if (fs.existsSync(DIST)) {
@@ -115,13 +165,10 @@ export function createServer() {
     return app;
 }
 
+export { COOKIE_NAME };
+
 // Only listen when executed directly, so tests can import createServer freely.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    if (!process.env.UI_SESSION_SECRET) {
-        console.error('UI_SESSION_SECRET is not set. Generate one with: openssl rand -hex 32');
-        process.exit(1);
-    }
-
     createServer().listen(PORT, HOST, () => {
         console.log(`Atalaia Console on http://${HOST}:${PORT} → API ${API_BASE}`);
         if (!fs.existsSync(DIST)) {
