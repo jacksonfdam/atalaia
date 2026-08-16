@@ -610,6 +610,65 @@ describe('recovery', () => {
     });
 });
 
+describe('break-glass', () => {
+    test('is off, so the setup password enrolls nothing', async () => {
+        await bootstrapAdmin(createAuthenticator());
+
+        await request(app)
+            .post('/api/v1/auth/registration/options')
+            .set(KEY)
+            .send({ username: 'jackson', setupPassword: 'the-setup-password' })
+            .expect(403);
+    });
+
+    test('enrolls a passkey for an existing account when it is turned on, and says so', async () => {
+        await bootstrapAdmin(createAuthenticator());
+        process.env.AUTH_ALLOW_BREAKGLASS = 'true';
+
+        try {
+            const options = await request(app)
+                .post('/api/v1/auth/registration/options')
+                .set(KEY)
+                .send({ username: 'jackson', setupPassword: 'the-setup-password' })
+                .expect(200);
+
+            const registered = await request(app)
+                .post('/api/v1/auth/registration/verify')
+                .set(KEY)
+                .send({
+                    response: createAuthenticator().register({ ...RP, challenge: options.body.challenge }),
+                })
+                .expect(200);
+
+            expect(registered.body.user.username).toBe('jackson');
+            expect(await auditEvents()).toContain('auth.breakglass');
+        } finally {
+            delete process.env.AUTH_ALLOW_BREAKGLASS;
+        }
+    });
+
+    test('still refuses the wrong password, and refuses an account that does not exist', async () => {
+        await bootstrapAdmin(createAuthenticator());
+        process.env.AUTH_ALLOW_BREAKGLASS = 'true';
+
+        try {
+            await request(app)
+                .post('/api/v1/auth/registration/options')
+                .set(KEY)
+                .send({ username: 'jackson', setupPassword: 'wrong' })
+                .expect(401);
+
+            await request(app)
+                .post('/api/v1/auth/registration/options')
+                .set(KEY)
+                .send({ username: 'nobody', setupPassword: 'the-setup-password' })
+                .expect(401);
+        } finally {
+            delete process.env.AUTH_ALLOW_BREAKGLASS;
+        }
+    });
+});
+
 describe('an administrator resetting an account', () => {
     test('removes every passkey, ends the sessions and reissues codes', async () => {
         const admin = createAuthenticator();
