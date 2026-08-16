@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/jacksonfdam/atalaia/security/advisories/new
+    about: Report privately. Rotate the credential first if one may have been exposed.
+  - name: Documentation
+    url: https://atalaia-console.vercel.app
+    about: Running it, configuration, the API, MCP, authentication and troubleshooting.

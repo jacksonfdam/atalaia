@@ -1,0 +1,60 @@
+name: Bug report
+description: Something behaves differently from what it says it does
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If this is a security issue, do not file it here — see [SECURITY.md](https://github.com/jacksonfdam/atalaia/blob/main/.github/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        `./scripts/atalaia.sh logs`, or the relevant lines from it. Since 1.2.0 the logs
+        redact credentials, but read what you paste anyway — a repository name or an
+        organization login may be more than you want in public.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: A release tag, or the output of `git rev-parse --short HEAD`.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - The console
+        - The API
+        - The worker (jobs, schedules, scans)
+        - The CLI
+        - MCP
+        - A notifier (Slack, Teams, Telegram, email)
+        - A feed or a parser
+        - Installing or running it
+        - Somewhere else
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Docker or Apple's `container`; Supabase or your own Postgres; the Postgres version;
+        the host OS. `./scripts/atalaia.sh doctor` prints most of it.
+      render: text
