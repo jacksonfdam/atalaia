@@ -41,7 +41,7 @@ import {
     describeTelegramWebhook,
     deleteTelegramWebhook,
 } from '../../infrastructure/notifiers/telegramWebhook.js';
-import { resolvePublicUrl } from '../../infrastructure/callbackUrls.js';
+import { resolvePublicUrl, currentCallbackUrl } from '../../infrastructure/callbackUrls.js';
 import { buildReport } from '../../application/buildReport.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -260,12 +260,18 @@ export function createSettingsRoutes(cache) {
     // The URL is not something the console can know: it is where *this* API
     // answers from, which is PUBLIC_URL, or the tunnel the process opened.
     router.post('/telegram/webhook', async (req, res) => {
-        const url = req.body?.url ?? resolvePublicUrl();
+        // Whatever this process is actually reachable at, which on a tunnel is
+        // a hostname only it knows. Asking PUBLIC_URL alone would report "no
+        // public URL" while a perfectly good tunnel was open.
+        const callback = currentCallbackUrl();
+        const url = req.body?.url ?? callback.url ?? resolvePublicUrl();
 
         if (!url) {
             return res.status(400).json({
-                error: 'No public URL to register',
-                hint: 'Set PUBLIC_URL, start a tunnel (TUNNEL_PROVIDER), or pass { "url": "https://…" }.',
+                error: `No public URL to register — ${
+                    callback.reason ?? 'this instance has no address the internet can reach'
+                }`,
+                hint: 'Set PUBLIC_URL, or TUNNEL_PROVIDER=cloudflared to open one on boot (no account needed), or pass { "url": "https://…" }.',
             });
         }
 

@@ -340,3 +340,31 @@ describe('the message itself', () => {
         expect(message.text).toContain('acme/api');
     });
 });
+
+describe('registering without an address', () => {
+    test('says why there is none, and which variable fixes it', async () => {
+        const res = await request(app).post('/api/v1/settings/telegram/webhook').set(KEY).send({});
+
+        expect(res.status).toBe(400);
+        // The reason comes from the callback state, not from a guess.
+        expect(res.body.error).toContain('No public URL');
+        expect(res.body.hint).toContain('TUNNEL_PROVIDER');
+    });
+
+    test('uses the tunnel this process actually opened', async () => {
+        const { establishCallbackUrl } = await import('#app/infrastructure/callbackUrls.js');
+        await saveTelegramConfig({ botToken: TOKEN, chatId: '-100', enabled: true }, 'test');
+
+        process.env.PUBLIC_URL = 'https://atalaia.example.com';
+        try {
+            await establishCallbackUrl(3000);
+
+            const res = await request(app).post('/api/v1/settings/telegram/webhook').set(KEY).send({});
+
+            expect(res.status).toBe(200);
+            expect(res.body.url).toBe('https://atalaia.example.com/api/v1/telegram/webhook');
+        } finally {
+            delete process.env.PUBLIC_URL;
+        }
+    });
+});

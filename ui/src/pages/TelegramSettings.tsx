@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
-import type { TelegramPayload } from '../types';
+import type { CallbackState, TelegramPayload } from '../types';
 
 /**
  * Telegram delivery, and the callback the buttons come back through.
@@ -19,6 +19,8 @@ import type { TelegramPayload } from '../types';
  */
 export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
   const payload = useApi<TelegramPayload>('/settings/telegram', onAuthLost);
+  // Where this instance is reachable, which is what the buttons depend on.
+  const callbacks = useApi<CallbackState>('/callbacks', onAuthLost);
 
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
@@ -45,7 +47,9 @@ export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
     try {
       setMessage({ kind: 'ok', text: await action() });
     } catch (err) {
-      setMessage({ kind: 'error', text: (err as Error).message });
+      const hint =
+        err instanceof ApiError ? (err.body as { hint?: string } | null)?.hint : undefined;
+      setMessage({ kind: 'error', text: [(err as Error).message, hint].filter(Boolean).join(' — ') });
     } finally {
       setBusy(false);
     }
@@ -183,6 +187,25 @@ export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
         </p>
 
         <h3>Callbacks</h3>
+
+        {callbacks.data ? (
+          callbacks.data.url ? (
+            <p className="muted">
+              This instance answers at <code className="mono">{callbacks.data.url}</code>
+              {callbacks.data.source === 'tunnel'
+                ? ` — a ${callbacks.data.provider} tunnel, so the address changes on every restart.`
+                : ' — from PUBLIC_URL.'}
+            </p>
+          ) : (
+            <Notice>
+              This instance has no address the internet can reach
+              {callbacks.data.reason ? `: ${callbacks.data.reason}` : null}. Set{' '}
+              <code className="mono">PUBLIC_URL</code>, or{' '}
+              <code className="mono">TUNNEL_PROVIDER=cloudflared</code> to open one at boot — no
+              account needed — then restart the API.
+            </Notice>
+          )
+        ) : null}
 
         {webhook?.registered ? (
           <p className="muted">

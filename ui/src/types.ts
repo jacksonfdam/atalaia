@@ -456,6 +456,16 @@ export interface TeamsPayload {
   status: { ready: boolean; reason: string | null; source: 'env' | 'database' | 'none' };
 }
 
+export interface CallbackState {
+  url: string | null;
+  source: 'PUBLIC_URL' | 'tunnel' | 'none';
+  provider: string | null;
+  reason: string | null;
+  establishedAt: string | null;
+  published: { slack: boolean; telegram: boolean };
+  providers: { name: string; label: string; configured: boolean; reason: string | null }[];
+}
+
 export interface TelegramPayload {
   config: {
     hasToken: boolean;
