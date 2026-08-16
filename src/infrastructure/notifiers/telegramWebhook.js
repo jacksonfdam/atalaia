@@ -12,6 +12,63 @@ export function webhookPath(publicUrl) {
     return `${publicUrl.replace(/\/+$/, '')}/api/v1/telegram/webhook`;
 }
 
+/** The only ports Telegram will call. Everything else is refused outright. */
+const ALLOWED_PORTS = new Set(['', '443', '80', '88', '8443']);
+
+const PRIVATE_IPV4 = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/;
+
+/**
+ * Would Telegram be able to call this?
+ *
+ * Telegram's own answer to a bad URL is "Failed to resolve host: Name or
+ * service not known", which is true and useless: it does not say that the
+ * address was a container name, or a laptop's localhost, or a port it refuses
+ * to call. Checking here means the reason names the actual problem.
+ *
+ * @param {string} url
+ * @returns {{ ok: boolean, reason?: string }}
+ */
+export function checkWebhookUrl(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return { ok: false, reason: `"${url}" is not a URL` };
+    }
+
+    if (parsed.protocol !== 'https:') {
+        return { ok: false, reason: 'Telegram only calls https:// addresses' };
+    }
+
+    const host = parsed.hostname.toLowerCase();
+
+    if (host === 'localhost' || host === '::1' || host.endsWith('.local') || PRIVATE_IPV4.test(host)) {
+        return {
+            ok: false,
+            reason: `${host} is only reachable from this machine — Telegram calls from the internet`,
+        };
+    }
+
+    // A single label is a container or host name on some private network:
+    // "atalaia", "api", "host.docker.internal". Telegram cannot resolve any of
+    // them, which is exactly the error it returns.
+    if (!host.includes('.')) {
+        return {
+            ok: false,
+            reason: `${host} is not a public hostname — Telegram cannot resolve it`,
+        };
+    }
+
+    if (!ALLOWED_PORTS.has(parsed.port)) {
+        return {
+            ok: false,
+            reason: `Telegram only calls ports 443, 80, 88 and 8443, not ${parsed.port}`,
+        };
+    }
+
+    return { ok: true };
+}
+
 /**
  * Point the bot at this instance.
  *
@@ -35,6 +92,12 @@ export async function registerTelegramWebhook(publicUrl, options = {}) {
     }
 
     const url = webhookPath(publicUrl);
+
+    // Checked before it is sent: Telegram's refusal names neither the address
+    // nor what is wrong with it.
+    const usable = checkWebhookUrl(url);
+    if (!usable.ok) return { registered: false, url, reason: usable.reason };
+
     const current = await readRegisteredWebhook();
 
     if (!options.force && current.url === url) {
