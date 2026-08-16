@@ -4,9 +4,8 @@ import logger from "../infrastructure/logger.js";
 import { initializeDatabase } from "../infrastructure/cache/postgresCache.js";
 import * as cache from "../infrastructure/cache/postgresCache.js";
 import { createApp } from "./http/createApp.js";
-import { startNgrokTunnel } from "../infrastructure/ngrokClient.js";
-import { updateSlackRequestUrl } from "../infrastructure/slackUrlUpdater.js";
-import { resolveAppCredentials } from "../infrastructure/notifiers/slackConfig.js";
+import { startTunnel } from "../infrastructure/tunnels/tunnelRegistry.js";
+import { publishCallbackUrl, resolvePublicUrl } from "../infrastructure/callbackUrls.js";
 
 // quiet: dotenv v17 otherwise prints a banner that breaks the structured log stream
 dotenv.config({ quiet: true });
@@ -25,29 +24,23 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, HOST, async () => {
     logger.info({ host: HOST, port: PORT }, 'Atalaia server running');
 
-    // Setup ngrok tunnel and Slack integration (development only)
-    if (process.env.NODE_ENV !== 'production') {
-        try {
-            const ngrokAuthToken = process.env.NGROK_AUTH_TOKEN;
-            const ngrokRegion = process.env.NGROK_REGION || 'auto';
-            // Environment first, then whatever the console stored.
-            const { appToken: slackAppToken, appId: slackAppId } = await resolveAppCredentials();
+    // Where the chat integrations should call back.
+    //
+    // A real deployment sets PUBLIC_URL and needs no tunnel. A laptop has no
+    // address to give Slack or Telegram, so one is borrowed — by default only
+    // outside production, unless TUNNEL_PROVIDER says otherwise.
+    try {
+        const configured = resolvePublicUrl();
+        const wantsTunnel =
+            process.env.TUNNEL_PROVIDER !== undefined || process.env.NODE_ENV !== 'production';
 
-            const ngrokUrl = await startNgrokTunnel(PORT, ngrokAuthToken, ngrokRegion);
+        const tunnel = configured || !wantsTunnel ? null : await startTunnel(PORT);
+        const publicUrl = configured ?? tunnel?.url ?? null;
 
-            if (ngrokUrl) {
-                logger.info({ url: ngrokUrl }, 'ngrok tunnel established');
-
-                // Try to update Slack with the new Request URL
-                const slackUpdated = await updateSlackRequestUrl(ngrokUrl, slackAppToken, slackAppId);
-                if (slackUpdated) {
-                    logger.info('Slack Request URL configured successfully');
-                }
-            }
-        } catch (error) {
-            logger.warn({ err: error }, 'Failed to setup ngrok/Slack integration');
-            // Continue anyway — app is still functional
-        }
+        if (publicUrl) await publishCallbackUrl(publicUrl);
+    } catch (error) {
+        // A callback URL is a convenience: the API serves requests either way.
+        logger.warn({ err: error }, 'Could not publish the callback URL');
     }
 
     // No scheduler and no first cycle here any more: both belong to the worker

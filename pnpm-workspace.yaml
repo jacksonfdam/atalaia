@@ -29,6 +29,9 @@ overrides:
 allowBuilds:
   '@ngrok/ngrok': true
   better-sqlite3: true
+  # No install-time download: the binary is fetched on first use, so an install
+  # that never opens a tunnel never pays for one.
+  cloudflared: false
   esbuild: true
   unrs-resolver: true
 
