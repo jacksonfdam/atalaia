@@ -60,6 +60,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@ngrok/ngrok": "^1.7.0",
+    "@simplewebauthn/server": "^13.3.2",
     "axios": "^1.19.0",
     "cheerio": "^1.2.0",
     "cloudflared": "^0.7.3",
