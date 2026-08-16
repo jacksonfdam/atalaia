@@ -44,8 +44,22 @@ Configuration comes from `.env` (see [`.env.example`](../.env.example)) plus `co
 | `SLACK_APP_ID` | — | Dev only: the app to update. |
 | `TEAMS_WEBHOOK_URL` | — | Microsoft Teams Workflows webhook. Pins the integration to the environment. |
 | `TEAMS_ENABLED` | — | Forces Teams delivery on or off wherever it is configured. |
-| `NGROK_AUTH_TOKEN` | — | Dev only: public tunnel for Slack callbacks. |
+| `TELEGRAM_BOT_TOKEN` | — | Bot token from `@BotFather`. Pins the integration to the environment. |
+| `TELEGRAM_CHAT_ID` | — | Where alerts go: a group (`-100…`), a channel (`@name`) or a person's chat. |
+| `TELEGRAM_ENABLED` | — | Forces Telegram delivery on or off wherever it is configured. |
+
+## Callbacks and tunnels
+
+Slack and Telegram call back — a button pressed in a chat has to arrive somewhere. A deployment with a hostname sets `PUBLIC_URL` and needs nothing else; a laptop borrows one.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBLIC_URL` | — | Where this API answers from, as the internet sees it. Wins over any tunnel. |
+| `TUNNEL_PROVIDER` | `auto` | `auto`, `ngrok`, `cloudflared` or `none`. `auto` takes ngrok when it has a token, Cloudflare's quick tunnel otherwise. Outside production a tunnel is opened even when this is unset. |
+| `NGROK_AUTH_TOKEN` | — | Required by ngrok; without it `auto` skips to Cloudflare. |
 | `NGROK_REGION` | `auto` | ngrok region. |
+
+Cloudflare's quick tunnel needs no account and no token, and downloads its binary on first use — so the first start is slower, and a machine with no outbound network cannot use it.
 
 ## Feeds and scanning
 

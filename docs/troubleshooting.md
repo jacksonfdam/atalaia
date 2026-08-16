@@ -7,7 +7,9 @@
 | `Console is misconfigured: API_KEY is not set` | The console process did not get `API_KEY`. Export it or start via the launcher. |
 | Console loads but every request 401s | `API_KEY` in the console's environment does not match the API's. |
 | Port already in use | Another instance is running: `./scripts/atalaia.sh status`, then `down`. Or change `PORT` / `UI_PORT`. |
-| Slack buttons do nothing | `SLACK_SIGNING_SECRET` missing, or Slack cannot reach the callback URL — locally that needs the ngrok tunnel. |
+| Slack buttons do nothing | `SLACK_SIGNING_SECRET` missing, or Slack cannot reach the callback URL — locally that needs a tunnel (`TUNNEL_PROVIDER`). |
+| Telegram buttons do nothing | No webhook registered, or it points at a tunnel that has since changed. **Settings → Telegram** shows where Telegram calls and its last delivery error; **Register webhook** points it here again. |
+| Telegram says "chat not found" | The bot is not in that group or channel, or the chat id is wrong. Add the bot, then use the numeric id — groups start with `-100`. |
 | **Send test** fails with `HTTP 404 (no_team)` or `(no_service)` | The webhook URL is not a live Slack webhook. Most often it is the `.env.example` placeholder left uncommented in `.env`: comment it out to configure Slack from the console, or paste the real URL. |
 | A console section is read-only and **Save** answers `409` | Something in `.env` pins it — the environment always wins. `./scripts/atalaia.sh doctor` lists every value still equal to the `.env.example` placeholder, which is the usual cause. |
 | Desktop notifications never appear although the browser says *Allowed* | The operating system also has to let the browser through: macOS System Settings → Notifications, and Do Not Disturb / Focus off. The browser reports success for a notification the OS then swallows. |

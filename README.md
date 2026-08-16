@@ -8,6 +8,7 @@ Atalaia watches 14 public vulnerability sources — NVD, CISA KEV, MITRE, GHSA, 
 - **Read-only GitHub import** — several organizations, each with its own token; dependencies parsed from 12 ecosystems
 - **Repository correlation** — which repository a CVE lands in, and through which manifest file
 - **Slack-native triage** — Block Kit alerts with Acknowledge/Resolve buttons
+- **Telegram alerts and triage** — the same buttons in a chat, over a tunnel it opens itself
 - **Weekly executive report** — severity-grouped HTML email
 - **Optional plain-English explanations** — local (Ollama, LM Studio) or hosted models
 - **Management console and CLI** — a React console on port 3001 and an Ink terminal dashboard

@@ -1,6 +1,6 @@
 # Notifications
 
-Slack, Microsoft Teams, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
+Slack, Microsoft Teams, Telegram, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
 
 ## Slack alerts
 
@@ -19,7 +19,7 @@ The whole Slack app fits in that one section — webhook URL or bot token, signi
 |-------|----------------|
 | Webhook URL / bot token | Sending the alert |
 | Signing secret | Verifying the Acknowledge and Resolve clicks Slack sends back |
-| App-level token + app ID | Development only: repointing the app's Request URL at the current ngrok tunnel |
+| App-level token + app ID | Development only: repointing the app's Request URL at the current tunnel |
 
 Alerts carry the affected repositories and owners when correlation finds any.
 
@@ -39,18 +39,43 @@ Alerts arrive as an Adaptive Card carrying the severity, the affected repositori
 
 A workflow webhook is bound to the channel it was created in, so there is no destination to choose — one webhook, one channel. The URL is a credential (anyone holding it can post there), so it is encrypted at rest and never returned by the API. `TEAMS_WEBHOOK_URL` and `TEAMS_ENABLED` pin it from the environment, same as everywhere else.
 
+## Telegram alerts
+
+Configured under **Settings → Telegram**. Two things have to be right and they fail differently: the **bot token** `@BotFather` issues, and the **chat id** the alerts go to — a group (`-100…`), a channel (`@name`) or a person's own chat. **Send test** posts a real message, which is the only way to find out that the bot is not in the group it is supposed to post to.
+
+Messages carry the severity, the affected repositories, the owners and the plain-English explanation, and — unlike Teams — they carry **Acknowledge and Resolve buttons**, which run exactly what the console and the Slack buttons run.
+
+Turning on **also message owners directly** sends the same alert to each correlated owner's own chat. An owner needs a Telegram chat id on their record, and needs to have started a conversation with the bot: a bot cannot open one.
+
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `TELEGRAM_ENABLED` pin it from the environment, same as everywhere else.
+
+### The callback, and the tunnel
+
+Telegram only calls an address it has been given, so the buttons do nothing until a webhook is registered. It is registered for you at boot, from whichever public URL the API has:
+
+| Where the URL comes from | When |
+|---|---|
+| `PUBLIC_URL` | A real deployment. Wins over any tunnel — a hostname you own should not be replaced by a throwaway one. |
+| A tunnel | Development, or wherever `TUNNEL_PROVIDER` is set. `auto` takes ngrok when `NGROK_AUTH_TOKEN` is present, and Cloudflare's quick tunnel otherwise, which needs no account at all. `none` opens nothing. |
+
+The registration is skipped when the URL has not changed, so a restart does not disturb a working webhook. When a development tunnel hands out a new hostname, **Register webhook** in the console points Telegram at it again.
+
+There is no request signature to verify: Telegram signs nothing. What it offers instead is a secret token, chosen at registration and returned in a header on every callback. Atalaia generates one, stores it encrypted, and compares it in constant time — and a configuration with no stored secret accepts nothing rather than accepting everything.
+
+The console shows what Telegram itself reports about the webhook, including its **last delivery error**. That is the only place a webhook that quietly stopped working ever says so.
+
 ## Subscribing to a repository
 
 A vulnerability that reaches a repository is emailed to the people who asked about it, the moment it is detected. A dependency that fell behind is not an incident — a freshness check can mark dozens at once — so those wait for that subscriber's weekly digest.
 
 There is no separate subscriber list: **an owner assigned to a repository is the subscription**. The same rows Slack already direct-messages, so there is one answer to "who cares about this repository" rather than two that drift apart.
 
-Subscribe from the repository's own page, under **NOTIFY.CFG**: pick an owner and press Subscribe. Owners themselves are managed under **Settings → Slack**, where the Slack member id also lives.
+Subscribe from the repository's own page, under **NOTIFY.CFG**: pick an owner and press Subscribe. Owners themselves are managed under **Settings → Slack**, where the Slack member id and the Telegram chat id also live.
 
 | What happens | When | Where it goes |
 |---|---|---|
 | A CVE reaches a subscribed repository | immediately, in the cycle that found it | one email per subscriber, naming the repositories of theirs it reaches and the manifest file it arrives through |
-| A dependency falls behind its registry | the weekly digest | that subscriber's digest, scoped to their repositories |
+| A dependency falls behind its registry | the weekly digest | that subscriber's digest, scoped to their repositories — by email, and in their Telegram chat if they have one |
 
 One email per person per finding, however many of their repositories it reaches: a CVE in a package six of your repositories share is one problem, not six.
 
@@ -72,6 +97,8 @@ The short explanation is the model's when one is configured (**Settings → Mode
 The header states both numbers a reader might be looking for: what arrived this week, and what is still open. The console's *Affects our code* count folds containers and CI in, so it equals this report's first two sections added together.
 
 **Reading it without waiting for Monday:** the console's **Reports** page renders exactly this payload — `GET /api/v1/reports/weekly`, the same one the email is built from — with a *Send now* button beside it.
+
+The same report goes to Telegram when it is configured — the numbers, the repositories reached, and what fell behind, capped per section with the totals stated so what is cut off is still counted.
 
 Pick a provider under **Settings → Email**, fill in its credential, and save:
 
