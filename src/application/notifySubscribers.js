@@ -7,6 +7,7 @@ import {
     dependenciesWithLatest,
 } from '../infrastructure/cache/repositoryStore.js';
 import { sendWeeklyEmail, sendRepositoryAlert } from '../infrastructure/notifiers/emailNotifier.js';
+import { sendTelegramDigestTo } from '../infrastructure/notifiers/telegramDigest.js';
 
 /**
  * Subscribing to a repository.
@@ -146,6 +147,10 @@ export async function sendSubscriberDigests(cache) {
         } catch (err) {
             logger.warn({ err, owner: owner.email }, 'Could not send subscriber digest');
         }
+
+        // And in their chat, for whoever gave us one. Not counted as a second
+        // digest: it is the same one, read somewhere else.
+        await sendTelegramDigestTo(report, owner);
     }
 
     logger.info({ subscribers: byOwner.size, sent }, 'Subscriber digests done');

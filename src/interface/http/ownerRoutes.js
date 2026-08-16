@@ -21,9 +21,14 @@ export function createOwnerRoutes() {
 
     // POST /owners
     router.post('/', async (req, res) => {
-        const { name, email, slackUserId } = req.body ?? {};
+        const { name, email, slackUserId, telegramChatId } = req.body ?? {};
         try {
-            const owner = await addOwner({ name, email, slackUserId: slackUserId ?? null });
+            const owner = await addOwner({
+                name,
+                email,
+                slackUserId: slackUserId ?? null,
+                telegramChatId: telegramChatId ?? null,
+            });
             res.status(201).json(owner);
         } catch (error) {
             logger.warn({ err: error }, 'Failed to add owner');
@@ -43,9 +48,9 @@ export function createOwnerRoutes() {
         const id = parseInt(req.params.id, 10);
         if (!await getOwnerWithAssignments(id)) return res.status(404).json({ error: 'Owner not found' });
 
-        const { name, email, slackUserId } = req.body ?? {};
+        const { name, email, slackUserId, telegramChatId } = req.body ?? {};
         try {
-            await updateOwner(id, { name, email, slackUserId });
+            await updateOwner(id, { name, email, slackUserId, telegramChatId });
             res.json(await getOwnerWithAssignments(id));
         } catch (error) {
             res.status(400).json({ error: error.message });

@@ -263,17 +263,18 @@ export async function findAffectedRepositoriesByDepName(depName) {
 
 // ── System owners ──
 
-export async function addOwner({ name, email, slackUserId = null }) {
+export async function addOwner({ name, email, slackUserId = null, telegramChatId = null }) {
     const row = await queryOne(
-        `INSERT INTO system_owners (name, email, slack_user_id)
-         VALUES (@name, @email, @slackUserId)
+        `INSERT INTO system_owners (name, email, slack_user_id, telegram_chat_id)
+         VALUES (@name, @email, @slackUserId, @telegramChatId)
          ON CONFLICT (email) DO UPDATE SET
              name = excluded.name,
              slack_user_id = excluded.slack_user_id,
+             telegram_chat_id = excluded.telegram_chat_id,
              updated_at = now(),
              deleted_at = NULL
          RETURNING *`,
-        { name, email, slackUserId }
+        { name, email, slackUserId, telegramChatId }
     );
 
     logger.info({ email, id: row?.id }, 'Owner added/restored');
@@ -318,6 +319,7 @@ export async function updateOwner(id, updates) {
     if (updates.name !== undefined) { fields.push('name = @name'); values.name = updates.name; }
     if (updates.email !== undefined) { fields.push('email = @email'); values.email = updates.email; }
     if (updates.slackUserId !== undefined) { fields.push('slack_user_id = @slackUserId'); values.slackUserId = updates.slackUserId; }
+    if (updates.telegramChatId !== undefined) { fields.push('telegram_chat_id = @telegramChatId'); values.telegramChatId = updates.telegramChatId; }
 
     if (fields.length === 0) return;
 
