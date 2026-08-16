@@ -162,16 +162,26 @@ ensure_env() {
         log "Created .env from .env.example"
     fi
 
-    is_placeholder "$(env_get API_KEY)"           && { env_set API_KEY "$(random_hex 32)";           ok "Generated API_KEY"; }
-    is_placeholder "$(env_get UI_SESSION_SECRET)" && { env_set UI_SESSION_SECRET "$(random_hex 32)"; ok "Generated UI_SESSION_SECRET"; }
+    is_placeholder "$(env_get API_KEY)" && { env_set API_KEY "$(random_hex 32)"; ok "Generated API_KEY"; }
 
-    if is_placeholder "$(env_get UI_PASSWORD)"; then
+    # The setup password creates the first console account and nothing else:
+    # once somebody has registered a passkey it stops granting access. An
+    # existing install keeps whatever it had under the old name.
+    if is_placeholder "$(env_get SETUP_PASSWORD)" && is_placeholder "$(env_get UI_PASSWORD)"; then
         local generated
         generated="$(random_hex 8)"
-        env_set UI_PASSWORD "$generated"
-        ok "Generated UI_PASSWORD: ${generated}"
-        dim "Change it in .env if you want something memorable."
+        env_set SETUP_PASSWORD "$generated"
+        ok "Generated SETUP_PASSWORD: ${generated}"
+        dim "It creates the first account, then stops working. Keep it until you have signed in."
     fi
+}
+
+# The setup password, under either name.
+setup_password() {
+    local value
+    value="$(env_get SETUP_PASSWORD)"
+    [ -n "$value" ] || value="$(env_get UI_PASSWORD)"
+    printf '%s' "$value"
 }
 
 # Ports: an exported variable wins over .env, which wins over the default —
@@ -426,7 +436,8 @@ summary() {
     echo
     printf '  API      http://localhost:%s        (health: /health)\n' "$(API_PORT)"
     [ "$WITH_CONSOLE" = "1" ] && \
-    printf '  Console  http://localhost:%s        (password: UI_PASSWORD in .env)\n' "$(UI_PORT_)"
+    printf '  Console  http://localhost:%s        (sign in with a passkey%s)\n' \
+        "$(UI_PORT_)" "$([ -n "$(setup_password)" ] && printf ', first account: SETUP_PASSWORD in .env')"
     printf '  Worker   no port; it takes jobs off the queue\n'
     callback_line
     printf '  Logs     %s logs\n' "$0"
@@ -436,9 +447,7 @@ summary() {
 cmd_up() {
     ensure_env
 
-    for key in API_KEY UI_SESSION_SECRET; do
-        is_placeholder "$(env_get "$key")" && die "$key is not configured in .env"
-    done
+    is_placeholder "$(env_get API_KEY)" && die "API_KEY is not configured in .env"
 
     [ -n "$(DATABASE_URL_)" ] || die "DATABASE_URL is not set. Point it at Supabase — 'supabase start' locally, or your project's session connection string."
 
@@ -538,13 +547,19 @@ cmd_doctor() {
     log "Configuration"
     if [ -f "$ENV_FILE" ]; then
         dim ".env      present"
-        for key in API_KEY UI_PASSWORD UI_SESSION_SECRET; do
-            if is_placeholder "$(env_get "$key")"; then
-                warn "$key is unset or still a placeholder — run: $0 init"
-            else
-                dim "$key set"
-            fi
-        done
+        if is_placeholder "$(env_get API_KEY)"; then
+            warn "API_KEY is unset or still a placeholder — run: $0 init"
+        else
+            dim "API_KEY set"
+        fi
+
+        # Not a warning once it is gone: after the first account exists the
+        # setup password is meant to be removed from .env.
+        if [ -n "$(setup_password)" ]; then
+            dim "SETUP_PASSWORD set — it creates the first console account, then stops working"
+        else
+            dim "SETUP_PASSWORD unset — sign in with a passkey, or a recovery code"
+        fi
         [ -n "$(env_get SLACK_WEBHOOK_URL)" ] || dim "SLACK_WEBHOOK_URL not set — Slack alerts disabled"
 
         # A value copied straight out of .env.example is not configuration, but
@@ -557,7 +572,7 @@ cmd_doctor() {
             [ -n "$value" ] || continue
             [ "$value" = "$(example_get "$key")" ] || continue
             case "$key" in
-                API_KEY|UI_PASSWORD|UI_SESSION_SECRET) continue ;;  # reported above
+                API_KEY|SETUP_PASSWORD|UI_PASSWORD|UI_SESSION_SECRET) continue ;;  # reported above
                 PORT|NODE_ENV|LOG_LEVEL|DATABASE_URL|CRON_SCHEDULE|WEEKLY_REPORT_CRON|CORS_ORIGINS) continue ;;
                 # These are the keys that pin a whole integration on their own.
                 SLACK_WEBHOOK_URL|SLACK_SIGNING_SECRET|SLACK_APP_TOKEN|SLACK_APP_ID|SLACK_ENABLED|\
