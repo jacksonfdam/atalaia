@@ -6,6 +6,7 @@ import { EmailSettings } from './EmailSettings';
 import { LlmSettings } from './LlmSettings';
 import { SlackSettings } from './SlackSettings';
 import { TeamsSettings } from './TeamsSettings';
+import { TelegramSettings } from './TelegramSettings';
 import { DesktopAlerts } from './DesktopAlerts';
 
 /**
@@ -15,13 +16,22 @@ import { DesktopAlerts } from './DesktopAlerts';
  * bottom of it was never seen, so each one gets its own tab and its own URL —
  * `/settings/slack` is a link you can send someone.
  */
-type TabId = 'general' | 'organizations' | 'slack' | 'teams' | 'email' | 'desktop' | 'model';
+type TabId =
+  | 'general'
+  | 'organizations'
+  | 'slack'
+  | 'teams'
+  | 'telegram'
+  | 'email'
+  | 'desktop'
+  | 'model';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'organizations', label: 'Organizations' },
   { id: 'slack', label: 'Slack' },
   { id: 'teams', label: 'Teams' },
+  { id: 'telegram', label: 'Telegram' },
   { id: 'email', label: 'Email' },
   { id: 'desktop', label: 'Desktop' },
   { id: 'model', label: 'Model' },
@@ -43,6 +53,7 @@ export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
     organizations: <Organizations onAuthLost={onAuthLost} />,
     slack: <SlackSettings onAuthLost={onAuthLost} />,
     teams: <TeamsSettings onAuthLost={onAuthLost} />,
+    telegram: <TelegramSettings onAuthLost={onAuthLost} />,
     email: <EmailSettings onAuthLost={onAuthLost} />,
     desktop: <DesktopAlerts onAuthLost={onAuthLost} />,
     model: <LlmSettings onAuthLost={onAuthLost} />,

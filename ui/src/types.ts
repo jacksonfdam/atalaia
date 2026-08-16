@@ -291,6 +291,7 @@ export interface Owner {
   name: string;
   email: string;
   slack_user_id: string | null;
+  telegram_chat_id: string | null;
 }
 
 export interface Assignment {
@@ -449,6 +450,33 @@ export interface TeamsPayload {
     enabled: boolean;
     updatedAt: string | null;
     updatedBy: string | null;
+  };
+  envLocked: boolean;
+  envVars: string[];
+  status: { ready: boolean; reason: string | null; source: 'env' | 'database' | 'none' };
+}
+
+export interface TelegramPayload {
+  config: {
+    hasToken: boolean;
+    tokenHint: string | null;
+    chatId: string | null;
+    notifyOwners: boolean;
+    enabled: boolean;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  };
+  webhook: {
+    registered: boolean;
+    url: string | null;
+    setAt: string | null;
+    hasSecret: boolean;
+    live?: {
+      url: string | null;
+      pendingUpdates: number;
+      lastErrorAt: string | null;
+      lastErrorMessage: string | null;
+    } | null;
   };
   envLocked: boolean;
   envVars: string[];

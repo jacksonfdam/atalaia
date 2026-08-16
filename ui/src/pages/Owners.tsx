@@ -15,7 +15,7 @@ const TARGET_TYPES = ['ecosystem', 'dependency', 'repository'];
  */
 export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
   const list = useApi<{ count: number; owners: Owner[] }>('/owners', onAuthLost);
-  const [form, setForm] = useState({ name: '', email: '', slackUserId: '' });
+  const [form, setForm] = useState({ name: '', email: '', slackUserId: '', telegramChatId: '' });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -59,7 +59,7 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
     event.preventDefault();
     await run(async () => {
       const owner = await api.post<Owner>('/owners', form);
-      setForm({ name: '', email: '', slackUserId: '' });
+      setForm({ name: '', email: '', slackUserId: '', telegramChatId: '' });
       return `Added ${owner.name}`;
     });
   }
@@ -103,6 +103,15 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
               size={10}
             />
           </label>
+          <label>
+            Telegram chat id
+            <input
+              value={form.telegramChatId}
+              onChange={e => setForm({ ...form, telegramChatId: e.target.value })}
+              placeholder="123456789"
+              size={12}
+            />
+          </label>
           <button className="primary" type="submit" disabled={busy}>
             Add owner
           </button>
@@ -124,6 +133,7 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
                   <th>Name</th>
                   <th>Email</th>
                   <th>Slack</th>
+                  <th>Telegram</th>
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -134,6 +144,7 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
                       <td>{owner.name}</td>
                       <td className="mono">{owner.email}</td>
                       <td className="tight mono">{owner.slack_user_id ?? '—'}</td>
+                      <td className="tight mono">{owner.telegram_chat_id ?? '—'}</td>
                       <td className="tight">
                         <span className="cell-actions">
                           <button onClick={() => toggle(owner)}>
@@ -157,7 +168,7 @@ export function Owners({ onAuthLost }: { onAuthLost: () => void }) {
 
                     {expanded === owner.id ? (
                       <tr>
-                        <td colSpan={4}>
+                        <td colSpan={5}>
                           {!assignments[owner.id] ? (
                             <Loading what="assignments" />
                           ) : (
