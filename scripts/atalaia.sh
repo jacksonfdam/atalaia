@@ -385,12 +385,50 @@ services_to_start() {
 # Commands
 # ---------------------------------------------------------------------------
 
+# The address Slack and Telegram were given, which only the running API knows:
+# on a tunnel the hostname is handed out at boot and differs every restart.
+callback_line() {
+    local key body url source provider
+    key="$(env_get API_KEY)"
+    [ -n "$key" ] || return 0
+
+    # A tunnel takes a few seconds longer than /health, and the API says so
+    # while it waits, so "not yet" is waited out rather than reported as "none".
+    local waited=0
+    while [ "$waited" -lt 45 ]; do
+        body="$(curl -fsS --max-time 5 -H "X-API-Key: $key" \
+            "http://localhost:$(API_PORT)/api/v1/callbacks" 2>/dev/null)" || return 0
+
+        case "$body" in
+            *'"reason":"Opening the tunnel"'*) sleep 1; waited=$((waited + 1)) ;;
+            *) break ;;
+        esac
+    done
+
+    # Field by field with sed rather than a JSON parser: this script may not have
+    # one, and three strings do not justify requiring one.
+    url="$(printf '%s' "$body" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')"
+    source="$(printf '%s' "$body" | sed -n 's/.*"source":"\([^"]*\)".*/\1/p')"
+    provider="$(printf '%s' "$body" | sed -n 's/.*"provider":"\([^"]*\)".*/\1/p')"
+
+    if [ -n "$url" ]; then
+        if [ "$source" = "tunnel" ]; then
+            printf '  Public   %s        (%s tunnel — new address on every restart)\n' "$url" "$provider"
+        else
+            printf '  Public   %s        (PUBLIC_URL)\n' "$url"
+        fi
+    else
+        printf '  Public   none         (set PUBLIC_URL or TUNNEL_PROVIDER, or chat buttons cannot reach you)\n'
+    fi
+}
+
 summary() {
     echo
     printf '  API      http://localhost:%s        (health: /health)\n' "$(API_PORT)"
     [ "$WITH_CONSOLE" = "1" ] && \
     printf '  Console  http://localhost:%s        (password: UI_PASSWORD in .env)\n' "$(UI_PORT_)"
     printf '  Worker   no port; it takes jobs off the queue\n'
+    callback_line
     printf '  Logs     %s logs\n' "$0"
     echo
 }

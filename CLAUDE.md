@@ -46,7 +46,8 @@ Clean Architecture with strict layer boundaries — **`src/domain/` has zero ext
   - `db/` — `pool.js` (one `pg` pool; named `@param` bindings translated to `$1`) and `migrationRunner.js` (one transaction per file, behind a `pg_advisory_lock`)
   - `queue/` — `jobs.js` (the one list of queues and schedules), `boss.js` (pg-boss, enqueue, state, progress), `workers.js` (handlers)
   - `cache/` — `postgresCache.js` (vulnerabilities), `repositoryStore.js`, `organizationStore.js`
-  - `notifiers/` — Slack, Teams, email (`emailProviders.js` catalog, nodemailer transport) and their config modules
+  - `notifiers/` — Slack, Teams, Telegram, email (`emailProviders.js` catalog, nodemailer transport) and their config modules
+  - `tunnels/` — public URLs for callbacks; one file per provider (ngrok, cloudflared), listed in `tunnelRegistry.js`. `PUBLIC_URL` beats any tunnel
   - `llm/` — provider catalog (`llmProviders.js`) plus OpenAI-compatible, Anthropic and Ollama adapters; prompts in `llm/prompts/*.txt`
   - `providers/githubProvider.js` — **read-only**; every request goes through one GET helper and a test fails the build if a write call appears there
   - `registries/` — latest-version lookups per ecosystem; `crypto.js` — AES-256-GCM for secrets at rest; `config.js`, `settings.js` (read-through cache, 30s TTL), `logger.js` (Pino)

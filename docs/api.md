@@ -19,6 +19,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/health` | Liveness. No auth. |
 | `GET` | `/api/v1/stats` | Counts by severity, status, source and technology, plus 30 days of activity. |
 | `POST` | `/api/v1/query` | Query by technology list. |
+| `GET` | `/api/v1/callbacks` | The public URL Slack and Telegram were given, where it came from, and the tunnel providers available. |
 | `GET` | `/api/v1/vulnerabilities` | List with filters and pagination, including `relevance`. |
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
@@ -59,5 +60,10 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/settings/llm/test` | Send one short prompt to the configured model. |
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | The digest the email sends: `affecting` grouped by repository, `infrastructure` and `other` capped, `dependencies` behind. `?windowDays=N` changes the period. |
+| `GET` `PUT` | `/api/v1/settings/telegram` | Bot token, chat id, and what Telegram was told to call. |
+| `POST` | `/api/v1/settings/telegram/test` | Post a real message to the configured chat. |
+| `GET` | `/api/v1/settings/telegram/chats` | Chats the bot has heard from, newest first — where a chat id comes from. |
+| `POST` `DELETE` | `/api/v1/settings/telegram/webhook` | Register the callback at `PUBLIC_URL`, the tunnel, or a URL you pass / remove it. |
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
+| `POST` | `/api/v1/telegram/webhook` | Telegram button callbacks (secret-token-verified). |
 | `POST` | `/mcp` | Model Context Protocol, for agents. Stateless; `GET`/`DELETE` answer `405`. |

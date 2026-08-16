@@ -130,4 +130,6 @@ pnpm run dev:cli                               # the terminal client from source
 
 `pnpm test` without `TEST_DATABASE_URL` runs the unit suites and skips the integration ones, saying so.
 
-In non-production (`NODE_ENV !== 'production'`) the API also tries to open an ngrok tunnel and point your Slack app's Request URL at it, so Slack's Acknowledge/Resolve buttons reach your laptop. It needs `NGROK_AUTH_TOKEN`, `SLACK_APP_TOKEN` and `SLACK_APP_ID`; without them it logs a warning and carries on.
+`up` prints the public address under the ports, once the tunnel has settled — it waits for it rather than reporting "none" a second too early. `none` there means Slack and Telegram cannot reach this instance, and says which variable to set.
+
+In non-production (`NODE_ENV !== 'production'`) the API opens a tunnel and hands the URL to Slack and Telegram, so their Acknowledge/Resolve buttons reach your laptop. `TUNNEL_PROVIDER` picks one: `auto` (the default) takes ngrok when `NGROK_AUTH_TOKEN` is set and Cloudflare's quick tunnel otherwise, which needs no account; `none` opens nothing. Slack also needs `SLACK_APP_TOKEN` and `SLACK_APP_ID` to have its Request URL updated. Set `PUBLIC_URL` and no tunnel is opened at all — a hostname you own wins.

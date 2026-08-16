@@ -8,6 +8,7 @@ import { scanRepository } from '../../application/scanRepository.js';
 import { checkDependencyVersions } from '../../application/checkDependencyVersions.js';
 import { buildReport } from '../../application/buildReport.js';
 import { sendWeeklyEmail } from '../notifiers/emailNotifier.js';
+import { sendTelegramDigest } from '../notifiers/telegramDigest.js';
 import { getAll } from '../cache/postgresCache.js';
 import { sendSubscriberDigests } from '../../application/notifySubscribers.js';
 import { getRepository } from '../cache/repositoryStore.js';
@@ -165,10 +166,17 @@ export async function registerWorkers() {
             const report = await buildReport(cache);
             await sendWeeklyEmail(report);
 
+            // Same report, wherever it is read. Each channel decides for itself
+            // whether it is configured, so a missing one is not a failed job.
+            const telegram = await sendTelegramDigest(report);
+
             // Then the people who asked about one repository in particular.
             const subscribers = await sendSubscriberDigests(cache);
 
-            logger.info({ jobId: job.id, subscribers }, 'Weekly report sent');
+            logger.info(
+                { jobId: job.id, subscribers, telegram: telegram.sent },
+                'Weekly report sent'
+            );
         })
     );
 

@@ -1,6 +1,6 @@
 # Notifications
 
-Slack, Microsoft Teams, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
+Slack, Microsoft Teams, Telegram, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
 
 ## Slack alerts
 
@@ -19,7 +19,7 @@ The whole Slack app fits in that one section — webhook URL or bot token, signi
 |-------|----------------|
 | Webhook URL / bot token | Sending the alert |
 | Signing secret | Verifying the Acknowledge and Resolve clicks Slack sends back |
-| App-level token + app ID | Development only: repointing the app's Request URL at the current ngrok tunnel |
+| App-level token + app ID | Development only: repointing the app's Request URL at the current tunnel |
 
 Alerts carry the affected repositories and owners when correlation finds any.
 
@@ -39,18 +39,115 @@ Alerts arrive as an Adaptive Card carrying the severity, the affected repositori
 
 A workflow webhook is bound to the channel it was created in, so there is no destination to choose — one webhook, one channel. The URL is a credential (anyone holding it can post there), so it is encrypted at rest and never returned by the API. `TEAMS_WEBHOOK_URL` and `TEAMS_ENABLED` pin it from the environment, same as everywhere else.
 
+## Telegram alerts
+
+Configured under **Settings → Telegram**. Two things have to be right and they fail differently: the **bot token** `@BotFather` issues, and the **chat id** the alerts go to. **Send test** posts a real message, which is the only way to find out that the bot is not in the group it is supposed to post to.
+
+Messages carry the severity, the affected repositories, the owners and the plain-English explanation, and — unlike Teams — they carry **Acknowledge and Resolve buttons**, which run exactly what the console and the Slack buttons run.
+
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `TELEGRAM_ENABLED` pin it from the environment, same as everywhere else.
+
+### Setting it up
+
+**1. Create the bot.** In Telegram, talk to [`@BotFather`](https://t.me/BotFather): `/newbot`, give it a name and a username. It answers with a token shaped `123456789:AA…`. That token is the bot — anyone holding it can post as it — so Atalaia encrypts it at rest and never returns it.
+
+**2. Decide where alerts go.** The chat id is a number, not a `@handle`, except for public channels:
+
+| Destination | Chat id | The bot also needs |
+|---|---|---|
+| **Just you** | your own numeric id, e.g. `123456789` | you to have sent it `/start` first — a bot cannot open a conversation |
+| **A group** | starts with `-100`, e.g. `-1001234567890` | to be a member of the group |
+| **A channel** | `@channelname`, or the numeric id for a private one | to be an administrator of the channel |
+
+**3. Find the id — the bot tells you.** Once the webhook is registered, send the bot any message and it answers with that chat's id, ready to paste. Every chat it hears from also appears in **Settings → Telegram** as a button that fills the field in.
+
+That is the whole reason the bot listens to messages at all: a chat id cannot be looked up anywhere. It exists only after a conversation, which is why Telegram says "chat not found" until one has happened.
+
+Without a webhook yet, ask [`@userinfobot`](https://t.me/userinfobot), or read it from the API:
+
+```bash
+curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" \
+  | grep -o '"chat":{"id":[0-9-]*'
+```
+
+`getUpdates` and a registered webhook are mutually exclusive — Telegram answers `409 Conflict` while a webhook is set. Remove it first (**Settings → Telegram**, or `DELETE /api/v1/settings/telegram/webhook`), read the id, then register again.
+
+**4. Save it.** Paste the token and the chat id in the console, tick *Send alerts to Telegram*, **Save**, then **Send test**. A message in the chat means both halves are right.
+
+### Keeping the bot to yourself
+
+A bot is discoverable by its `@name`, so anyone who finds it can write to it. Two things keep that harmless:
+
+- **Atalaia only answers the configured chat.** While no chat id is saved, whoever writes gets the setup reply with their id — that is the conversation you are trying to have. Once one is saved, everything from any other chat is ignored: not remembered, not answered.
+- **`@BotFather` can stop it being added to groups.** `/setjoingroups` → *Disable*. `/setprivacy` → *Enable* additionally means that, in any group it is already in, it only sees messages addressed to it.
+
+Nothing is ever *sent* anywhere except the configured chat and, when enabled, the owners' own chats. The bot token is what would let somebody post as the bot, and that never leaves the server.
+
+### Giving the bot a face
+
+`@BotFather` holds the bot's identity, not Atalaia — these are one-off commands in that chat:
+
+| Command | What it sets |
+|---|---|
+| `/setuserpic` | The avatar. One is provided at [`docs/site/assets/brand/telegram-bot-avatar.png`](https://github.com/jacksonfdam/atalaia/blob/main/docs/site/assets/brand/telegram-bot-avatar.png) — 512×512, drawn to survive Telegram's circular crop. |
+| `/setdescription` | Shown on the empty chat, before the first message |
+| `/setabouttext` | Shown on the bot's profile |
+| `/setcommands` | The command menu |
+
+Text that fits the product:
+
+> **Description** — Atalaia watches public vulnerability feeds, filters them against the technologies you ship, and tells you which of your repositories each finding reaches. Send /start to get this chat's id.
+
+> **About** — Vulnerability intelligence for engineering teams. Alerts with Acknowledge and Resolve, and a weekly digest.
+
+```
+start - Show this chat's id, to paste into Atalaia
+```
+
+`/start` is the only command: everything else Atalaia does happens through the buttons on an alert, or in the console.
+
+Turning on **also message owners directly** sends the same alert to each correlated owner's own chat, on top of the main destination. Each owner needs a Telegram chat id on their record (**Settings → Slack**, where owners live) and needs to have started a conversation with the bot — for the same reason as above.
+
+### The callback, and the tunnel
+
+Telegram only calls an address it has been given, so the buttons do nothing until a webhook is registered. It is registered for you at boot, from whichever public URL the API has:
+
+| Where the URL comes from | When |
+|---|---|
+| `PUBLIC_URL` | A real deployment. Wins over any tunnel — a hostname you own should not be replaced by a throwaway one. |
+| A tunnel | Development, or wherever `TUNNEL_PROVIDER` is set. `auto` takes ngrok when `NGROK_AUTH_TOKEN` is present, and Cloudflare's quick tunnel otherwise, which needs no account at all. `none` opens nothing. |
+
+In containers `NODE_ENV` is `production`, so no tunnel opens unless `TUNNEL_PROVIDER` says so — a public hostname is not something to hand out by accident. Set `TUNNEL_PROVIDER=cloudflared` in `.env` and `./scripts/atalaia.sh up` prints the address it got.
+
+The registration is skipped when the URL has not changed, so a restart does not disturb a working webhook. When a development tunnel hands out a new hostname, **Register webhook** in the console points Telegram at it again.
+
+Telegram is strict about the address, and unhelpful when it refuses one: everything it dislikes comes back as `Failed to resolve host: Name or service not known`. Atalaia checks first, so the reason names the actual problem:
+
+| Refused | Why |
+|---|---|
+| `http://…` | Telegram only calls `https` |
+| `localhost`, `127.0.0.1`, `192.168.x.x` | Reachable from your machine, not from the internet |
+| `atalaia`, `host.docker.internal` | Container names: nothing outside the compose network can resolve them |
+| Any port other than 443, 80, 88, 8443 | Telegram calls no others |
+
+That last row is why `PUBLIC_URL` usually points at a reverse proxy rather than straight at `:3000`.
+
+There is no request signature to verify: Telegram signs nothing. What it offers instead is a secret token, chosen at registration and returned in a header on every callback. Atalaia generates one, stores it encrypted, and compares it in constant time — and a configuration with no stored secret accepts nothing rather than accepting everything.
+
+The console shows what Telegram itself reports about the webhook, including its **last delivery error**. That is the only place a webhook that quietly stopped working ever says so.
+
 ## Subscribing to a repository
 
 A vulnerability that reaches a repository is emailed to the people who asked about it, the moment it is detected. A dependency that fell behind is not an incident — a freshness check can mark dozens at once — so those wait for that subscriber's weekly digest.
 
 There is no separate subscriber list: **an owner assigned to a repository is the subscription**. The same rows Slack already direct-messages, so there is one answer to "who cares about this repository" rather than two that drift apart.
 
-Subscribe from the repository's own page, under **NOTIFY.CFG**: pick an owner and press Subscribe. Owners themselves are managed under **Settings → Slack**, where the Slack member id also lives.
+Subscribe from the repository's own page, under **NOTIFY.CFG**: pick an owner and press Subscribe. Owners themselves are managed under **Settings → Slack**, where the Slack member id and the Telegram chat id also live.
 
 | What happens | When | Where it goes |
 |---|---|---|
 | A CVE reaches a subscribed repository | immediately, in the cycle that found it | one email per subscriber, naming the repositories of theirs it reaches and the manifest file it arrives through |
-| A dependency falls behind its registry | the weekly digest | that subscriber's digest, scoped to their repositories |
+| A dependency falls behind its registry | the weekly digest | that subscriber's digest, scoped to their repositories — by email, and in their Telegram chat if they have one |
 
 One email per person per finding, however many of their repositories it reaches: a CVE in a package six of your repositories share is one problem, not six.
 
@@ -72,6 +169,8 @@ The short explanation is the model's when one is configured (**Settings → Mode
 The header states both numbers a reader might be looking for: what arrived this week, and what is still open. The console's *Affects our code* count folds containers and CI in, so it equals this report's first two sections added together.
 
 **Reading it without waiting for Monday:** the console's **Reports** page renders exactly this payload — `GET /api/v1/reports/weekly`, the same one the email is built from — with a *Send now* button beside it.
+
+The same report goes to Telegram when it is configured — the numbers, the repositories reached, and what fell behind, capped per section with the totals stated so what is cut off is still counted.
 
 Pick a provider under **Settings → Email**, fill in its credential, and save:
 

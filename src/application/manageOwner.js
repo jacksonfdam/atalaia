@@ -14,7 +14,7 @@ import {
 
 /**
  * Add a system owner.
- * @param {{ name: string, email: string, slackUserId?: string }} data
+ * @param {{ name: string, email: string, slackUserId?: string, telegramChatId?: string }} data
  * @returns {object}
  */
 export async function addOwner(data) {
@@ -62,7 +62,7 @@ export async function getOwnerWithAssignments(id) {
 /**
  * Update an owner.
  * @param {number} id
- * @param {{ name?: string, email?: string, slackUserId?: string }} updates
+ * @param {{ name?: string, email?: string, slackUserId?: string, telegramChatId?: string }} updates
  */
 export async function updateOwner(id, updates) {
     await storeUpdate(id, updates);
