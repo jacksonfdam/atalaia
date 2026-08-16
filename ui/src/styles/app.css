@@ -582,6 +582,47 @@ td.tight {
   gap: 0.6rem;
 }
 
+/* Not a status line: something the operator is expected to act on. */
+.sidebar-warning {
+  display: block;
+  margin: 0.4rem 0;
+  padding: 0.3rem 0.4rem;
+  border: 2px solid var(--win-dark);
+  background: var(--severity-high);
+  color: var(--win-dark);
+  font-weight: 900;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+/* A secondary way out of the current form — recovery, or back to sign-in. */
+.login-form button.link {
+  border: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+  font-size: 0.7rem;
+  text-decoration: underline;
+  cursor: pointer;
+  justify-self: center;
+}
+
+/* Shown once, and meant to be copied out of the browser in one go. */
+.recovery-codes {
+  margin: 0.6rem 0;
+  padding: 0.6rem;
+  border: 2px solid var(--win-dark);
+  background: var(--win-hi);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  overflow-x: auto;
+  user-select: all;
+}
+
 /* ---------------------------------------------------------------- detail */
 
 .kv {

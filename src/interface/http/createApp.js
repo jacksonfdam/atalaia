@@ -17,14 +17,27 @@ import { requireTelegramSecret, createTelegramUpdateHandler } from '../telegram/
 export function createApp(cache) {
     const app = express();
 
+    // Which Express, and which version of it, is nobody's business.
+    app.disable('x-powered-by');
+
+    // Whether X-Forwarded-For can be believed. Off by default: without a proxy
+    // in front, trusting it lets any caller write any address into the audit
+    // log. See the same switch in the console's server.
+    if (process.env.TRUST_PROXY) {
+        app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : process.env.TRUST_PROXY);
+    }
+
     // Security headers
     app.use((_req, res, next) => {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('X-XSS-Protection', '1; mode=block');
         res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
         res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
         res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+        // This service answers JSON and nothing else. Saying so means a
+        // response rendered as a document — by a browser told to sniff, or by
+        // something that got a content type wrong — can load nothing at all.
+        res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
         next();
     });
 

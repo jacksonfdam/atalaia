@@ -8,6 +8,9 @@ import { SlackSettings } from './SlackSettings';
 import { TeamsSettings } from './TeamsSettings';
 import { TelegramSettings } from './TelegramSettings';
 import { DesktopAlerts } from './DesktopAlerts';
+import { AccountSettings } from './AccountSettings';
+import { PeopleSettings } from './PeopleSettings';
+import type { SessionInfo } from '../api/client';
 
 /**
  * Everything configurable, one tab at a time.
@@ -18,6 +21,8 @@ import { DesktopAlerts } from './DesktopAlerts';
  */
 type TabId =
   | 'general'
+  | 'account'
+  | 'people'
   | 'organizations'
   | 'slack'
   | 'teams'
@@ -26,8 +31,11 @@ type TabId =
   | 'desktop'
   | 'model';
 
-const TABS: { id: TabId; label: string }[] = [
+/** `admin` keeps a tab out of the list for anyone who cannot use it. */
+const TABS: { id: TabId; label: string; admin?: boolean }[] = [
   { id: 'general', label: 'General' },
+  { id: 'account', label: 'Passkeys' },
+  { id: 'people', label: 'People', admin: true },
   { id: 'organizations', label: 'Organizations' },
   { id: 'slack', label: 'Slack' },
   { id: 'teams', label: 'Teams' },
@@ -43,13 +51,24 @@ function isTab(value: string | undefined): value is TabId {
   return TABS.some(tab => tab.id === value);
 }
 
-export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
+export function Settings({
+  onAuthLost,
+  session,
+}: {
+  onAuthLost: () => void;
+  session: SessionInfo;
+}) {
   const { tab } = useParams();
   // An unknown tab in the URL falls back rather than rendering nothing.
   const active: TabId = isTab(tab) ? tab : DEFAULT_TAB;
 
+  const isAdmin = session.user?.isAdmin === true;
+  const visible = TABS.filter(item => !item.admin || isAdmin);
+
   const panels: Record<TabId, ReactNode> = {
     general: <GeneralSettings onAuthLost={onAuthLost} />,
+    account: <AccountSettings />,
+    people: isAdmin ? <PeopleSettings /> : <GeneralSettings onAuthLost={onAuthLost} />,
     organizations: <Organizations onAuthLost={onAuthLost} />,
     slack: <SlackSettings onAuthLost={onAuthLost} />,
     teams: <TeamsSettings onAuthLost={onAuthLost} />,
@@ -62,7 +81,7 @@ export function Settings({ onAuthLost }: { onAuthLost: () => void }) {
   return (
     <>
       <nav className="tabs" aria-label="Settings sections">
-        {TABS.map(item => (
+        {visible.map(item => (
           <Link
             key={item.id}
             to={`/settings/${item.id}`}

@@ -26,7 +26,7 @@ Migrations run themselves. Both the API and the worker apply any pending ones on
 ./scripts/atalaia.sh up
 ```
 
-It creates `.env` from `.env.example` if it is missing, generates the secrets that have no sensible default (`API_KEY`, `UI_SESSION_SECRET`, `UI_PASSWORD`), starts the three containers, and waits until the API and the console answer their health endpoints. Docker if the daemon answers, Apple's `container` otherwise.
+It creates `.env` from `.env.example` if it is missing, generates the secrets that have no sensible default (`API_KEY`, and a `SETUP_PASSWORD` for the first console account), starts the three containers, and waits until the API and the console answer their health endpoints. Docker if the daemon answers, Apple's `container` otherwise.
 
 | Command | What it does |
 |---------|--------------|

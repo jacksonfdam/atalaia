@@ -1,77 +1,72 @@
-import crypto from 'node:crypto';
-
 /**
- * Signed session cookies without a session store.
+ * The browser's half of a session.
  *
- * The console has exactly one identity (a shared password), so there is no
- * server-side state worth keeping — the cookie carries its own expiry and an
- * HMAC over it. That keeps the service stateless and restart-safe.
+ * This service holds a cookie and nothing else. The session itself is a row in
+ * the API's database, and the cookie carries the opaque token that names it —
+ * so signing out actually ends the session rather than clearing one copy of a
+ * self-describing ticket, and there is no signing key here to keep secret or to
+ * rotate.
+ *
+ * The token never reaches the page. It goes out again in a header, server to
+ * server, on the way to the API.
  */
 
 export const COOKIE_NAME = 'atalaia_console';
-const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000;
-
-function secret() {
-    const value = process.env.UI_SESSION_SECRET;
-    if (!value) {
-        throw new Error('UI_SESSION_SECRET is not set — refusing to issue unsigned sessions');
-    }
-    return value;
-}
-
-function sign(payload) {
-    return crypto.createHmac('sha256', secret()).update(payload).digest('base64url');
-}
 
 /**
- * @param {number} [ttlMs]
- * @returns {string} cookie value
+ * A header no cross-origin form can set.
+ *
+ * The cookie is SameSite=Lax, which already stops a third-party page issuing a
+ * POST with it attached. This is the second lock: a state-changing request that
+ * did not come from the console's own JavaScript does not carry the header, and
+ * a browser will not let a plain form add one.
  */
-export function issue(ttlMs = DEFAULT_TTL_MS) {
-    // A random id makes two sessions issued in the same millisecond distinct,
-    // so one cookie can be reasoned about independently of another.
-    const payload = `${crypto.randomBytes(9).toString('base64url')}.${Date.now() + ttlMs}`;
-    return `${payload}.${sign(payload)}`;
-}
-
-/**
- * @param {string|undefined} cookieValue
- * @returns {boolean}
- */
-export function verify(cookieValue) {
-    if (!cookieValue) return false;
-
-    const parts = cookieValue.split('.');
-    if (parts.length !== 3) return false;
-
-    const [id, expiry, signature] = parts;
-    const expected = sign(`${id}.${expiry}`);
-
-    const given = Buffer.from(signature);
-    const want = Buffer.from(expected);
-    // Length check first: timingSafeEqual throws on a length mismatch.
-    if (given.length !== want.length) return false;
-    if (!crypto.timingSafeEqual(given, want)) return false;
-
-    const expiresAt = Number(expiry);
-    return Number.isFinite(expiresAt) && expiresAt > Date.now();
-}
+export const CSRF_HEADER = 'x-atalaia-console';
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /** Cookie attributes. Secure is conditional so http://localhost still works. */
-export function cookieOptions() {
+export function cookieOptions(maxAgeMs) {
     return {
         httpOnly: true,
         sameSite: 'lax',
         secure: process.env.NODE_ENV === 'production',
-        maxAge: DEFAULT_TTL_MS,
         path: '/',
+        ...(maxAgeMs ? { maxAge: maxAgeMs } : {}),
     };
 }
 
-/** Express middleware: 401 unless a valid session cookie is present. */
+/** @returns {string|null} the session token this browser is carrying */
+export function readToken(req) {
+    const value = req.cookies?.[COOKIE_NAME];
+    return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+/**
+ * @param {import('express').Response} res
+ * @param {string} token
+ * @param {string} [expiresAt] ISO timestamp from the API
+ */
+export function setSession(res, token, expiresAt) {
+    const remaining = expiresAt ? new Date(expiresAt).getTime() - Date.now() : NaN;
+    res.cookie(COOKIE_NAME, token, cookieOptions(Number.isFinite(remaining) && remaining > 0 ? remaining : undefined));
+}
+
+export function clearSession(res) {
+    res.clearCookie(COOKIE_NAME, cookieOptions());
+}
+
+/** Express middleware: 401 unless the browser is carrying a session. */
 export function requireSession(req, res, next) {
-    if (verify(req.cookies?.[COOKIE_NAME])) return next();
+    if (readToken(req)) return next();
     res.status(401).json({ error: 'Not authenticated' });
+}
+
+/** Express middleware: reject a state-changing request that did not come from the console. */
+export function requireCsrfHeader(req, res, next) {
+    if (SAFE_METHODS.has(req.method)) return next();
+    if (req.headers[CSRF_HEADER]) return next();
+
+    res.status(403).json({ error: 'Missing console request header' });
 }
 
 /**

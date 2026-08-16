@@ -15,6 +15,24 @@ const MAX_WAIT_MS = 60_000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
+ * One path segment, encoded.
+ *
+ * An organization login is typed by an operator and a file path comes back from
+ * a repository's own tree. Neither is supposed to contain a slash or a `..`, and
+ * neither is checked anywhere for it — dropped into a URL raw, one of them could
+ * steer a request carrying the org's token at a different GitHub endpoint.
+ */
+const segment = value => encodeURIComponent(String(value ?? ''));
+
+/** A path with its separators kept and everything between them encoded. */
+const filePathSegments = value =>
+    String(value ?? '')
+        .split('/')
+        .filter(part => part.length > 0)
+        .map(segment)
+        .join('/');
+
+/**
  * How long to wait before retrying, or null when this is not throttling.
  *
  * GitHub says "slow down" in three different ways, and the difference matters:
@@ -109,7 +127,7 @@ export class GitHubProvider {
         const authenticatedAs = await this._authenticatedLogin();
 
         try {
-            const data = await this._get(`${GITHUB_API}/orgs/${login}`);
+            const data = await this._get(`${GITHUB_API}/orgs/${segment(login)}`);
             if (data?.login) {
                 return {
                     kind: 'organization',
@@ -191,7 +209,7 @@ export class GitHubProvider {
 
         while (hasMore) {
             try {
-                const data = await this._get(`${GITHUB_API}/orgs/${orgOrUser}/repos`, {
+                const data = await this._get(`${GITHUB_API}/orgs/${segment(orgOrUser)}/repos`, {
                     per_page: PER_PAGE,
                     page,
                     type: 'all',
@@ -232,7 +250,7 @@ export class GitHubProvider {
         if (!owner || !repo) return {};
 
         try {
-            const data = await this._get(`${GITHUB_API}/repos/${owner}/${repo}/languages`);
+            const data = await this._get(`${GITHUB_API}/repos/${segment(owner)}/${segment(repo)}/languages`);
             return data && typeof data === 'object' ? data : {};
         } catch (error) {
             logger.warn({ repoUrl, err: error.message }, 'GitHub listLanguages failed');
@@ -253,7 +271,7 @@ export class GitHubProvider {
 
         try {
             const data = await this._get(
-                `${GITHUB_API}/repos/${owner}/${repo}/contents/${filePath}`,
+                `${GITHUB_API}/repos/${segment(owner)}/${segment(repo)}/contents/${filePathSegments(filePath)}`,
                 ref ? { ref } : {}
             );
 
@@ -287,7 +305,7 @@ export class GitHubProvider {
         try {
             const branch = ref || 'HEAD';
             const data = await this._get(
-                `${GITHUB_API}/repos/${owner}/${repo}/git/trees/${branch}`,
+                `${GITHUB_API}/repos/${segment(owner)}/${segment(repo)}/git/trees/${segment(branch)}`,
                 { recursive: 1 }
             );
 
@@ -327,7 +345,7 @@ export class GitHubProvider {
         // /users/:login/repos is public-only, whatever the token. The private
         // repositories of a personal account live behind /user/repos, and only
         // for the account the token belongs to.
-        const url = isSelf ? `${GITHUB_API}/user/repos` : `${GITHUB_API}/users/${user}/repos`;
+        const url = isSelf ? `${GITHUB_API}/user/repos` : `${GITHUB_API}/users/${segment(user)}/repos`;
 
         if (!isSelf) {
             logger.warn(
@@ -364,7 +382,7 @@ export class GitHubProvider {
 
     async _getBlobContent(owner, repo, sha) {
         try {
-            const data = await this._get(`${GITHUB_API}/repos/${owner}/${repo}/git/blobs/${sha}`);
+            const data = await this._get(`${GITHUB_API}/repos/${segment(owner)}/${segment(repo)}/git/blobs/${segment(sha)}`);
             if (data.encoding === 'base64' && data.content) {
                 return Buffer.from(data.content, 'base64').toString('utf-8');
             }

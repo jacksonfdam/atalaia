@@ -29,13 +29,15 @@ supabase start                  # Postgres, locally
 ./scripts/atalaia.sh up
 ```
 
-Put the connection string `supabase start` prints into `.env` as `DATABASE_URL` (this repository's local stack is on port 54622). Everything else the launcher handles: it creates `.env` from `.env.example` if it is missing, generates the secrets that have no sensible default (`API_KEY`, `UI_SESSION_SECRET`, `UI_PASSWORD`), applies the migrations, starts the three containers and waits until they answer.
+Put the connection string `supabase start` prints into `.env` as `DATABASE_URL` (this repository's local stack is on port 54622). Everything else the launcher handles: it creates `.env` from `.env.example` if it is missing, generates the secrets that have no sensible default (`API_KEY`, `SETUP_PASSWORD`), applies the migrations, starts the three containers and waits until they answer.
 
 ```
   API      http://localhost:3000        (health: /health)
-  Console  http://localhost:3001        (password: UI_PASSWORD in .env)
+  Console  http://localhost:3001        (sign in with a passkey)
   Worker   no port — it takes jobs off the queue
 ```
+
+The console has no password. `SETUP_PASSWORD` creates the first account and stops working the moment it has; from then on it is passkeys, with recovery codes for the day a device is lost — [docs/authentication.md](docs/authentication.md).
 
 Slack, Teams, email and LLM summaries stay off until you fill in their credentials.
 

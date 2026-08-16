@@ -1,71 +1,106 @@
 /**
- * Session cookie tests for the console's BFF.
+ * The console's half of a session: a cookie carrying an opaque token, and the
+ * header that says a request came from the console's own JavaScript.
  *
- * These live in the root test suite so `npm test` covers both services; the
+ * These live in the root test suite so `pnpm test` covers both services; the
  * module under test is plain Node with no React or Vite involvement.
  */
-import { describe, test, expect, beforeAll } from '@jest/globals';
+import { describe, test, expect } from '@jest/globals';
 
-process.env.UI_SESSION_SECRET = 'test-secret-not-a-real-key';
+const {
+    COOKIE_NAME,
+    CSRF_HEADER,
+    cookieOptions,
+    parseCookies,
+    readToken,
+    requireCsrfHeader,
+    requireSession,
+} = await import('../../../ui/server/session.js');
 
-const { issue, verify, COOKIE_NAME, parseCookies } = await import('../../../ui/server/session.js');
+function reply() {
+    const res = {
+        statusCode: null,
+        body: null,
+        status(code) {
+            this.statusCode = code;
+            return this;
+        },
+        json(payload) {
+            this.body = payload;
+            return this;
+        },
+    };
+    return res;
+}
 
-describe('session cookies', () => {
-    test('a freshly issued cookie verifies', () => {
-        expect(verify(issue())).toBe(true);
+describe('the session cookie', () => {
+    test('is HttpOnly, same-site and scoped to the whole console', () => {
+        const options = cookieOptions(1000);
+
+        expect(options.httpOnly).toBe(true);
+        expect(options.sameSite).toBe('lax');
+        expect(options.path).toBe('/');
+        expect(options.maxAge).toBe(1000);
     });
 
-    test('an absent cookie does not verify', () => {
-        expect(verify(undefined)).toBe(false);
-        expect(verify('')).toBe(false);
+    test('is a session cookie when no lifetime is known', () => {
+        expect(cookieOptions()).not.toHaveProperty('maxAge');
     });
 
-    test('a malformed cookie does not verify', () => {
-        expect(verify('garbage')).toBe(false);
-        expect(verify('two.parts')).toBe(false);
-        expect(verify('a.b.c.d')).toBe(false);
+    test('carries whatever token the API issued, opaque to this service', () => {
+        const req = { cookies: { [COOKIE_NAME]: 'an-opaque-token' } };
+        expect(readToken(req)).toBe('an-opaque-token');
     });
 
-    test('a tampered payload does not verify', () => {
-        const cookie = issue();
-        const [id, expiry, signature] = cookie.split('.');
+    test('reads as absent when it is missing or empty', () => {
+        expect(readToken({ cookies: {} })).toBeNull();
+        expect(readToken({ cookies: { [COOKIE_NAME]: '' } })).toBeNull();
+        expect(readToken({})).toBeNull();
+    });
+});
 
-        // Extend the expiry while keeping the original signature.
-        const forged = `${id}.${Number(expiry) + 86_400_000}.${signature}`;
-        expect(verify(forged)).toBe(false);
+describe('requireSession', () => {
+    test('lets a request with a cookie through', () => {
+        let called = false;
+        requireSession({ cookies: { [COOKIE_NAME]: 'token' } }, reply(), () => {
+            called = true;
+        });
+        expect(called).toBe(true);
     });
 
-    test('a tampered signature does not verify', () => {
-        const [id, expiry] = issue().split('.');
-        expect(verify(`${id}.${expiry}.deadbeef`)).toBe(false);
+    test('rejects one without', () => {
+        const res = reply();
+        requireSession({ cookies: {} }, res, () => {
+            throw new Error('should not continue');
+        });
+        expect(res.statusCode).toBe(401);
+    });
+});
+
+describe('the console request header', () => {
+    test('is not asked of a read', () => {
+        let called = false;
+        requireCsrfHeader({ method: 'GET', headers: {} }, reply(), () => {
+            called = true;
+        });
+        expect(called).toBe(true);
     });
 
-    test('an expired cookie does not verify', () => {
-        expect(verify(issue(-1000))).toBe(false);
+    test('is required on anything that changes state', () => {
+        const res = reply();
+        requireCsrfHeader({ method: 'POST', headers: {} }, res, () => {
+            throw new Error('should not continue');
+        });
+
+        expect(res.statusCode).toBe(403);
     });
 
-    test('a cookie signed with a different secret does not verify', () => {
-        const foreign = issue();
-        const original = process.env.UI_SESSION_SECRET;
-
-        process.env.UI_SESSION_SECRET = 'a-completely-different-secret';
-        expect(verify(foreign)).toBe(false);
-
-        process.env.UI_SESSION_SECRET = original;
-        expect(verify(foreign)).toBe(true);
-    });
-
-    test('two cookies issued back to back differ', () => {
-        expect(issue()).not.toBe(issue());
-    });
-
-    test('refuses to issue when no secret is configured', () => {
-        const original = process.env.UI_SESSION_SECRET;
-        delete process.env.UI_SESSION_SECRET;
-
-        expect(() => issue()).toThrow(/UI_SESSION_SECRET/);
-
-        process.env.UI_SESSION_SECRET = original;
+    test('is satisfied by the header the console sends', () => {
+        let called = false;
+        requireCsrfHeader({ method: 'POST', headers: { [CSRF_HEADER]: '1' } }, reply(), () => {
+            called = true;
+        });
+        expect(called).toBe(true);
     });
 });
 
@@ -81,8 +116,8 @@ describe('cookie parsing', () => {
     });
 
     test('reads the session cookie among others', () => {
-        const cookies = parse(`other=1; ${COOKIE_NAME}=abc.def.ghi; trailing=2`);
-        expect(cookies[COOKIE_NAME]).toBe('abc.def.ghi');
+        const cookies = parse(`other=1; ${COOKIE_NAME}=abcdef; trailing=2`);
+        expect(cookies[COOKIE_NAME]).toBe('abcdef');
     });
 
     test('decodes percent-encoded values', () => {

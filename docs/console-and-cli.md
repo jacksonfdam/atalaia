@@ -23,6 +23,8 @@ Settings is tabbed, because stacking every integration on one page made the bott
 | Tab | Path | What it manages |
 |-----|------|-----------------|
 | General | `/settings/general` | Schedules, switches, and which environment secrets are present |
+| Passkeys | `/settings/account` | This account's passkeys and its recovery codes |
+| People | `/settings/people` | Accounts, invitations and resets. Administrators only |
 | Organizations | `/settings/organizations` | GitHub organizations, their read-only tokens, and repository import |
 | Slack | `/settings/slack` | Webhook or bot token, signing secret, app credentials — and the owners alerts route to |
 | Teams | `/settings/teams` | The Microsoft Teams Workflows webhook |
@@ -32,7 +34,7 @@ Settings is tabbed, because stacking every integration on one page made the bott
 
 `/organizations` and `/owners` still work — they redirect to the tab that took them over.
 
-**Authentication.** The browser signs in against the console with `UI_PASSWORD` and receives an HMAC-signed, HttpOnly session cookie. Requests then go to the console's `/bff` prefix, which attaches `X-API-Key` server-side. The API key never reaches the browser. Sign-in is throttled to 5 failed attempts per IP, with a 15-minute lockout.
+**Authentication.** Passkeys — there is no console password. The browser proves possession of a credential, the console turns the session token the API issues into an HttpOnly cookie, and requests then go to the console's `/bff` prefix, which attaches `X-API-Key` server-side and the session token as a header. Neither reaches the page. Sign-in is throttled to 10 attempts per IP with a 15-minute lockout, and the API applies its own limits per account. [Authentication](authentication.md) covers the first account, invitations and recovery.
 
 ## CLI
 

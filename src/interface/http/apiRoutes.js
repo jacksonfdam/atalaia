@@ -10,6 +10,8 @@ import { createOwnerRoutes } from './ownerRoutes.js';
 import { createSettingsRoutes } from './settingsRoutes.js';
 import { createScanRoutes } from './scanRoutes.js';
 import { createReportRoutes } from './reportRoutes.js';
+import { createAuthRoutes } from './authRoutes.js';
+import { attachSession, requireSessionIfPresent } from '../../middleware/session.js';
 import { currentCallbackUrl } from '../../infrastructure/callbackUrls.js';
 import { describeTunnels } from '../../infrastructure/tunnels/tunnelRegistry.js';
 import logger from '../../infrastructure/logger.js';
@@ -28,6 +30,16 @@ export function createApiRoutes(cache) {
     const router = express.Router();
 
     router.use(requireApiKey);
+    router.use(attachSession);
+
+    // Sign-in and enrollment. Behind the API key like everything else: the
+    // browser reaches the console, and the console holds the key.
+    router.use('/auth', createAuthRoutes());
+
+    // A request carrying a session token is a person, and the session has to be
+    // live. One with no token at all is the CLI or an agent, which the API key
+    // already vouched for.
+    router.use(requireSessionIfPresent);
 
     router.use('/vulnerabilities', createVulnerabilityRoutes(cache));
     router.use('/technologies', createTechnologyRoutes());

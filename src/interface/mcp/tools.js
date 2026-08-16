@@ -81,6 +81,28 @@ function summarizeDependency(row) {
     };
 }
 
+/**
+ * An owner, minus the ways to reach them.
+ *
+ * The console shows an email address, a Slack id and a Telegram chat id because
+ * an operator configures routing with them. An agent is answering "who owns
+ * this" — a name does that, and the rest is somebody's personal data being
+ * handed to a model that will put it in a context window.
+ */
+function summarizeOwner(row) {
+    return {
+        id: row.id,
+        name: row.name,
+        // Which channels would reach them, without saying where any of them go.
+        channels: [
+            row.email ? 'email' : null,
+            row.slack_user_id ? 'slack' : null,
+            row.telegram_chat_id ? 'telegram' : null,
+        ].filter(Boolean),
+        createdAt: row.created_at,
+    };
+}
+
 /** Every tool that takes a repository resolves it the same way, or says so. */
 async function requireRepository(idOrUrl) {
     const repository = await resolveRepository(idOrUrl);
@@ -323,13 +345,13 @@ export function createTools(cache) {
             name: 'list_owners',
             title: 'List system owners',
             description:
-                'The people alerts are routed to, and what each of them owns — an ecosystem, ' +
-                'a dependency or a repository.',
+                'The people alerts are routed to, by name, and which channels reach them. ' +
+                'Addresses and chat ids are deliberately not returned — the console has those.',
             inputSchema: {},
             annotations: READ_ONLY,
             handler: async () => {
                 const owners = await listOwners({});
-                return { count: owners.length, owners };
+                return { count: owners.length, owners: owners.map(summarizeOwner) };
             },
         },
         {

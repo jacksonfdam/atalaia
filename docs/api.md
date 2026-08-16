@@ -2,6 +2,8 @@
 
 Everything under `/api/v1` requires the `X-API-Key` header. `/health` is public; `/api/v1/slack/actions` authenticates by Slack signature instead. `/mcp` serves the same data to agents over Model Context Protocol, behind the same key — see [mcp.md](mcp.md).
 
+A request may also carry `X-Session-Token`, which is how the console says *which person* is asking. It is checked against the database, and a stale one is refused with `401` and `{"code":"session_required"}` rather than falling back to key-only access. A request without it — the CLI, an agent — is a machine client and the key is enough. See [authentication.md](authentication.md).
+
 Anything that outlives a request is queued rather than run: those endpoints answer `202` with a `jobId`, refuse a second concurrent run with `409`, and report progress on a `GET` at the same path. See [queues.md](queues.md).
 
 ```bash
@@ -20,6 +22,19 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/stats` | Counts by severity, status, source and technology, plus 30 days of activity. |
 | `POST` | `/api/v1/query` | Query by technology list. |
 | `GET` | `/api/v1/callbacks` | The public URL Slack and Telegram were given, where it came from, and the tunnel providers available. |
+| `GET` | `/api/v1/auth/state` | Whether an account exists yet, and whether break-glass is on. |
+| `POST` | `/api/v1/auth/registration/options` `/verify` | Enroll a passkey: the first account, an invited one, an extra one, or break-glass. |
+| `POST` | `/api/v1/auth/authentication/options` `/verify` | Sign in. `verify` returns a session token. |
+| `GET` | `/api/v1/auth/me` | The account behind the session token, its passkey count and codes left. |
+| `POST` | `/api/v1/auth/logout` | Revoke this session. |
+| `GET` `POST` | `/api/v1/auth/credentials` | List this account's passkeys / begin enrolling another. |
+| `PATCH` `DELETE` | `/api/v1/auth/credentials/:id` | Rename / remove. Removing the last one is refused with `409`. |
+| `POST` | `/api/v1/auth/recovery/verify` | Spend a recovery code. Returns a session that may only enroll a passkey. |
+| `POST` | `/api/v1/auth/recovery/codes` | Issue ten new codes, invalidating the outstanding ones. |
+| `GET` | `/api/v1/auth/users` | Accounts and their passkey counts. Administrators only. |
+| `GET` `POST` | `/api/v1/auth/invites` | Outstanding invitations / create one. The token is returned once. |
+| `DELETE` | `/api/v1/auth/invites/:id` | Revoke an invitation. |
+| `POST` | `/api/v1/auth/users/:id/reset` | Remove every passkey, end the sessions, reissue codes. |
 | `GET` | `/api/v1/vulnerabilities` | List with filters and pagination, including `relevance`. |
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |

@@ -26,6 +26,8 @@ export const QUEUES = {
     DEPS_VERSIONS: 'deps.versions',
     /** The Monday digest. */
     REPORT_WEEKLY: 'report.weekly',
+    /** Delete spent challenges and long-dead sessions. */
+    AUTH_SWEEP: 'auth.sweep',
 };
 
 /**
@@ -85,6 +87,14 @@ export const QUEUE_DEFINITIONS = [
         expireInSeconds: 600,
         why: 'One digest per run. Retries are generous because SMTP fails transiently and a missed digest is a week late.',
     },
+    {
+        name: QUEUES.AUTH_SWEEP,
+        policy: 'exclusive',
+        retryLimit: 0,
+        retryDelay: 0,
+        expireInSeconds: 120,
+        why: 'Two DELETEs racing over the same rows achieve nothing the first one did not. A missed run costs storage and nothing else — expiry is enforced in the query, not by the sweep.',
+    },
 ];
 
 /**
@@ -98,4 +108,5 @@ export const SCHEDULES = [
     { queue: QUEUES.MONITOR_CYCLE, setting: 'cronSchedule', fallback: '0 * * * *' },
     { queue: QUEUES.REPO_SCAN_ALL, setting: 'repositories.scanCron', fallback: '0 3 * * *', enabledSetting: 'repositories.autoScan' },
     { queue: QUEUES.REPORT_WEEKLY, env: 'WEEKLY_REPORT_CRON', fallback: '0 9 * * 1' },
+    { queue: QUEUES.AUTH_SWEEP, env: 'AUTH_SWEEP_CRON', fallback: '17 * * * *' },
 ];

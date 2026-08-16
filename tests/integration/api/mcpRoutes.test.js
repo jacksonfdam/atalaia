@@ -6,7 +6,7 @@
  * use — so a tool that is registered but broken fails here rather than in an
  * agent's session.
  */
-import { test, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { test, expect, beforeAll, afterAll, beforeEach, afterEach } from '@jest/globals';
 import request from 'supertest';
 import {
     describeWithDatabase as describe,
@@ -95,6 +95,12 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+    // Re-asserted per test rather than only at import: jest runs several suites
+    // in one worker process, and they share process.env. Setting it once at the
+    // top leaves the value at the mercy of whichever file was evaluated last.
+    process.env.API_KEY = 'test-api-key';
+    delete process.env.MCP_API_KEY;
+
     if (!hasDatabase) return;
     await truncateAll();
 });
@@ -116,6 +122,35 @@ describe('MCP authentication', () => {
 
     test('rejects a wrong bearer token', async () => {
         const res = await rpc('tools/list', {}, { Authorization: 'Bearer nope' });
+        expect(res.status).toBe(401);
+    });
+});
+
+describe('an agent given a key of its own', () => {
+    // The REST key can rewrite where alerts go and which model reads the CVE
+    // text. Nothing an agent does over MCP needs that, so the two keys are
+    // separated — and separating them only means anything if each one is
+    // refused where it does not belong.
+    beforeEach(() => {
+        process.env.MCP_API_KEY = 'agent-only-key';
+    });
+
+    afterEach(() => {
+        delete process.env.MCP_API_KEY;
+    });
+
+    test('reaches MCP with it', async () => {
+        const res = await rpc('tools/list', {}, { 'X-API-Key': 'agent-only-key' });
+        expect(res.status).toBe(200);
+    });
+
+    test('cannot reach the REST API with it', async () => {
+        await request(app).get('/api/v1/stats').set('X-API-Key', 'agent-only-key').expect(401);
+        await request(app).get('/api/v1/organizations').set('X-API-Key', 'agent-only-key').expect(401);
+    });
+
+    test('and the REST key stops opening MCP', async () => {
+        const res = await rpc('tools/list', {}, { 'X-API-Key': 'test-api-key' });
         expect(res.status).toBe(401);
     });
 });
@@ -308,15 +343,26 @@ describe('repository tools', () => {
 });
 
 describe('context tools', () => {
-    test('list_owners returns the people alerts route to', async () => {
+    test('list_owners names the people alerts route to, and no way to reach them', async () => {
         await query(
-            `INSERT INTO system_owners (name, email) VALUES ('Security', 'sec@example.com')`
+            `INSERT INTO system_owners (name, email, slack_user_id, telegram_chat_id)
+             VALUES ('Security', 'sec@example.com', 'U123', '-1001234')`
         );
 
-        const data = payload(await callTool('list_owners'));
+        const result = await callTool('list_owners');
+        const data = payload(result);
 
         expect(data.count).toBe(1);
-        expect(data.owners[0].email).toBe('sec@example.com');
+        expect(data.owners[0].name).toBe('Security');
+        // Which channels work, not where they point: an address and a chat id
+        // are somebody's personal data, and an agent puts whatever it is given
+        // into a context window.
+        expect(data.owners[0].channels).toEqual(['email', 'slack', 'telegram']);
+
+        const serialized = JSON.stringify(result);
+        expect(serialized).not.toContain('sec@example.com');
+        expect(serialized).not.toContain('U123');
+        expect(serialized).not.toContain('-1001234');
     });
 
     test('get_weekly_report says why it is empty rather than returning nothing', async () => {

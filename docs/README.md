@@ -11,6 +11,8 @@ Published at **[atalaia-console.vercel.app](https://atalaia-console.vercel.app)*
 | [Organizations and repositories](repositories.md) | GitHub import, dependency scanning, exposure and relevance |
 | [Notifications](notifications.md) | Slack, Microsoft Teams, desktop, weekly email, LLM explanations |
 | [Console and CLI](console-and-cli.md) | The management console and the terminal client |
+| [Authentication](authentication.md) | Passkeys, the first account, recovery codes, and what happens when one is lost |
+| [Security](security.md) | The four credentials, what never leaves, the boundaries between the console, the API and agents |
 | [Architecture](architecture.md) | Layers, data flow, tech stack, development commands |
 | [REST API](api.md) | Every endpoint under `/api/v1` |
 | [MCP server](mcp.md) | The tools agents get at `/mcp`, and how to connect one |

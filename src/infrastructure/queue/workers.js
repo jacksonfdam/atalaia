@@ -13,6 +13,8 @@ import { getAll } from '../cache/postgresCache.js';
 import { sendSubscriberDigests } from '../../application/notifySubscribers.js';
 import { getRepository } from '../cache/repositoryStore.js';
 import { providerForOrg } from '../../application/manageOrganization.js';
+import { sweepChallenges } from '../auth/challengeStore.js';
+import { sweepSessions } from '../auth/sessionStore.js';
 
 /**
  * Who does the work.
@@ -177,6 +179,25 @@ export async function registerWorkers() {
                 { jobId: job.id, subscribers, telegram: telegram.sent },
                 'Weekly report sent'
             );
+        })
+    );
+
+    // Housekeeping. Nothing depends on it having run: a challenge past its
+    // expiry cannot be claimed and a revoked session cannot authenticate,
+    // whether or not the row is still there. This only stops the tables
+    // growing forever.
+    await boss.work(
+        QUEUES.AUTH_SWEEP,
+        { batchSize: 1 },
+        one(async () => {
+            const challenges = await sweepChallenges();
+            const sessions = await sweepSessions();
+
+            if (challenges || sessions) {
+                logger.info({ challenges, sessions }, 'Swept expired authentication rows');
+            }
+
+            return { challenges, sessions };
         })
     );
 
