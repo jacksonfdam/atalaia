@@ -8,6 +8,7 @@ import { readFileSync } from 'fs';
 import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
 import { notifyTeams } from '../infrastructure/notifiers/notifyTeams.js';
+import { notifyTelegram } from '../infrastructure/notifiers/notifyTelegram.js';
 import { has, add } from '../infrastructure/cache/postgresCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
@@ -280,9 +281,10 @@ async function monitorVulns() {
             }
 
             const highlight = vuln.isCritical() || vuln.isExploited();
-            // Both channels, each deciding for itself whether it is configured.
+            // Every channel, each deciding for itself whether it is configured.
             await notifySlack(vuln, highlight, correlation);
             await notifyTeams(vuln, highlight, correlation);
+            await notifyTelegram(vuln, highlight, correlation);
 
             // And the people who asked about one of these repositories in
             // particular. Immediate, because a CVE in something you ship is not
