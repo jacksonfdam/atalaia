@@ -77,7 +77,9 @@ export function TelegramSettings({ onAuthLost }: { onAuthLost: () => void }) {
             Send test
           </button>
           <button
-            disabled={busy}
+            // A webhook is registered against the bot, so without a token there
+            // is nothing to register — better greyed out than a 400.
+            disabled={busy || !payload.data?.config.hasToken}
             onClick={() =>
               run(async () => {
                 const result = await api.post<{ registered: boolean; url?: string; reason?: string }>(

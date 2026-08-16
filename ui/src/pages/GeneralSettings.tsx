@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
-import type { SettingsPayload } from '../types';
+import type { CallbackState, SettingsPayload } from '../types';
 
 /**
  * Schedules, switches and the credential inventory — the settings that belong
@@ -11,6 +11,9 @@ import type { SettingsPayload } from '../types';
  */
 export function GeneralSettings({ onAuthLost }: { onAuthLost: () => void }) {
   const payload = useApi<SettingsPayload>('/settings', onAuthLost);
+  // Where Slack and Telegram reach this instance. Only the running process
+  // knows it: on a tunnel the hostname is handed out at boot.
+  const callbacks = useApi<CallbackState>('/callbacks', onAuthLost);
   const [draft, setDraft] = useState<Record<string, boolean | string | number>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
@@ -113,6 +116,82 @@ export function GeneralSettings({ onAuthLost }: { onAuthLost: () => void }) {
                 </div>
               ))
             : null}
+        </Body>
+      </Window>
+
+      <Window
+        title="PUBLIC_URL.SYS"
+        note={callbacks.data ? (callbacks.data.url ? 'reachable' : 'none') : undefined}
+        accent="var(--cyan)"
+      >
+        <Body>
+          {callbacks.loading ? <Loading what="callback state" /> : null}
+
+          {callbacks.data?.url ? (
+            <>
+              <p>
+                <code className="mono">{callbacks.data.url}</code>
+              </p>
+              <p className="muted">
+                {callbacks.data.source === 'tunnel'
+                  ? `Opened by the ${callbacks.data.provider} tunnel at boot — a restart hands out a different address, and the integrations are told again.`
+                  : 'From PUBLIC_URL in the environment.'}
+                {callbacks.data.establishedAt
+                  ? ` Established ${formatDate(callbacks.data.establishedAt)}.`
+                  : null}
+              </p>
+              <p className="muted">
+                Told to: Slack {callbacks.data.published.slack ? 'yes' : 'no'} · Telegram{' '}
+                {callbacks.data.published.telegram ? 'yes' : 'no'}
+              </p>
+            </>
+          ) : null}
+
+          {callbacks.data && !callbacks.data.url ? (
+            <Notice>
+              No public address{callbacks.data.reason ? `: ${callbacks.data.reason}` : null}. Slack
+              and Telegram buttons cannot reach this instance. Set{' '}
+              <code className="mono">PUBLIC_URL</code>, or pick a tunnel below, then restart the
+              API.
+            </Notice>
+          ) : null}
+
+          <div className="grid cols-2" style={{ marginTop: '0.6rem' }}>
+            {callbacks.data?.providers.map(provider => (
+              <div className="row" key={provider.name}>
+                <span
+                  className="badge"
+                  style={{
+                    background:
+                      callbacks.data?.provider === provider.name
+                        ? 'var(--green)'
+                        : provider.configured
+                          ? 'var(--cyan)'
+                          : 'var(--win-mid)',
+                    color:
+                      callbacks.data?.provider === provider.name || provider.configured
+                        ? 'var(--win-black)'
+                        : '#fff',
+                  }}
+                >
+                  {callbacks.data?.provider === provider.name
+                    ? 'IN USE'
+                    : provider.configured
+                      ? 'READY'
+                      : 'NOT SET'}
+                </span>
+                <span style={{ fontSize: '0.76rem' }}>{provider.label}</span>
+                <span className="muted mono">{provider.reason ?? provider.name}</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="muted" style={{ marginTop: '0.5rem' }}>
+            <code className="mono">TUNNEL_PROVIDER</code> picks one — <code className="mono">auto</code>{' '}
+            takes the first that is ready, <code className="mono">none</code> opens nothing. In
+            containers nothing opens unless this is set: a public hostname is not something to hand
+            out by accident.
+          </p>
         </Body>
       </Window>
 

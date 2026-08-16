@@ -368,3 +368,22 @@ describe('registering without an address', () => {
         }
     });
 });
+
+describe('registering without a bot token', () => {
+    test('the reason arrives as an error, not as a bare 400', async () => {
+        const { establishCallbackUrl } = await import('#app/infrastructure/callbackUrls.js');
+
+        process.env.PUBLIC_URL = 'https://atalaia.example.com';
+        try {
+            await establishCallbackUrl(3000);
+
+            const res = await request(app).post('/api/v1/settings/telegram/webhook').set(KEY).send({});
+
+            expect(res.status).toBe(400);
+            expect(res.body.error).toContain('No bot token');
+            expect(res.body.hint).toContain('bot token');
+        } finally {
+            delete process.env.PUBLIC_URL;
+        }
+    });
+});

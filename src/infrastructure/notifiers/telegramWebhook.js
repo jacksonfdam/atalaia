@@ -28,9 +28,10 @@ export async function registerTelegramWebhook(publicUrl, options = {}) {
     const config = await resolveTelegramConfig();
 
     // The token is what a webhook is registered against; a missing chat id only
-    // means nothing can be sent *out* yet, which is a different question.
+    // means nothing can be sent *out* yet, which is a different question — so
+    // the reason names the token rather than repeating the general one.
     if (!config.botToken) {
-        return { registered: false, reason: config.reason ?? 'Telegram is not configured' };
+        return { registered: false, reason: 'No bot token: save one before registering a webhook' };
     }
 
     const url = webhookPath(publicUrl);

@@ -277,7 +277,19 @@ export function createSettingsRoutes(cache) {
 
         try {
             const result = await registerTelegramWebhook(url, { force: true });
-            res.status(result.registered ? 200 : 400).json(result);
+
+            if (!result.registered) {
+                // The reason has to arrive as `error`, or the console shows the
+                // status code and nothing else — "failed with 400" is not an
+                // answer to "why".
+                return res.status(400).json({
+                    ...result,
+                    error: result.reason ?? 'Telegram would not accept the webhook',
+                    hint: 'Save a bot token first — Telegram registers a webhook against the bot, not against the chat.',
+                });
+            }
+
+            res.json(result);
         } catch (error) {
             logger.warn({ err: error }, 'Telegram webhook registration failed');
             res.status(400).json({ error: error.message });
