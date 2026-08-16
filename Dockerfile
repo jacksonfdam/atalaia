@@ -17,6 +17,11 @@ WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
 
+# The manifest ships too. It is what declares "type": "module" and the #app/*
+# import map, and it is what the MCP server reports as its version — the image
+# ran without it only because Node 24 guesses ESM from the syntax.
+COPY package.json ./package.json
+
 COPY src ./src
 COPY db ./db
 COPY config.json ./config.json
