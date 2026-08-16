@@ -149,6 +149,9 @@ export function createServer() {
 
             res.status(upstream.status).json(body);
         } catch (error) {
+            if (error.code === 'OUT_OF_BOUNDS') {
+                return res.status(400).json({ error: error.message });
+            }
             res.status(502).json({ error: 'Atalaia API is unreachable', detail: error.message });
         }
     });

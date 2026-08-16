@@ -7,12 +7,14 @@
  */
 import { describe, test, expect, beforeAll, beforeEach, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
+import http from 'node:http';
 
 process.env.API_KEY = 'super-secret-api-key';
 process.env.ATALAIA_API_URL = 'http://atalaia-api.test';
 
 const { createServer, resetThrottle } = await import('../../../ui/server/index.js');
 const { COOKIE_NAME } = await import('../../../ui/server/session.js');
+const { resolveTarget } = await import('../../../ui/server/proxy.js');
 
 const realFetch = globalThis.fetch;
 const CONSOLE = { 'X-Atalaia-Console': '1' };
@@ -23,7 +25,9 @@ let lastRequest;
 /** Reply as the API would, for whatever this test is exercising. */
 function upstream(body, status = 200) {
     globalThis.fetch = jest.fn(async (url, options) => {
-        lastRequest = { url, options };
+        // fetch is handed a URL now that the target is resolved and checked
+        // before the request; the assertions below compare the address.
+        lastRequest = { url: String(url), options };
         return new Response(JSON.stringify(body), {
             status,
             headers: { 'Content-Type': 'application/json' },
@@ -34,6 +38,38 @@ function upstream(body, status = 200) {
 /** An agent holding a session cookie, without going through a ceremony. */
 function signedIn() {
     return request.agent(app).set('Cookie', [`${COOKIE_NAME}=an-opaque-token`]);
+}
+
+/**
+ * A request with the path exactly as written.
+ *
+ * supertest builds its request through superagent, which normalises the path —
+ * so `..` never reaches the server and a traversal test through it passes
+ * whether or not the guard exists.
+ *
+ * @param {string} path
+ * @returns {Promise<number>} the status code
+ */
+function raw(path) {
+    return new Promise((resolve, reject) => {
+        const server = app.listen(0, () => {
+            const req = http.request(
+                {
+                    port: server.address().port,
+                    path,
+                    method: 'GET',
+                    headers: { Cookie: `${COOKIE_NAME}=an-opaque-token` },
+                },
+                res => {
+                    res.resume();
+                    res.on('end', () => server.close(() => resolve(res.statusCode)));
+                }
+            );
+
+            req.on('error', error => server.close(() => reject(error)));
+            req.end();
+        });
+    });
 }
 
 beforeAll(() => {
@@ -121,6 +157,31 @@ describe('a completed ceremony', () => {
         const res = await request(app).post('/auth/authentication/verify').set(CONSOLE).send({});
         expect(res.status).toBe(429);
         expect(res.body.retryAfterSeconds).toBeGreaterThan(0);
+    });
+});
+
+describe('what the console may reach', () => {
+    test('the REST API, and nothing beside it', () => {
+        expect(resolveTarget('/stats').href).toBe('http://atalaia-api.test/api/v1/stats');
+
+        // /mcp is behind the same API key this service attaches, so a path that
+        // climbs out of /api/v1 would have handed a browser session the agent
+        // endpoint. Both spellings resolve to the same place, so both are
+        // refused — pattern-matching the input would only have caught one.
+        for (const escape of ['/../../mcp', '/%2e%2e/%2e%2e/mcp', '/../health']) {
+            expect(() => resolveTarget(escape)).toThrow(/outside the Atalaia API/);
+        }
+    });
+
+    // Sent down a socket rather than through supertest, which normalises the
+    // path before it leaves — and so would never reproduce the attack.
+    test('answers a path that climbs out with 400, not a proxied request', async () => {
+        for (const escape of ['/bff/%2e%2e/%2e%2e/mcp', '/bff/../../mcp']) {
+            const status = await raw(escape);
+
+            expect(status).toBe(400);
+            expect(globalThis.fetch).not.toHaveBeenCalled();
+        }
     });
 });
 
