@@ -48,6 +48,8 @@ Read by the **API**, and describing the **console's** address — the ceremony h
 | `CHALLENGE_TTL_SECONDS` | `120` | How long a ceremony may take. |
 | `AUTH_ALLOW_BREAKGLASS` | `false` | Lets `SETUP_PASSWORD` enroll a passkey for an existing account. A recovery mechanism; leave it off in production. |
 | `AUTH_SWEEP_CRON` | `17 * * * *` | When spent challenges and week-old sessions are deleted. |
+| `MCP_API_KEY` | — | A key that opens `/mcp` and nothing else. Set it, and the REST key stops opening `/mcp`. Unset, agents use `API_KEY` and can reach everything it can. |
+| `TRUST_PROXY` | — | `true`, a hop count, or a subnet. Off by default: without a proxy in front, believing `X-Forwarded-For` lets any caller claim any address. |
 
 ## Chat integrations
 

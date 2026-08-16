@@ -6,7 +6,15 @@ It is part of the API process — no fourth service, no second copy of the queri
 
 ## Connecting
 
-The endpoint is authenticated by the same `API_KEY` as the rest of the API, sent either as `X-API-Key` or as `Authorization: Bearer <key>` for clients that only offer the second.
+The endpoint is authenticated by `MCP_API_KEY`, sent either as `X-API-Key` or as `Authorization: Bearer <key>` for clients that only offer the second.
+
+**Give the agent its own key.** Set `MCP_API_KEY` and `/mcp` accepts only that one, while the REST key stops opening `/mcp`. Left unset it falls back to `API_KEY` — and that key can rewrite where alerts go, point the model that reads your CVE text anywhere it likes, import organizations and disable feeds. Nothing on this endpoint needs any of that.
+
+```bash
+MCP_API_KEY=$(openssl rand -hex 32)
+```
+
+What an agent gets here is deliberately narrower than what the console sees: `list_owners` answers with a name and which channels reach that person, never the email address or the chat id. See [security.md](security.md).
 
 Claude Code:
 
