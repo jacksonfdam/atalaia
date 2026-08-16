@@ -1,6 +1,6 @@
 import express from 'express';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { requireApiKey } from '../../middleware/auth.js';
+import { requireMcpKey } from '../../middleware/auth.js';
 import { createMcpServer } from '../mcp/server.js';
 import logger from '../../infrastructure/logger.js';
 
@@ -12,9 +12,11 @@ import logger from '../../infrastructure/logger.js';
  * memory would mean a restart drops live clients and a second API container
  * cannot answer for the first.
  *
- * Authentication is the API key the rest of the API uses. Clients that can only
- * send an Authorization header get to use `Bearer <key>` instead, which is the
- * same secret by another name.
+ * Authentication is MCP_API_KEY when one is configured, and the REST API key
+ * otherwise. Giving agents their own is the point: the REST key can rewrite
+ * where alerts go and which model reads the CVE text, and nothing an agent does
+ * here needs that. Clients that can only send an Authorization header get to use
+ * `Bearer <key>` instead, which is the same secret by another name.
  */
 
 function acceptBearerKey(req, _res, next) {
@@ -40,7 +42,7 @@ function methodNotAllowed(_req, res) {
 export function createMcpRoutes(cache) {
     const router = express.Router();
 
-    router.use(acceptBearerKey, requireApiKey);
+    router.use(acceptBearerKey, requireMcpKey);
 
     router.post('/', async (req, res) => {
         const server = createMcpServer(cache);
