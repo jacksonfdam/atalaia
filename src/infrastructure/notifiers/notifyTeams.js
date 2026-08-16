@@ -2,6 +2,7 @@ import axios from 'axios';
 import logger from '../logger.js';
 import { resolveTeamsConfig } from './teamsConfig.js';
 import { describeWebhookFailure } from './webhookError.js';
+import { shortVersion } from './shortVersion.js';
 
 const TIMEOUT_MS = 10_000;
 
@@ -36,11 +37,9 @@ export function buildTeamsCard(vuln, correlation = {}) {
             ? '🔴 Critical vulnerability'
             : '⚠️ New vulnerability';
 
-    const explanation =
-        vuln.clientExplanation ||
-        (vuln.description
-            ? vuln.description.slice(0, 400) + (vuln.description.length > 400 ? '…' : '')
-            : 'No description available.');
+    // Which text this is comes with it: model output and advisory text read
+    // alike, and only one of them is authoritative.
+    const short = shortVersion(vuln, 400);
 
     const repositories = (correlation.affectedRepositories ?? []).map(repo => repo.name);
     const owners = (correlation.owners ?? []).map(owner => owner.name ?? owner.email);
@@ -64,7 +63,11 @@ export function buildTeamsCard(vuln, correlation = {}) {
                 fact('Technologies', (vuln.affectedTechnologies ?? []).join(', ') || 'N/A'),
             ],
         },
-        { type: 'TextBlock', text: explanation, wrap: true },
+        {
+            type: 'TextBlock',
+            text: short ? `_${short.source}_\n\n${short.text}` : 'No description available.',
+            wrap: true,
+        },
     ];
 
     if (repositories.length > 0) {
