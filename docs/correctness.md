@@ -46,11 +46,17 @@ Each channel used to have its own `clientExplanation || description`, under a he
 
 **The heading that named which is gone**, removed on request because it read as noise above every alert. `shortVersion` still returns `generated`, so the answer exists and any caller may render it — nothing does today. So: a reader looking at a summary cannot tell from the summary whether a model wrote it. What still holds is everything above — the text is prose, it decides nothing, and turning the model off changes no finding. The row itself is unambiguous either way: `client_explanation` is populated only by a model, and the advisory's own words live in `description`.
 
-### Nothing a model says arrives with its throat-clearing
+### Nothing a model says arrives with its wrapping
 
-Asked for a paragraph, an assistant-tuned model tends to answer "Certainly! Here's an explanation for your non-technical audience:" and then the paragraph. Both prompts now forbid it, and because a prompt is a request rather than a guarantee, `src/infrastructure/llm/cleanAnswer.js` removes it from every answer before it is stored — wrapped around the provider, so a fifth call site added later cannot skip it.
+Asked for a paragraph, an assistant-tuned model returns things that are not the paragraph: "Certainly! Here's an explanation for your non-technical audience:", a `---` above the first heading, a code fence around the whole answer, a bold title restating what it was asked for. Both prompts now forbid it, and because a prompt is a request rather than a guarantee, `src/infrastructure/llm/cleanAnswer.js` takes it off every answer before it is stored — wrapped around the provider, so a fifth call site added later cannot skip it.
 
-It is deliberately narrow: an opener that introduces the answer, plus a horizontal rule drawn above it, and nothing else. An explanation that merely begins with one of those words is left alone, and an answer that is *only* an introduction is left alone too, because blanking it would hide a model failing behind an empty explanation. A rule *further down* is left where it is — under a line of text that is a setext heading, and removing it would demote the heading to a paragraph. `tests/unit/infrastructure/cleanAnswer.test.js` pins every one of those.
+It is deliberately narrow, and the cases it must *not* touch are the ones under test: an explanation merely beginning with one of those opener words, a rule further down that is a setext heading underline, a fenced code sample inside a mitigation guide, `### What happened` and the other sections the guide is asked for, a sentence that happens to mention the word "summary".
+
+### A model that says nothing says nothing
+
+One stored explanation was three characters long: ```` ``` ````. The model opened a code fence and stopped. Every caller checked the answer for being empty and a three-character string is not empty, so it was stored, and then shown as that CVE's explanation in the console and in every channel — a failure that read as success.
+
+Once the wrapping is off, a response that was *only* wrapping is reported as no response at all: `isAnswer` requires one letter or digit, and the adapter returns null otherwise. That puts it on the path every caller already had for an empty answer, which is also where the better message lives — including the one explaining that a base model continues text rather than answering it. `tests/unit/infrastructure/cleanAnswer.test.js` pins both halves.
 
 ## What is enforced
 
