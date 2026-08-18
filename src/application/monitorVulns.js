@@ -22,6 +22,20 @@ const TECH_CONFIG_PATH = path.resolve('config/technologies.json');
 const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
 
 /**
+ * How recently an advisory must have been published to be worth an alert.
+ *
+ * Only NVD asks its source for a window; CISA serves the whole KEV catalogue
+ * every fetch, OpenCVE pages through its whole list, Snyk and GHSA return a
+ * listing. Cutting by date here rather than per feed means one rule, applied to
+ * every source including the ones added later.
+ *
+ * Set to 0 to disable the cutoff.
+ */
+const MAX_AGE_DAYS = Number.parseInt(process.env.VULN_MAX_AGE_DAYS, 10) || 7;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Source priority: lower index = higher priority.
  * When the same CVE appears in multiple feeds, the highest-priority source wins
  * for severity, description, and source fields.
@@ -117,6 +131,47 @@ function deduplicateAndMerge(vulns) {
 
     const merged = Object.values(byCveId).map(group => mergeVulnerabilities(group));
     return [...merged, ...noCveId];
+}
+
+/**
+ * Split by publication date: recent enough to alert on, too old, or undated.
+ *
+ * Undated is its own outcome rather than being folded into either side. The
+ * feeds used to stamp a missing date with `new Date()`, which made every
+ * undated advisory look like this morning's; counting them separately is what
+ * makes a source that stopped publishing dates visible instead of silent.
+ *
+ * @param {Vulnerability[]} vulns
+ * @param {number} maxAgeDays 0 disables the cutoff
+ * @returns {{ fresh: Vulnerability[], stale: Vulnerability[], undated: Vulnerability[] }}
+ */
+function partitionByAge(vulns, maxAgeDays = MAX_AGE_DAYS) {
+    if (maxAgeDays <= 0) return { fresh: vulns, stale: [], undated: [] };
+
+    const cutoff = Date.now() - maxAgeDays * DAY_MS;
+    const fresh = [];
+    const stale = [];
+    const undated = [];
+
+    for (const vuln of vulns) {
+        // The entity normalises whatever the feed gave into a Date or null.
+        if (!(vuln.publishedDate instanceof Date)) {
+            undated.push(vuln);
+        } else if (vuln.publishedDate.getTime() >= cutoff) {
+            fresh.push(vuln);
+        } else {
+            stale.push(vuln);
+        }
+    }
+
+    return { fresh, stale, undated };
+}
+
+/** How many of each source, for a log line that names the feed to fix. */
+function countBySource(vulns) {
+    const counts = {};
+    for (const vuln of vulns) counts[vuln.source ?? 'unknown'] = (counts[vuln.source ?? 'unknown'] ?? 0) + 1;
+    return counts;
 }
 
 function loadTechFilters() {
@@ -234,11 +289,31 @@ async function monitorVulns() {
             logger.info({ remaining: relevantVulns.length }, 'Vulnerabilities after technology filter');
         }
 
+        // Age before identity: the KEV catalogue alone is well over a thousand
+        // rows every fetch, and asking the database about each of them to then
+        // discard it on date is a thousand queries for nothing.
+        const { fresh, stale, undated } = partitionByAge(relevantVulns);
+
+        if (stale.length > 0) {
+            logger.info(
+                { discarded: stale.length, maxAgeDays: MAX_AGE_DAYS, bySource: countBySource(stale) },
+                'Discarded vulnerabilities published outside the age window'
+            );
+        }
+        if (undated.length > 0) {
+            // Not an aside: a feed that stopped publishing dates loses every
+            // one of its findings here, and the source name is how to tell.
+            logger.warn(
+                { discarded: undated.length, bySource: countBySource(undated) },
+                'Discarded vulnerabilities with no publication date — the age of these cannot be established'
+            );
+        }
+
         // Deduplicate against what is already stored. A loop, not filter():
         // has() is a query, and an async predicate makes filter() keep
         // everything — every CVE would be re-notified on every cycle.
         const newVulns = [];
-        for (const vuln of relevantVulns) {
+        for (const vuln of fresh) {
             if (!vuln.cveId) continue;
             if (await has(vuln.cveId)) continue;
             newVulns.push(vuln);
@@ -306,5 +381,11 @@ async function monitorVulns() {
 }
 
 // Exported for testing
-export { SOURCE_PRIORITY, getPriorityScore, mergeVulnerabilities, deduplicateAndMerge };
+export {
+    SOURCE_PRIORITY,
+    getPriorityScore,
+    mergeVulnerabilities,
+    deduplicateAndMerge,
+    partitionByAge,
+};
 export default monitorVulns;
