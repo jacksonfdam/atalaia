@@ -26,16 +26,19 @@ export async function add(vuln) {
             `INSERT INTO vulnerabilities (
                  cve_id, title, description, severity, cvss_score,
                  exploited, source, source_url, affected_technologies,
-                 first_seen_at, last_seen_at
+                 published_date, first_seen_at, last_seen_at
              ) VALUES (
                  @cveId, @title, @description, @severity, @cvssScore,
                  @exploited, @source, @sourceUrl, @affectedTechnologies,
-                 now(), now()
+                 @publishedDate, now(), now()
              )
              ON CONFLICT (cve_id) DO UPDATE SET
                  last_seen_at = now(),
                  source = excluded.source,
-                 source_url = excluded.source_url`,
+                 source_url = excluded.source_url,
+                 -- A later feed knowing the date must not erase it, and must
+                 -- not overwrite one already recorded either.
+                 published_date = COALESCE(vulnerabilities.published_date, excluded.published_date)`,
             {
                 cveId: vuln.cveId,
                 title: vuln.title,
@@ -46,6 +49,7 @@ export async function add(vuln) {
                 source: vuln.source || 'unknown',
                 sourceUrl: vuln.link,
                 affectedTechnologies: JSON.stringify(vuln.affectedTechnologies || []),
+                publishedDate: vuln.publishedDate ?? null,
             }
         );
         logger.info({ cveId: vuln.cveId }, 'Added/Updated vulnerability in database');
@@ -105,6 +109,7 @@ const SORTABLE_COLUMNS = new Set([
     'status',
     'cve_id',
     'source',
+    'published_date',
 ]);
 
 /**
