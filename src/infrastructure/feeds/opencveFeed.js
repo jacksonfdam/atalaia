@@ -105,7 +105,7 @@ function mapCveToVulnerability(cve) {
         const affectedTechnologies = extractAffectedTechnologies(cve);
 
         // Extract published date
-        const publishedDate = cve.created_at || cve.updated_at || new Date().toISOString();
+        const publishedDate = cve.created_at || cve.updated_at || null;
 
         // Build link
         const link = `https://www.opencve.io/cve/${cveId}`;

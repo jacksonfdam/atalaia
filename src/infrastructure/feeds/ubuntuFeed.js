@@ -55,7 +55,7 @@ export async function fetch() {
                         cveId,
                         title: notice.title || notice.id,
                         description: notice.summary || notice.description || 'No description available.',
-                        publishedDate: notice.published ?? new Date().toISOString(),
+                        publishedDate: notice.published ?? null,
                         type: 'Unknown',
                         // USN states affected releases, never a severity or score.
                         severity: 'Unknown',
