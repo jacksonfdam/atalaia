@@ -86,9 +86,15 @@ export const QUEUE_DEFINITIONS = [
         policy: 'singleton',
         retryLimit: 0,
         retryDelay: 0,
-        // One model call per CVE, and a batch is however many boxes were
-        // ticked. A page holds fifty; a slow local model takes its time.
-        expireInSeconds: 3600,
+        // Sized to the work, not to the worst model imaginable: two hundred
+        // CVEs — the cap — at four seconds each is fifteen minutes.
+        //
+        // Generosity here is not free. This window is how long a batch blocks
+        // the queue after the worker running it is killed: pg-boss cannot tell
+        // a dead worker from a slow one, and a singleton holds the next job in
+        // `created` until it passes. An hour of that was found by rebuilding
+        // the containers mid-batch. DELETE the endpoint to clear it.
+        expireInSeconds: 900,
         why: 'Singleton rather than exclusive: a second selection must be allowed to queue behind the first instead of being refused, because a batch acknowledgement enqueues its guides and the operator did not ask for a queue lesson. One at a time still, so two batches cannot double up on the model. No retry: a failed CVE is recorded per CVE, and replaying the batch would rewrite everything that already succeeded.',
     },
     {

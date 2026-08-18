@@ -349,6 +349,16 @@ describe('the batch actions', () => {
         expect(res.body.error).toBeTruthy();
     });
 
+    // The way out of "queued, and nothing is happening": a worker killed
+    // mid-batch leaves its job active until the expiry window passes, and a
+    // singleton queue holds everything behind it until then.
+    test('a batch can be cancelled, and says how many it cleared', async () => {
+        const res = await request(app).delete('/api/v1/vulnerabilities/batch/explain').set(KEY);
+
+        expect(res.status).toBe(200);
+        expect(typeof res.body.cancelled).toBe('number');
+    });
+
     test('acknowledging says why no mitigation guides were queued', async () => {
         const res = await batchStatus({
             cveIds: ['CVE-2026-0400'],

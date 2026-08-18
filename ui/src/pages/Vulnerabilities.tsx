@@ -204,6 +204,26 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [explain?.running]);
 
+  /**
+   * Stop the batch.
+   *
+   * Also the way out of "queued, and nothing is happening": a worker killed
+   * mid-batch leaves its job active until the expiry window passes, and
+   * everything behind it waits.
+   */
+  async function stopExplaining() {
+    setBatchBusy(true);
+    try {
+      const { cancelled } = await api.del<{ cancelled: number }>('/vulnerabilities/batch/explain');
+      setMessage({ kind: 'warn', text: `${cancelled} batch job${cancelled === 1 ? '' : 's'} cancelled` });
+      pollExplain();
+    } catch (err) {
+      setMessage({ kind: 'error', text: (err as Error).message });
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
   /** Ask once, now, rather than waiting out the idle interval. */
   async function pollExplain() {
     try {
@@ -237,6 +257,7 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
   }
 
   const progress = explain?.running ? explain.progress : null;
+  const waiting = Boolean(explain?.running && !progress);
   const done = progress?.done ?? 0;
   const totalInJob = progress?.total ?? 0;
   const pct = totalInJob > 0 ? Math.round((done / totalInJob) * 100) : 0;
@@ -353,7 +374,10 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
             {done}/{totalInJob} ({pct}%)
             {progress.current ? ` · ${progress.current}` : ''}
             {progress.skipped ? ` · ${progress.skipped} already had text` : ''}
-            {progress.failed ? ` · ${progress.failed} failed` : ''}
+            {progress.failed ? ` · ${progress.failed} failed` : ''}{' '}
+            <button disabled={batchBusy} onClick={stopExplaining}>
+              Stop
+            </button>
             <span className="bar-track">
               <span
                 className="bar-fill"
@@ -366,7 +390,18 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
           </Notice>
         ) : null}
 
-        {!progress && explain?.lastRun && !explain.lastRun.ok ? (
+        {waiting ? (
+          <Notice kind="warn">
+            A batch is queued and has not started. One runs at a time; if nothing moves, the
+            worker running the last one was killed and its job has to time out — or press{' '}
+            <button disabled={batchBusy} onClick={stopExplaining}>
+              Stop
+            </button>{' '}
+            to clear it.
+          </Notice>
+        ) : null}
+
+        {!progress && !waiting && explain?.lastRun && !explain.lastRun.ok ? (
           <Notice kind="error">
             The last batch failed: {explain.lastRun.error ?? 'no reason recorded'}
           </Notice>

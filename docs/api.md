@@ -40,7 +40,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
 | `POST` | `/api/v1/vulnerabilities/:cveId/explain` | Write the plain-English explanation now, for a CVE collected before a model was configured. Answers `400` with the model's own reason when it fails. |
 | `PATCH` | `/api/v1/vulnerabilities/batch/status` | Acknowledge or resolve a selection, up to 200. Always `200`: each CVE is reported with its own outcome. |
-| `GET` `POST` | `/api/v1/vulnerabilities/batch/explain` | Batch text job status / queue one (`202`). |
+| `GET` `POST` `DELETE` | `/api/v1/vulnerabilities/batch/explain` | Batch text job status / queue one (`202`) / cancel whatever is queued or active. |
 | `GET` | `/api/v1/technologies` | Current stack filter. |
 | `POST` | `/api/v1/technologies` | Update the stack filter. |
 | `GET` | `/api/v1/feeds` | Every source, its state and its catalog entry. |
@@ -133,6 +133,12 @@ curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 
 curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/vulnerabilities/batch/explain
 ```
+
+`DELETE` cancels whatever is queued or active, and is the way out of "queued,
+and nothing is happening": a worker killed mid-batch leaves its job active until
+the expiry window passes — fifteen minutes — and a singleton queue holds
+everything behind it until then. pg-boss cannot tell a dead worker from a slow
+one, so it waits the window out.
 
 The `GET` reports `{ running, jobId, progress, lastRun }` like every other job,
 with `progress` counting `done`, `written`, `skipped` and `failed` and naming

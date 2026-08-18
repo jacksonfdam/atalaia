@@ -21,7 +21,7 @@ Defined once in `src/infrastructure/queue/jobs.js`, which the API, the worker an
 
 `deps.versions` is exclusive *per repository*, through a `singletonKey` of `repo:<id>`: two repositories may be checked at once, the same one may not.
 
-`vuln.explain` is a **singleton** rather than exclusive: one runs at a time, and a second selection queues behind it instead of being refused. Acknowledging a batch enqueues the mitigation guides for it, and refusing that because somebody else's batch is halfway through would be a queue lesson nobody asked for. It does not retry — a CVE the model choked on is recorded per CVE in the progress row, and replaying the batch would rewrite everything that already succeeded.
+`vuln.explain` is a **singleton** rather than exclusive: one runs at a time, and a second selection queues behind it instead of being refused. Acknowledging a batch enqueues the mitigation guides for it, and refusing that because somebody else's batch is halfway through would be a queue lesson nobody asked for. It does not retry — a CVE the model choked on is recorded per CVE in the progress row, and replaying the batch would rewrite everything that already succeeded. Its expiry window is fifteen minutes, sized to two hundred CVEs at four seconds each: that window is how long a killed worker's batch blocks everything behind it, and `DELETE /api/v1/vulnerabilities/batch/explain` is the way out without waiting.
 
 `repo.scan` is deliberately not exclusive — the jobs must be free to queue up. How many run at once is the worker's concurrency, `SCAN_CONCURRENCY` (default 10), the same number a fleet sweep uses inside its own job: the limit that matters is somebody else's rate limit, and it does not care which queue the work arrived on.
 
