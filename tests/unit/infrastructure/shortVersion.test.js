@@ -1,16 +1,19 @@
 /**
- * Nothing a model wrote may reach a reader unlabelled.
+ * One definition of the summary, read by every channel.
  *
- * Every channel used to print the model's paragraph and the advisory's own
- * words under the same heading, each with its own copy of the fallback. The
- * label now travels with the text, from one definition.
+ * Each of them used to keep its own `clientExplanation || description`, which
+ * is the drift that let one channel show something another did not.
+ *
+ * The heading naming which of the two it was — *written by a model* / *from the
+ * advisory* — was removed on request. `generated` still answers the question
+ * for any caller that wants it; nothing renders it.
  */
 import { describe, test, expect } from '@jest/globals';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { shortVersion, MODEL_SOURCE, ADVISORY_SOURCE } from '#app/infrastructure/notifiers/shortVersion.js';
+import { shortVersion } from '#app/infrastructure/notifiers/shortVersion.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -23,11 +26,10 @@ const CHANNELS = [
     'src/application/generateWeeklyReport.js',
 ];
 
-describe('the summary says where it came from', () => {
-    test('a model explanation is labelled as one', () => {
+describe('which of the two it is', () => {
+    test('the model explanation wins over the advisory text', () => {
         expect(shortVersion({ clientExplanation: 'A model wrote this.', description: 'Advisory text.' })).toEqual({
             text: 'A model wrote this.',
-            source: MODEL_SOURCE,
             generated: true,
         });
     });
@@ -36,21 +38,25 @@ describe('the summary says where it came from', () => {
         expect(shortVersion({ client_explanation: 'A model wrote this.' }).generated).toBe(true);
     });
 
-    test('the advisory text falls back labelled as the advisory', () => {
+    test('the advisory text is the fallback, and says it was not generated', () => {
         expect(shortVersion({ description: 'Advisory text.' })).toEqual({
             text: 'Advisory text.',
-            source: ADVISORY_SOURCE,
             generated: false,
         });
-    });
-
-    test('the two labels cannot be confused for each other', () => {
-        expect(MODEL_SOURCE).not.toEqual(ADVISORY_SOURCE);
     });
 
     test('neither one present is null, not an empty paragraph', () => {
         expect(shortVersion({})).toBeNull();
         expect(shortVersion({ description: '' })).toBeNull();
+    });
+});
+
+describe('no channel reintroduces a label', () => {
+    test.each(CHANNELS)('%s prints no source heading', file => {
+        const source = fs.readFileSync(path.join(ROOT, file), 'utf-8');
+
+        expect(source).not.toMatch(/written by a model|from the advisory/i);
+        expect(source).not.toMatch(/short\.source|explanationSource/);
     });
 });
 

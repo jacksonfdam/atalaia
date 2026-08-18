@@ -69,15 +69,11 @@ export function buildVulnerabilityMessage(vuln, correlation = {}) {
     const technologies = (vuln.affectedTechnologies ?? []).join(', ');
     if (technologies) lines.push(`<b>Technologies:</b> ${escapeHtml(technologies)}`);
 
-    // The heading names the source: a model's paragraph and the advisory's own
-    // words read alike, and only one of them is authoritative.
+    // The model's paragraph when there is one, the advisory's own words when
+    // there is not.
     const short = shortVersion(vuln);
     if (short) {
-        lines.push(
-            '',
-            `<b>What this means:</b> <i>${escapeHtml(short.source)}</i>`,
-            escapeHtml(truncate(short.text, 700))
-        );
+        lines.push('', '<b>What this means:</b>', escapeHtml(truncate(short.text, 700)));
     }
 
     // What of ours it touches — the difference between "a CVE exists" and "a

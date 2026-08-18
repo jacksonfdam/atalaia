@@ -87,16 +87,10 @@ function present(vuln) {
 }
 
 /**
- * The short version, for someone who does not read CVSS vectors for a living —
- * and which of the two it is, because a model's paragraph and the advisory's
- * own words read alike.
+ * The short version, for someone who does not read CVSS vectors for a living.
  */
 function summarize(vuln) {
-    const short = shortVersion(vuln, 280);
-    return {
-        explanation: short?.text ?? null,
-        explanationSource: short?.source ?? null,
-    };
+    return { explanation: shortVersion(vuln, 280)?.text ?? null };
 }
 
 function bySeverityThenScore(a, b) {

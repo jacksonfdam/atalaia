@@ -624,8 +624,6 @@ export interface ReportVulnerability {
   sourceUrl: string | null;
   /** The model's explanation, or the advisory text trimmed. Null when neither. */
   explanation: string | null;
-  /** Which of the two `explanation` is: "written by a model" or "from the advisory". */
-  explanationSource: string | null;
   /** Only on the affecting section: the dependencies it arrives through. */
   via?: { dependency: string; ecosystem: string; manifestFile: string | null }[];
 }

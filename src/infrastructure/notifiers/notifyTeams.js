@@ -37,8 +37,8 @@ export function buildTeamsCard(vuln, correlation = {}) {
             ? '🔴 Critical vulnerability'
             : '⚠️ New vulnerability';
 
-    // Which text this is comes with it: model output and advisory text read
-    // alike, and only one of them is authoritative.
+    // The model's paragraph when there is one, the advisory's own words when
+    // there is not.
     const short = shortVersion(vuln, 400);
 
     const repositories = (correlation.affectedRepositories ?? []).map(repo => repo.name);
@@ -65,7 +65,7 @@ export function buildTeamsCard(vuln, correlation = {}) {
         },
         {
             type: 'TextBlock',
-            text: short ? `_${short.source}_\n\n${short.text}` : 'No description available.',
+            text: short ? short.text : 'No description available.',
             wrap: true,
         },
     ];
