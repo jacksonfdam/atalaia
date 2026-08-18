@@ -33,7 +33,23 @@ const FEED_DELAY_MS = parseInt(process.env.FEED_DELAY_MS, 10) || 2000;
  */
 const MAX_AGE_DAYS = Number.parseInt(process.env.VULN_MAX_AGE_DAYS, 10) || 7;
 
+/**
+ * Alerts one cycle may send.
+ *
+ * Telegram accepts about twenty messages a minute to a group and answers the
+ * rest with 429; a first run against an empty database had several hundred to
+ * send and sent them back to back. Past the cap the findings are still
+ * recorded — the console shows them, no message goes out.
+ */
+const MAX_ALERTS_PER_CYCLE = Number.parseInt(process.env.MAX_ALERTS_PER_CYCLE, 10) || 20;
+
+/** Spacing between alerts, so a full cycle stays under the same rate limits. */
+const ALERT_DELAY_MS = Number.parseInt(process.env.ALERT_DELAY_MS, 10) || 1000;
+
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Worst first, so a cap that bites drops the least urgent findings. */
+const SEVERITY_RANK = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, UNKNOWN: 4 };
 
 /**
  * Source priority: lower index = higher priority.
@@ -172,6 +188,22 @@ function countBySource(vulns) {
     const counts = {};
     for (const vuln of vulns) counts[vuln.source ?? 'unknown'] = (counts[vuln.source ?? 'unknown'] ?? 0) + 1;
     return counts;
+}
+
+/**
+ * Order for the per-cycle cap: exploited, then severity, then score, then
+ * newest. What gets cut is the bottom of that list, not an arbitrary tail.
+ */
+function byAlertPriority(a, b) {
+    if (a.exploited !== b.exploited) return a.exploited ? -1 : 1;
+
+    const rank = (SEVERITY_RANK[a.severity] ?? 4) - (SEVERITY_RANK[b.severity] ?? 4);
+    if (rank !== 0) return rank;
+
+    const score = (b.cvssScore ?? 0) - (a.cvssScore ?? 0);
+    if (score !== 0) return score;
+
+    return (b.publishedDate?.getTime() ?? 0) - (a.publishedDate?.getTime() ?? 0);
 }
 
 function loadTechFilters() {
@@ -324,9 +356,24 @@ async function monitorVulns() {
             return;
         }
 
-        logger.info({ count: newVulns.length }, 'New vulnerabilities to report');
+        // Worst first, so what the cap cuts is the least urgent.
+        const ranked = newVulns.sort(byAlertPriority);
+        const toAlert = ranked.slice(0, MAX_ALERTS_PER_CYCLE);
+        const recordOnly = ranked.slice(MAX_ALERTS_PER_CYCLE);
 
-        for (const vuln of newVulns) {
+        logger.info(
+            { count: newVulns.length, alerting: toAlert.length, recordedOnly: recordOnly.length },
+            'New vulnerabilities to report'
+        );
+
+        if (recordOnly.length > 0) {
+            logger.warn(
+                { cap: MAX_ALERTS_PER_CYCLE, recordedOnly: recordOnly.length },
+                'Past the per-cycle alert cap; the rest are stored without an alert'
+            );
+        }
+
+        for (const [index, vuln] of toAlert.entries()) {
             // Generate LLM explanation (non-blocking fallback)
             try {
                 const prompt = renderPrompt('explainCve.txt', {
@@ -372,6 +419,14 @@ async function monitorVulns() {
             }
 
             await add(vuln);
+
+            if (index < toAlert.length - 1) await delay(ALERT_DELAY_MS);
+        }
+
+        // Everything the cap held back is still a finding; it is the alert that
+        // was dropped, not the record.
+        for (const vuln of recordOnly) {
+            await add(vuln);
         }
 
         logger.info('Monitoring cycle completed');
@@ -387,5 +442,6 @@ export {
     mergeVulnerabilities,
     deduplicateAndMerge,
     partitionByAge,
+    byAlertPriority,
 };
 export default monitorVulns;

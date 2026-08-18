@@ -1,6 +1,6 @@
 import { jest } from '@jest/globals';
 import Vulnerability from '../../../src/domain/entities/Vulnerability.js';
-import { partitionByAge } from '../../../src/application/monitorVulns.js';
+import { partitionByAge, byAlertPriority } from '../../../src/application/monitorVulns.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -66,5 +66,42 @@ describe('partitionByAge', () => {
         expect(fresh).toEqual([old]);
         expect(stale).toHaveLength(0);
         expect(undated).toHaveLength(0);
+    });
+});
+
+describe('byAlertPriority', () => {
+    test('an exploited advisory outranks a critical one', () => {
+        const exploited = vuln({ severity: 'MEDIUM', exploited: true });
+        const critical = vuln({ severity: 'CRITICAL' });
+
+        expect([critical, exploited].sort(byAlertPriority)[0]).toBe(exploited);
+    });
+
+    test('severity decides between two unexploited advisories', () => {
+        const high = vuln({ severity: 'HIGH' });
+        const low = vuln({ severity: 'LOW' });
+
+        expect([low, high].sort(byAlertPriority)[0]).toBe(high);
+    });
+
+    test('the higher CVSS score wins within one severity', () => {
+        const worse = vuln({ severity: 'HIGH', cvssScore: 8.9 });
+        const better = vuln({ severity: 'HIGH', cvssScore: 7.1 });
+
+        expect([better, worse].sort(byAlertPriority)[0]).toBe(worse);
+    });
+
+    test('the newer advisory wins when everything else ties', () => {
+        const newer = vuln({ severity: 'HIGH', cvssScore: 8, publishedDate: daysAgo(1) });
+        const older = vuln({ severity: 'HIGH', cvssScore: 8, publishedDate: daysAgo(5) });
+
+        expect([older, newer].sort(byAlertPriority)[0]).toBe(newer);
+    });
+
+    test('an unknown severity sorts last', () => {
+        const unknown = vuln({ severity: 'garbage' });
+        const low = vuln({ severity: 'LOW' });
+
+        expect([unknown, low].sort(byAlertPriority)[1]).toBe(unknown);
     });
 });
