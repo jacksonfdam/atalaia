@@ -6,7 +6,7 @@
  * what a model said about a vulnerability is worse than a stray sentence.
  */
 import { describe, test, expect } from '@jest/globals';
-import { cleanAnswer } from '#app/infrastructure/llm/cleanAnswer.js';
+import { cleanAnswer, isAnswer } from '#app/infrastructure/llm/cleanAnswer.js';
 
 describe('what gets removed', () => {
     test('the one that started this', () => {
@@ -72,20 +72,10 @@ describe('what must survive', () => {
         expect(cleanAnswer(answer)).toBe(answer);
     });
 
-    test('an answer that is nothing but an introduction is left alone', () => {
-        // Blanking it would hide a model failing behind an empty explanation.
-        const answer = "Certainly! Here's the explanation:";
-        expect(cleanAnswer(answer)).toBe(answer);
-    });
-
     test('a rule further down is a heading underline, not a rule', () => {
         // Removing this one would demote the heading above it to a paragraph.
         const answer = 'What happened\n---\n\nIt is bad.';
         expect(cleanAnswer(answer)).toBe(answer);
-    });
-
-    test('an answer that is nothing but a rule is left alone', () => {
-        expect(cleanAnswer('---')).toBe('---');
     });
 
     test('a sentence that merely starts with dashes is not a rule', () => {
@@ -102,5 +92,81 @@ describe('what must survive', () => {
         expect(cleanAnswer(null)).toBeNull();
         expect(cleanAnswer(undefined)).toBeUndefined();
         expect(cleanAnswer('')).toBe('');
+    });
+});
+
+describe('a fence around the whole answer', () => {
+    test('comes off', () => {
+        expect(cleanAnswer('```\nIt is bad.\n```')).toBe('It is bad.');
+    });
+
+    test('comes off with a language tag too', () => {
+        expect(cleanAnswer('```markdown\n### What happened\n\nIt is bad.\n```')).toBe(
+            '### What happened\n\nIt is bad.'
+        );
+    });
+
+    test('a fence around part of the answer stays', () => {
+        // That one is a code sample, which a mitigation guide is meant to have.
+        const answer = 'Upgrade it:\n\n```sh\nnpm i pkg@2\n```\n\nThen redeploy.';
+        expect(cleanAnswer(answer)).toBe(answer);
+    });
+});
+
+describe('a first line that names the deliverable', () => {
+    test('the prompt read back is not the answer', () => {
+        expect(
+            cleanAnswer("**Mitigation Guide: SQL Injection in Froxlor**\n\nAn attacker can read rows.")
+        ).toBe('An attacker can read rows.');
+    });
+
+    test.each([
+        'Explanation:',
+        '## Summary',
+        '### Vulnerability Summary — CVE-2026-1',
+    ])('%s', line => {
+        expect(cleanAnswer(`${line}\n\nIt is bad.`)).toBe('It is bad.');
+    });
+
+    test('a section the guide is asked for is not a title', () => {
+        const answer = '### What happened\n\nAn unauthenticated visitor exhausts server memory.';
+        expect(cleanAnswer(answer)).toBe(answer);
+    });
+
+    test('a sentence that merely mentions one of those words survives', () => {
+        const answer = 'The summary from the vendor understates the impact.';
+        expect(cleanAnswer(answer)).toBe(answer);
+    });
+});
+
+/**
+ * The failure that read as success: all of these are truthy, so they were
+ * stored and shown as the explanation for a CVE. One of them really was —
+ * three characters of code fence, and nothing else.
+ */
+describe('isAnswer', () => {
+    test.each([
+        ['```', 'a fence and nothing inside it'],
+        ['---', 'a rule and nothing under it'],
+        ["Certainly! Here's the explanation:", 'an introduction to nothing'],
+        ['', 'empty'],
+        ['   \n  ', 'whitespace'],
+        ['**', 'stray markup'],
+        ['— …', 'punctuation'],
+    ])('%s is not an answer (%s)', text => {
+        expect(isAnswer(cleanAnswer(text))).toBe(false);
+    });
+
+    test.each([
+        'It is bad.',
+        '### What happened\n\nIt is bad.',
+        '2',
+    ])('%s is an answer', text => {
+        expect(isAnswer(cleanAnswer(text))).toBe(true);
+    });
+
+    test('nothing is not an answer', () => {
+        expect(isAnswer(null)).toBe(false);
+        expect(isAnswer(undefined)).toBe(false);
     });
 });
