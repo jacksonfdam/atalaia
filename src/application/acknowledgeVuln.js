@@ -1,9 +1,6 @@
 import { Status, isValidTransition } from '../domain/enums/Status.js';
 import logger from '../infrastructure/logger.js';
-import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
-import { correlateVulnerability } from './correlateVulnerability.js';
-import Vulnerability from '../domain/entities/Vulnerability.js';
-
+import { mitigateVulnerability, correlateForRow } from './mitigateVulnerability.js';
 
 /**
  * Acknowledge a vulnerability, transitioning its status from OPEN to ACKNOWLEDGED.
@@ -12,9 +9,14 @@ import Vulnerability from '../domain/entities/Vulnerability.js';
  * @param {string} cveId
  * @param {string} changedBy - e.g. 'api:admin', 'slack:U12345'
  * @param {{ get: Function, update: Function }} cache
+ * @param {{ mitigate?: boolean }} [options] `mitigate: false` performs the
+ *   transition alone — no correlation, no model. That is what a batch does: a
+ *   hundred acknowledgements is a hundred model calls, which does not belong
+ *   inside a request. The batch enqueues the guides instead, so the end state
+ *   is the same one this function reaches on its own.
  * @returns {Promise<{ vuln: object, mitigation: string|null, affectedRepositories: object[], owners: object[] }>}
  */
-export async function acknowledgeVuln(cveId, changedBy, cache) {
+export async function acknowledgeVuln(cveId, changedBy, cache, { mitigate = true } = {}) {
     const vuln = await cache.get(cveId);
     if (!vuln) throw new Error(`CVE ${cveId} not found`);
 
@@ -32,48 +34,25 @@ export async function acknowledgeVuln(cveId, changedBy, cache) {
 
     logger.info({ cveId, changedBy, from: currentStatus, to: Status.ACKNOWLEDGED }, 'Vulnerability acknowledged');
 
-    // Correlate with repos and owners
-    let correlation = { affectedRepositories: [], owners: [] };
-    try {
-        const vulnEntity = new Vulnerability({
-            cveId: vuln.cve_id,
-            title: vuln.title,
-            description: vuln.description,
-            severity: vuln.severity,
-            cvssScore: vuln.cvss_score,
-            exploited: vuln.exploited,
-            affectedTechnologies: vuln.affectedTechnologies || [],
-        });
-        correlation = await correlateVulnerability(vulnEntity);
-    } catch (err) {
-        logger.warn({ cveId, err }, 'Correlation failed during acknowledge');
+    if (!mitigate) {
+        return {
+            vuln: await cache.get(cveId),
+            mitigation: null,
+            affectedRepositories: [],
+            owners: [],
+        };
     }
 
-    // Generate AI mitigation guide
+    // Correlated here rather than inside the guide, so that a model which is
+    // down or unconfigured still leaves the caller with the repositories and
+    // owners this reaches — the half of the answer that needs no model.
+    const correlation = await correlateForRow(vuln);
+
     let mitigation = null;
     try {
-        const repoNames = correlation.affectedRepositories.map(r => `- ${r.name} (${r.url})`).join('\n') || 'No affected repositories identified';
-        const ownerNames = correlation.owners.map(o => `- ${o.name} (${o.email})`).join('\n') || 'No system owners assigned';
-
-        const prompt = renderPrompt('mitigateCve.txt', {
-            cveId: vuln.cve_id,
-            title: vuln.title,
-            description: vuln.description || 'No description available',
-            severity: vuln.severity,
-            cvssScore: vuln.cvss_score || 'N/A',
-            exploited: vuln.exploited ? 'Yes — actively exploited' : 'No',
-            technologies: (vuln.affectedTechnologies || []).join(', ') || 'Unknown',
-            affectedRepos: repoNames,
-            owners: ownerNames,
-        });
-
-        const llm = await createLLMAdapter();
-        mitigation = await llm.complete(prompt);
-        if (mitigation) {
-            await cache.update(cveId, { clientExplanation: mitigation });
-            logger.info({ cveId }, 'Mitigation guide generated');
-        }
+        ({ mitigation } = await mitigateVulnerability(cveId, cache, correlation));
     } catch (err) {
+        // Best-effort: the status change is the point, the guide is the bonus.
         logger.warn({ cveId, err }, 'Mitigation guide generation failed');
     }
 
