@@ -17,6 +17,10 @@ Defined once in `src/infrastructure/queue/jobs.js`, which the API, the worker an
 | `vuln.explain` | singleton | none | Write the model's text — an explanation or a mitigation guide — for a selection of CVEs |
 | `report.weekly` | exclusive | 3, after 5min | The Monday digest |
 
+**The definitions are applied on every boot, not only the first.** pg-boss creates a queue idempotently, and idempotent means no-op: an existing queue keeps the options it was created with. So an edit here used to change the file and nothing else — found by shortening an expiry window and watching the old one still apply. Each boot now updates the retries and the expiry to match this file.
+
+The **policy** is the exception. It decides how jobs already sitting in the table are handed out, so pg-boss refuses to change it under them; applying a new one means deleting the queue, which drops the jobs on it. That is an operator's decision, so a boot that finds a mismatch logs it rather than acting on it or staying quiet. `tests/integration/queue/definitions.test.js` holds all of this.
+
 **`exclusive` is the old `409`.** The queue allows one job queued or active at a time, so a second `send` returns no id — and that is what the API answers `409` to. The difference from the variable it replaced is that this holds after a restart, and across however many API containers are running.
 
 `deps.versions` is exclusive *per repository*, through a `singletonKey` of `repo:<id>`: two repositories may be checked at once, the same one may not.

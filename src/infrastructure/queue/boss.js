@@ -30,6 +30,19 @@ export async function getBoss() {
 
     // Queues are explicit in pg-boss 10+, and creating them is idempotent, so
     // both the API and the worker can do it on boot.
+    //
+    // Then updated, because idempotent means *no-op*: createQueue leaves an
+    // existing queue exactly as it was, options and all. Editing an expiry in
+    // jobs.js therefore did nothing to a database that had already seen that
+    // queue — the file said one thing and the queue did another, found by
+    // shortening an expiry window and watching the old one still apply.
+    // jobs.js is the definition; the update is what makes that true.
+    //
+    // Except for the policy, which pg-boss refuses to change after creation:
+    // it decides how jobs already in the table are handed out. Changing one
+    // means deleting the queue, and that drops its jobs — an operator's
+    // decision, not something to do quietly on boot. So it is checked and said
+    // out loud instead, because the alternative is a file that lies.
     for (const definition of QUEUE_DEFINITIONS) {
         await boss.createQueue(definition.name, {
             policy: definition.policy,
@@ -37,6 +50,20 @@ export async function getBoss() {
             retryDelay: definition.retryDelay,
             expireInSeconds: definition.expireInSeconds,
         });
+
+        await boss.updateQueue(definition.name, {
+            retryLimit: definition.retryLimit,
+            retryDelay: definition.retryDelay,
+            expireInSeconds: definition.expireInSeconds,
+        });
+
+        const live = await boss.getQueue(definition.name);
+        if (live && live.policy !== definition.policy) {
+            logger.warn(
+                { queue: definition.name, declared: definition.policy, live: live.policy },
+                'Queue policy differs from its definition and cannot be changed in place — delete the queue to apply it, which drops the jobs on it'
+            );
+        }
     }
 
     logger.info({ queues: QUEUE_DEFINITIONS.length }, 'Queue ready');
