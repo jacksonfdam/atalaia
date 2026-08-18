@@ -43,6 +43,8 @@
   "jest": {
     "transform": {},
     "testEnvironment": "node",
+    "//": "Integration hooks drop a schema and replay every migration, and ten suites do it at once against one Postgres. Jest's 5s default was already close and each new migration file moves it closer; a hook that took 5.1s failed a suite that was working.",
+    "testTimeout": 30000,
     "testMatch": [
       "**/tests/**/*.test.js"
     ],
