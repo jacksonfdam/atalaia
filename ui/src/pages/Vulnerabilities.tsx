@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { api } from '../api/client';
@@ -12,7 +12,7 @@ import {
   StatusBadge,
   formatDate,
 } from '../components/ui';
-import type { VulnerabilityPage } from '../types';
+import type { BatchStatusResult, ExplainBatchState, VulnerabilityPage } from '../types';
 
 const PAGE_SIZE = 50;
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
@@ -22,7 +22,9 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
   // Filters live in the URL so a filtered view can be linked and survives reload.
   const [params, setParams] = useSearchParams();
   const [busyCve, setBusyCve] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ kind: 'ok' | 'warn' | 'error'; text: string } | null>(
+    null
+  );
 
   // Defaults to what touches this fleet: the feeds carry tens of thousands of
   // CVEs and a couple of dozen of them are about code anyone here ships.
@@ -52,6 +54,43 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
 
   const page = useApi<VulnerabilityPage>(path, onAuthLost);
 
+  // Selection for the batch actions. Held as CVE ids rather than row indexes so
+  // that a reload after a batch cannot leave the ticks pointing at other rows.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
+
+  // A different page, or different filters, is a different set of rows: keeping
+  // a selection across it would act on things no longer on screen.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [path]);
+
+  const rows = page.data?.vulnerabilities ?? [];
+  const selectedOnPage = rows.filter(vuln => selected.has(vuln.cve_id));
+  const allOnPageSelected = rows.length > 0 && selectedOnPage.length === rows.length;
+
+  // The header box has three states, and the third one has no attribute: some
+  // ticked, but not all, is set on the DOM node by hand.
+  const headerBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerBox.current) {
+      headerBox.current.indeterminate = selectedOnPage.length > 0 && !allOnPageSelected;
+    }
+  }, [selectedOnPage.length, allOnPageSelected]);
+
+  function toggleOne(cveId: string) {
+    setSelected(previous => {
+      const next = new Set(previous);
+      if (next.has(cveId)) next.delete(cveId);
+      else next.add(cveId);
+      return next;
+    });
+  }
+
+  function toggleAllOnPage() {
+    setSelected(allOnPageSelected ? new Set() : new Set(rows.map(vuln => vuln.cve_id)));
+  }
+
   function update(patch: Record<string, string>) {
     const next = new URLSearchParams(params);
     for (const [key, value] of Object.entries(patch)) {
@@ -75,14 +114,132 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
         status: nextStatus,
         changedBy: 'console',
       });
-      setMessage(`${cveId} → ${nextStatus}`);
+      setMessage({ kind: 'ok', text: `${cveId} → ${nextStatus}` });
       page.reload();
     } catch (err) {
-      setMessage((err as Error).message);
+      setMessage({ kind: 'error', text: (err as Error).message });
     } finally {
       setBusyCve(null);
     }
   }
+
+  /**
+   * A batch reports per CVE, because a selection made from a table will contain
+   * rows that cannot make the transition — one already resolved, one someone
+   * else acknowledged a second ago. Saying "12 of 15" and naming the three is
+   * the difference between a result and a guess.
+   */
+  async function changeStatusInBatch(nextStatus: 'ACKNOWLEDGED' | 'RESOLVED') {
+    setBatchBusy(true);
+    setMessage(null);
+
+    try {
+      const result = await api.patch<BatchStatusResult>('/vulnerabilities/batch/status', {
+        cveIds: [...selected],
+        status: nextStatus,
+        changedBy: 'console',
+      });
+
+      const verb = nextStatus === 'ACKNOWLEDGED' ? 'acknowledged' : 'resolved';
+      const parts = [`${result.changed} ${verb}`];
+
+      if (result.skipped > 0) {
+        const reasons = result.results.filter(row => !row.ok).slice(0, 3);
+        parts.push(
+          `${result.skipped} unchanged (${reasons.map(r => `${r.cveId}: ${r.error}`).join('; ')}${
+            result.skipped > reasons.length ? '…' : ''
+          })`
+        );
+      }
+
+      if (result.mitigation?.accepted) {
+        parts.push(`${result.mitigation.queued} mitigation guides queued`);
+      } else if (result.mitigation?.reason) {
+        parts.push(`no mitigation guides: ${result.mitigation.reason}`);
+      }
+
+      setMessage({ kind: result.skipped > 0 ? 'warn' : 'ok', text: parts.join(' · ') });
+      setSelected(new Set());
+      page.reload();
+      if (result.mitigation?.accepted) pollExplain();
+    } catch (err) {
+      setMessage({ kind: 'error', text: (err as Error).message });
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  // ---------------------------------------------------------------- the job
+
+  const [explain, setExplain] = useState<ExplainBatchState | null>(null);
+
+  // The text runs detached on the server — a model call per CVE — so its state
+  // is polled. Once at mount too, so a reload does not lose sight of a batch
+  // somebody else started.
+  useEffect(() => {
+    let active = true;
+
+    async function poll() {
+      try {
+        const state = await api.get<ExplainBatchState>('/vulnerabilities/batch/explain');
+        if (!active) return;
+
+        setExplain(previous => {
+          // A finished batch has rewritten explanations the table shows.
+          if (previous?.running && !state.running) page.reload();
+          return state;
+        });
+      } catch {
+        // Transient; the next tick tries again.
+      }
+    }
+
+    poll();
+    const timer = window.setInterval(poll, explain?.running ? 2000 : 20000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explain?.running]);
+
+  /** Ask once, now, rather than waiting out the idle interval. */
+  async function pollExplain() {
+    try {
+      setExplain(await api.get<ExplainBatchState>('/vulnerabilities/batch/explain'));
+    } catch {
+      // The interval will catch up.
+    }
+  }
+
+  async function generateExplanations(force: boolean) {
+    setBatchBusy(true);
+    setMessage(null);
+
+    try {
+      const result = await api.post<{ queued: number }>('/vulnerabilities/batch/explain', {
+        cveIds: [...selected],
+        force,
+      });
+
+      setMessage({
+        kind: 'ok',
+        text: `${result.queued} queued for explanation${force ? ' (rewriting existing text)' : ''}`,
+      });
+      setSelected(new Set());
+      pollExplain();
+    } catch (err) {
+      setMessage({ kind: 'error', text: (err as Error).message });
+    } finally {
+      setBatchBusy(false);
+    }
+  }
+
+  const progress = explain?.running ? explain.progress : null;
+  const done = progress?.done ?? 0;
+  const totalInJob = progress?.total ?? 0;
+  const pct = totalInJob > 0 ? Math.round((done / totalInJob) * 100) : 0;
 
   const total = page.data?.total ?? 0;
   const from = total === 0 ? 0 : offset + 1;
@@ -161,11 +318,65 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
           <button onClick={() => page.reload()}>Refresh</button>
         </div>
 
-        {message ? <Notice kind="ok">{message}</Notice> : null}
+        {selected.size > 0 ? (
+          <div className="batch-bar">
+            <strong>
+              {selected.size} selected
+              {selectedOnPage.length !== selected.size
+                ? ` (${selectedOnPage.length} on this page)`
+                : ''}
+            </strong>
+
+            <button disabled={batchBusy} onClick={() => changeStatusInBatch('ACKNOWLEDGED')}>
+              Acknowledge
+            </button>
+            <button disabled={batchBusy} onClick={() => changeStatusInBatch('RESOLVED')}>
+              Resolve
+            </button>
+            <button disabled={batchBusy} onClick={() => generateExplanations(false)}>
+              Explain the ones without text
+            </button>
+            <button disabled={batchBusy} onClick={() => generateExplanations(true)}>
+              Rewrite all explanations
+            </button>
+
+            <span className="spacer" />
+            <button disabled={batchBusy} onClick={() => setSelected(new Set())}>
+              Clear selection
+            </button>
+          </div>
+        ) : null}
+
+        {progress ? (
+          <Notice kind="warn">
+            Writing {progress.kind === 'mitigation' ? 'mitigation guides' : 'explanations'} —{' '}
+            {done}/{totalInJob} ({pct}%)
+            {progress.current ? ` · ${progress.current}` : ''}
+            {progress.skipped ? ` · ${progress.skipped} already had text` : ''}
+            {progress.failed ? ` · ${progress.failed} failed` : ''}
+            <span className="bar-track">
+              <span
+                className="bar-fill"
+                style={{
+                  ['--pct' as string]: `${pct}%`,
+                  ['--bar-color' as string]: 'var(--accent-primary)',
+                }}
+              />
+            </span>
+          </Notice>
+        ) : null}
+
+        {!progress && explain?.lastRun && !explain.lastRun.ok ? (
+          <Notice kind="error">
+            The last batch failed: {explain.lastRun.error ?? 'no reason recorded'}
+          </Notice>
+        ) : null}
+
+        {message ? <Notice kind={message.kind}>{message.text}</Notice> : null}
         {page.error ? <Notice kind="error">{page.error}</Notice> : null}
         {page.loading ? <Loading what="vulnerabilities" /> : null}
 
-        {page.data && page.data.vulnerabilities.length === 0 && !page.loading ? (
+        {page.data && rows.length === 0 && !page.loading ? (
           <Empty>
             Nothing matches these filters.{' '}
             {total === 0 && !severity && !status && !source && !search
@@ -174,12 +385,21 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
           </Empty>
         ) : null}
 
-        {page.data && page.data.vulnerabilities.length > 0 ? (
+        {page.data && rows.length > 0 ? (
           <>
             <div className="table-scroll">
               <table>
                 <thead>
                   <tr>
+                    <th className="pick">
+                      <input
+                        ref={headerBox}
+                        type="checkbox"
+                        checked={allOnPageSelected}
+                        onChange={toggleAllOnPage}
+                        aria-label="Select every row on this page"
+                      />
+                    </th>
                     <th className="sortable" onClick={() => toggleSort('cve_id')}>
                       CVE
                     </th>
@@ -203,8 +423,16 @@ export function Vulnerabilities({ onAuthLost }: { onAuthLost: () => void }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {page.data.vulnerabilities.map(vuln => (
-                    <tr key={vuln.cve_id}>
+                  {rows.map(vuln => (
+                    <tr key={vuln.cve_id} data-selected={selected.has(vuln.cve_id) || undefined}>
+                      <td className="pick">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(vuln.cve_id)}
+                          onChange={() => toggleOne(vuln.cve_id)}
+                          aria-label={`Select ${vuln.cve_id}`}
+                        />
+                      </td>
                       <td className="tight mono">
                         <Link to={`/vulnerabilities/${vuln.cve_id}`}>{vuln.cve_id}</Link>
                       </td>
