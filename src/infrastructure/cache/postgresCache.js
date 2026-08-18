@@ -59,6 +59,24 @@ export async function add(vuln) {
 }
 
 /**
+ * Record that an alert actually went out for this CVE.
+ *
+ * Stored separately from the row itself because the two happen in that order on
+ * purpose: a vulnerability is persisted *before* anything is sent, so a worker
+ * killed mid-send cannot resurrect the whole batch on the next cycle. What that
+ * costs is the opposite mistake — a row saved and never announced — and
+ * `notified_at IS NULL` is how it stays visible instead of silent.
+ *
+ * @param {string} cveId
+ */
+export async function markNotified(cveId) {
+    await runSql(
+        'UPDATE vulnerabilities SET notified_at = now() WHERE cve_id = @cveId',
+        { cveId }
+    );
+}
+
+/**
  * jsonb comes back parsed, so the only thing left is the camelCase alias the
  * rest of the code reads.
  */

@@ -9,7 +9,7 @@ import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
 import { notifyTeams } from '../infrastructure/notifiers/notifyTeams.js';
 import { notifyTelegram } from '../infrastructure/notifiers/notifyTelegram.js';
-import { has, add } from '../infrastructure/cache/postgresCache.js';
+import { has, add, markNotified } from '../infrastructure/cache/postgresCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
 import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
@@ -402,6 +402,13 @@ async function monitorVulns() {
                 logger.warn({ cveId: vuln.cveId, err }, 'Vulnerability correlation failed');
             }
 
+            // Stored before anything is sent. A worker killed halfway through
+            // a batch used to leave every unstored finding looking new, and the
+            // next cycle announced the lot a second time. The opposite mistake
+            // — stored, never announced — is the one that leaves a trace:
+            // notified_at stays null.
+            await add(vuln);
+
             const highlight = vuln.isCritical() || vuln.isExploited();
             // Every channel, each deciding for itself whether it is configured.
             await notifySlack(vuln, highlight, correlation);
@@ -418,7 +425,7 @@ async function monitorVulns() {
                 logger.warn({ cveId: vuln.cveId, err }, 'Could not notify repository subscribers');
             }
 
-            await add(vuln);
+            await markNotified(vuln.cveId);
 
             if (index < toAlert.length - 1) await delay(ALERT_DELAY_MS);
         }

@@ -159,6 +159,14 @@ describe('postgresCache', () => {
         expect((await cache.get('CVE-2024-0001')).published_date).not.toBeNull();
     });
 
+    test('a stored vulnerability is not marked as announced until it is', async () => {
+        await cache.add(sampleVuln);
+        expect((await cache.get('CVE-2024-0001')).notified_at).toBeNull();
+
+        await cache.markNotified('CVE-2024-0001');
+        expect((await cache.get('CVE-2024-0001')).notified_at).not.toBeNull();
+    });
+
     test('query() sorts by publication date', async () => {
         await cache.add({ ...sampleVuln, publishedDate: new Date('2026-08-01T00:00:00Z') });
         await cache.add({ ...sampleVuln, cveId: 'CVE-2024-0002', publishedDate: new Date('2026-08-15T00:00:00Z') });

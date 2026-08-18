@@ -2,6 +2,17 @@
 
 Slack, Microsoft Teams, Telegram, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
 
+## What gets alerted
+
+Not everything a cycle collects. Two limits stand between the feeds and a chat, and both apply to every channel:
+
+- **Age.** An advisory published more than `VULN_MAX_AGE_DAYS` ago (seven days by default) is discarded, and so is one whose source publishes no date. Most feeds serve a catalogue rather than a window; see [Sources](sources.md).
+- **Volume.** At most `MAX_ALERTS_PER_CYCLE` alerts go out per cycle, twenty by default, spaced by `ALERT_DELAY_MS`. Telegram accepts about twenty messages a minute to a group and answers the rest with `429`, and a first run against an empty database has a backlog to work through.
+
+Past the volume cap the findings are still recorded — the console lists them, the relevance filters find them, they appear in the weekly digest. It is the message that is dropped, not the finding, and `notified_at` is null on the ones that were never announced. What they do not get is the model's short explanation, which is written on the way out.
+
+A vulnerability is stored before any message is sent, so a worker killed halfway through a batch cannot announce the whole batch a second time on the next cycle.
+
 ## Slack alerts
 
 Configure delivery under **Settings → Slack**. Two integrations, because they can do different things:
