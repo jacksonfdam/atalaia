@@ -42,6 +42,16 @@ describe('what gets removed', () => {
     test('leading and trailing whitespace goes with it', () => {
         expect(cleanAnswer('   \n Certainly: It is bad.  \n ')).toBe('It is bad.');
     });
+
+    test.each(['---', '***', '___', '- - -', '  ---  '])('a rule opening the answer: %s', rule => {
+        expect(cleanAnswer(`${rule}\n\n### What happened\n\nIt is bad.`)).toBe(
+            '### What happened\n\nIt is bad.'
+        );
+    });
+
+    test('a rule under a preamble goes with it', () => {
+        expect(cleanAnswer('Certainly!\n---\n\nIt is bad.')).toBe('It is bad.');
+    });
 });
 
 describe('what must survive', () => {
@@ -65,6 +75,21 @@ describe('what must survive', () => {
     test('an answer that is nothing but an introduction is left alone', () => {
         // Blanking it would hide a model failing behind an empty explanation.
         const answer = "Certainly! Here's the explanation:";
+        expect(cleanAnswer(answer)).toBe(answer);
+    });
+
+    test('a rule further down is a heading underline, not a rule', () => {
+        // Removing this one would demote the heading above it to a paragraph.
+        const answer = 'What happened\n---\n\nIt is bad.';
+        expect(cleanAnswer(answer)).toBe(answer);
+    });
+
+    test('an answer that is nothing but a rule is left alone', () => {
+        expect(cleanAnswer('---')).toBe('---');
+    });
+
+    test('a sentence that merely starts with dashes is not a rule', () => {
+        const answer = '-- the maintainer, in the advisory';
         expect(cleanAnswer(answer)).toBe(answer);
     });
 

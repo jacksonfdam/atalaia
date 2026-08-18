@@ -8,9 +8,10 @@
  * every channel reads, so it has to be clean before it is written, not on the
  * way out of each one.
  *
- * Deliberately narrow. It removes an opener that introduces the answer; it does
- * not touch anything else, because a summariser that quietly edits what a model
- * said about a vulnerability is worse than one that leaves a stray sentence in.
+ * Deliberately narrow. It removes an opener that introduces the answer, and a
+ * horizontal rule drawn above it; it does not touch anything else, because a
+ * summariser that quietly edits what a model said about a vulnerability is
+ * worse than one that leaves a stray sentence in.
  */
 
 /** How an answer-introducing line starts. Nothing else is treated as preamble. */
@@ -19,6 +20,19 @@ const OPENER =
 
 /** A whole line that is only a pleasantry: "Certainly!", "Of course." */
 const PLEASANTRY_ONLY = new RegExp(`^${OPENER}[!.,…\\s]*$`, 'i');
+
+/**
+ * A markdown thematic break — `---`, `***`, `___` — opening the answer.
+ *
+ * The mitigation guide asks for numbered sections and some models introduce
+ * them with a rule, which renders as a stray line above the first heading in
+ * every channel and as literal dashes in the ones that do not render markdown.
+ *
+ * Only ever the first line, which is what makes this safe: further down, `---`
+ * under a line of text is a setext heading and removing it would silently
+ * demote a heading to a paragraph. Nothing can be above the first line.
+ */
+const HORIZONTAL_RULE = /^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
 
 /**
  * An opener running up to the colon that hands over to the answer.
@@ -45,8 +59,11 @@ export function cleanAnswer(answer) {
         const before = text;
         const firstLine = text.split('\n', 1)[0];
 
-        if (PLEASANTRY_ONLY.test(firstLine.trim())) {
-            text = text.slice(firstLine.length).trimStart();
+        if (PLEASANTRY_ONLY.test(firstLine.trim()) || HORIZONTAL_RULE.test(firstLine)) {
+            // Same guard as below: what is left has to be an answer.
+            if (text.slice(firstLine.length).trim()) {
+                text = text.slice(firstLine.length).trimStart();
+            }
         } else {
             const opener = text.match(OPENER_TO_COLON);
 

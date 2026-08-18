@@ -50,7 +50,7 @@ Each channel used to have its own `clientExplanation || description`, under a he
 
 Asked for a paragraph, an assistant-tuned model tends to answer "Certainly! Here's an explanation for your non-technical audience:" and then the paragraph. Both prompts now forbid it, and because a prompt is a request rather than a guarantee, `src/infrastructure/llm/cleanAnswer.js` removes it from every answer before it is stored — wrapped around the provider, so a fifth call site added later cannot skip it.
 
-It is deliberately narrow: an opener that introduces the answer, and nothing else. An explanation that merely begins with one of those words is left alone, and an answer that is *only* an introduction is left alone too, because blanking it would hide a model failing behind an empty explanation. `tests/unit/infrastructure/cleanAnswer.test.js` pins both halves.
+It is deliberately narrow: an opener that introduces the answer, plus a horizontal rule drawn above it, and nothing else. An explanation that merely begins with one of those words is left alone, and an answer that is *only* an introduction is left alone too, because blanking it would hide a model failing behind an empty explanation. A rule *further down* is left where it is — under a line of text that is a setext heading, and removing it would demote the heading to a paragraph. `tests/unit/infrastructure/cleanAnswer.test.js` pins every one of those.
 
 ## What is enforced
 
