@@ -11,7 +11,7 @@ import { describe, expect, test, jest } from '@jest/globals';
  */
 
 // The module opens no connection at import time, so it is safe to load.
-const { query } = await import('#app/infrastructure/db/pool.js');
+const { query, toDate } = await import('#app/infrastructure/db/pool.js');
 
 /** Capture what would have been sent, without a server. */
 function fakeClient() {
@@ -82,5 +82,43 @@ describe('named parameters', () => {
 
         expect(client.calls[0].text).toBe('SELECT * FROM t WHERE id = $1');
         expect(client.calls[0].values).toEqual([42]);
+    });
+});
+
+/**
+ * Timestamp columns are handed over as text on purpose, and the text is not
+ * something `new Date()` accepts. Every one of these bit somewhere.
+ */
+describe('toDate', () => {
+    test('parses what Postgres actually writes', () => {
+        expect(toDate('2026-08-10 12:00:00+00').toISOString()).toBe('2026-08-10T12:00:00.000Z');
+    });
+
+    test('keeps the fractional seconds', () => {
+        expect(toDate('2026-08-18 19:16:39.258882+00').toISOString()).toBe('2026-08-18T19:16:39.258Z');
+    });
+
+    test('honours a non-UTC offset', () => {
+        expect(toDate('2026-08-10 14:00:00+02').toISOString()).toBe('2026-08-10T12:00:00.000Z');
+    });
+
+    test('accepts an offset that already has its minutes', () => {
+        expect(toDate('2026-08-10 12:00:00+00:00').toISOString()).toBe('2026-08-10T12:00:00.000Z');
+    });
+
+    test('accepts a plain ISO string', () => {
+        expect(toDate('2026-08-10T12:00:00Z').toISOString()).toBe('2026-08-10T12:00:00.000Z');
+    });
+
+    test('passes a Date through', () => {
+        const date = new Date('2026-08-10T12:00:00Z');
+        expect(toDate(date)).toBe(date);
+    });
+
+    test('is null for nothing, rather than the epoch or now', () => {
+        expect(toDate(null)).toBeNull();
+        expect(toDate(undefined)).toBeNull();
+        expect(toDate('')).toBeNull();
+        expect(toDate('not a timestamp')).toBeNull();
     });
 });
