@@ -39,6 +39,8 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` | `/api/v1/vulnerabilities/:cveId` | One CVE, with explanation and timeline. |
 | `PATCH` | `/api/v1/vulnerabilities/:cveId/status` | Acknowledge / resolve. |
 | `POST` | `/api/v1/vulnerabilities/:cveId/explain` | Write the plain-English explanation now, for a CVE collected before a model was configured. Answers `400` with the model's own reason when it fails. |
+| `PATCH` | `/api/v1/vulnerabilities/batch/status` | Acknowledge or resolve a selection, up to 200. Always `200`: each CVE is reported with its own outcome. |
+| `GET` `POST` `DELETE` | `/api/v1/vulnerabilities/batch/explain` | Batch text job status / queue one (`202`) / cancel whatever is queued or active. |
 | `GET` | `/api/v1/technologies` | Current stack filter. |
 | `POST` | `/api/v1/technologies` | Update the stack filter. |
 | `GET` | `/api/v1/feeds` | Every source, its state and its catalog entry. |
@@ -82,3 +84,68 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/slack/actions` | Slack interactive callbacks (signature-verified). |
 | `POST` | `/api/v1/telegram/webhook` | Telegram button callbacks (secret-token-verified). |
 | `POST` | `/mcp` | Model Context Protocol, for agents. Stateless; `GET`/`DELETE` answer `405`. |
+
+## Batch actions
+
+A selection made in the console arrives as one call. Two of them, because they
+answer at different speeds.
+
+**Status** is synchronous, and always `200` — never `400` because one CVE in the
+selection could not move. A selection taken off a table will contain rows that
+are already resolved or that somebody acknowledged a second ago, and failing the
+whole call over those means ticking boxes one at a time to find out which. Each
+CVE is reported with its own outcome instead.
+
+```bash
+curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"cveIds":["CVE-2024-0001","CVE-2024-0002"],"status":"ACKNOWLEDGED","changedBy":"security-team"}' \
+  http://localhost:3000/api/v1/vulnerabilities/batch/status
+```
+
+```json
+{
+  "requested": 2, "changed": 1, "skipped": 1,
+  "changedIds": ["CVE-2024-0001"],
+  "results": [
+    { "cveId": "CVE-2024-0001", "ok": true, "status": "ACKNOWLEDGED" },
+    { "cveId": "CVE-2024-0002", "ok": false, "error": "Invalid transition: RESOLVED → ACKNOWLEDGED" }
+  ],
+  "mitigation": { "accepted": true, "jobId": "…", "queued": 1 }
+}
+```
+
+`mitigation` is there because acknowledging one CVE writes a mitigation guide,
+which is a model call. Fifty of them is not something a request can do, so the
+batch queues them and ends up where the single-CVE route ends up. It is `null`
+for a resolve, and carries a `reason` instead of a `jobId` when no model is
+configured — the status change still happened either way.
+
+**Text** is a job. `POST` takes the same `cveIds`, plus `kind`
+(`explanation`, the default, or `mitigation`) and `force`. Without `force` a CVE
+that already has text is skipped, since the usual reason to run this is to fill
+in what was collected before a model was configured. A batch with no model
+configured is refused with `400` rather than queued to fail on every row.
+
+```bash
+curl -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"cveIds":["CVE-2024-0001"],"force":false}' \
+  http://localhost:3000/api/v1/vulnerabilities/batch/explain
+
+curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/vulnerabilities/batch/explain
+```
+
+`DELETE` cancels whatever is queued or active, and is the way out of "queued,
+and nothing is happening": a worker killed mid-batch leaves its job active until
+the expiry window passes — fifteen minutes — and a singleton queue holds
+everything behind it until then. pg-boss cannot tell a dead worker from a slow
+one, so it waits the window out.
+
+The `GET` reports `{ running, jobId, progress, lastRun }` like every other job,
+with `progress` counting `done`, `written`, `skipped` and `failed` and naming
+the CVE in hand. Failures are listed per CVE, capped at 20 with
+`errorsTruncated` set when there were more.
+
+Both cap a selection at **200 CVEs** and refuse a larger one with `400`. A
+console page holds fifty; the cap is there so a scripted caller cannot hand the
+worker a job that outlives its own expiry window. The same CVE sent twice counts
+once.

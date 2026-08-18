@@ -26,16 +26,19 @@ export async function add(vuln) {
             `INSERT INTO vulnerabilities (
                  cve_id, title, description, severity, cvss_score,
                  exploited, source, source_url, affected_technologies,
-                 first_seen_at, last_seen_at
+                 published_date, first_seen_at, last_seen_at
              ) VALUES (
                  @cveId, @title, @description, @severity, @cvssScore,
                  @exploited, @source, @sourceUrl, @affectedTechnologies,
-                 now(), now()
+                 @publishedDate, now(), now()
              )
              ON CONFLICT (cve_id) DO UPDATE SET
                  last_seen_at = now(),
                  source = excluded.source,
-                 source_url = excluded.source_url`,
+                 source_url = excluded.source_url,
+                 -- A later feed knowing the date must not erase it, and must
+                 -- not overwrite one already recorded either.
+                 published_date = COALESCE(vulnerabilities.published_date, excluded.published_date)`,
             {
                 cveId: vuln.cveId,
                 title: vuln.title,
@@ -46,12 +49,31 @@ export async function add(vuln) {
                 source: vuln.source || 'unknown',
                 sourceUrl: vuln.link,
                 affectedTechnologies: JSON.stringify(vuln.affectedTechnologies || []),
+                publishedDate: vuln.publishedDate ?? null,
             }
         );
         logger.info({ cveId: vuln.cveId }, 'Added/Updated vulnerability in database');
     } catch (error) {
         logger.error({ cveId: vuln.cveId, err: error }, 'Failed to add vulnerability to database');
     }
+}
+
+/**
+ * Record that an alert actually went out for this CVE.
+ *
+ * Stored separately from the row itself because the two happen in that order on
+ * purpose: a vulnerability is persisted *before* anything is sent, so a worker
+ * killed mid-send cannot resurrect the whole batch on the next cycle. What that
+ * costs is the opposite mistake — a row saved and never announced — and
+ * `notified_at IS NULL` is how it stays visible instead of silent.
+ *
+ * @param {string} cveId
+ */
+export async function markNotified(cveId) {
+    await runSql(
+        'UPDATE vulnerabilities SET notified_at = now() WHERE cve_id = @cveId',
+        { cveId }
+    );
 }
 
 /**
@@ -105,6 +127,7 @@ const SORTABLE_COLUMNS = new Set([
     'status',
     'cve_id',
     'source',
+    'published_date',
 ]);
 
 /**

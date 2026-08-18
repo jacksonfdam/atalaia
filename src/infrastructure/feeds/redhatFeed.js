@@ -36,7 +36,7 @@ export async function fetch() {
                 cveId: item.CVE ?? null,
                 title: item.bugzilla_description || item.CVE,
                 description: item.bugzilla_description || 'No description available.',
-                publishedDate: item.public_date ?? new Date().toISOString(),
+                publishedDate: item.public_date ?? null,
                 type: Array.isArray(item.CWE) ? item.CWE.join(', ') : item.CWE ?? 'Unknown',
                 // Red Hat's own rating is the more useful one for its packages;
                 // fall back to the score when a CVE is still unrated.

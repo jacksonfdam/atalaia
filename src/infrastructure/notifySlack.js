@@ -45,7 +45,7 @@ export function buildVulnerabilityMessage(vuln, highlight = false, correlation =
     ];
 
     // The model's paragraph when there is one, the advisory's own words when
-    // there is not — and the heading says which, because they read alike.
+    // there is not.
     const short = shortVersion(vuln, 300);
 
     blocks.push({
@@ -53,7 +53,7 @@ export function buildVulnerabilityMessage(vuln, highlight = false, correlation =
         text: {
             type: "mrkdwn",
             text: short
-                ? `*What this means:*  _${short.source}_\n${short.text}`
+                ? `*What this means:*\n${short.text}`
                 : "*What this means:*\n_No description available_",
         },
     });

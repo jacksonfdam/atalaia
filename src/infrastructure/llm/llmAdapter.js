@@ -5,11 +5,35 @@ import { OpenAIProvider } from './openaiProvider.js';
 import { OllamaProvider } from './ollamaProvider.js';
 import { AnthropicProvider } from './anthropicProvider.js';
 import { resolveLlmConfig } from './llmConfig.js';
+import { cleanAnswer, isAnswer } from './cleanAnswer.js';
 
 class NoOpProvider {
     async complete() {
         return null;
     }
+}
+
+/**
+ * Every answer, minus its wrapping — and nothing at all when there was only
+ * wrapping.
+ *
+ * Wrapped around the provider rather than applied at each call site: there are
+ * four of those and each one stores what it gets, so a fifth added later would
+ * have quietly started writing "Certainly! Here's an explanation:" into the
+ * database again.
+ *
+ * Returning null for a non-answer is what puts ``` ``` ``` on the same path as
+ * an empty response. Every caller already checks for that, and the messages
+ * there are the good ones — a three-character explanation was truthy, so it
+ * sailed past all of them and was stored as the explanation for a CVE.
+ */
+function unwrapped(provider) {
+    return {
+        async complete(prompt) {
+            const answer = cleanAnswer(await provider.complete(prompt));
+            return isAnswer(answer) ? answer : null;
+        },
+    };
 }
 
 /**
@@ -33,13 +57,15 @@ export async function createLLMAdapter() {
     );
 
     if (config.api === 'anthropic') {
-        return new AnthropicProvider({ apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl });
+        return unwrapped(
+            new AnthropicProvider({ apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl })
+        );
     }
     if (config.api === 'ollama') {
-        return new OllamaProvider(config.baseUrl, config.model);
+        return unwrapped(new OllamaProvider(config.baseUrl, config.model));
     }
 
-    return new OpenAIProvider(config.apiKey, config.model, config.baseUrl);
+    return unwrapped(new OpenAIProvider(config.apiKey, config.model, config.baseUrl));
 }
 
 /**

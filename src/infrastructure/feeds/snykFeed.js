@@ -51,7 +51,7 @@ export async function fetch() {
                         cveId: null,
                         title,
                         description: `Snyk ID: ${snykId}`,
-                        publishedDate: publishedDate || new Date().toISOString().split('T')[0],
+                        publishedDate: publishedDate || null,
                         type: type || 'Unknown',
                         severity: SEVERITY_MAP[severityText] || 'Unknown',
                         source: 'snyk',

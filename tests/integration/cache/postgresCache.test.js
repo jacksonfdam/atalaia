@@ -18,6 +18,7 @@ import {
 const { schema } = useSchema('postgres_cache');
 
 const cache = await import('#app/infrastructure/cache/postgresCache.js');
+const { toDate } = await import('#app/infrastructure/db/pool.js');
 
 beforeAll(async () => {
     if (!hasDatabase) return;
@@ -125,6 +126,53 @@ describe('postgresCache', () => {
         const result = await cache.query({ sort: 'title; DROP TABLE vulnerabilities' });
         expect(result.total).toBe(1);
         expect(await cache.has('CVE-2024-0001')).toBe(true);
+    });
+
+    // timestamptz comes back as the text Postgres wrote, by design — see pool.js.
+    const publishedIso = async cveId => {
+        const parsed = toDate((await cache.get(cveId)).published_date);
+        return parsed === null ? null : parsed.toISOString();
+    };
+
+    test('add() stores the publication date, and null when there is none', async () => {
+        const published = new Date('2026-08-10T12:00:00Z');
+        await cache.add({ ...sampleVuln, publishedDate: published });
+        await cache.add({ ...sampleVuln, cveId: 'CVE-2024-0002', publishedDate: null });
+
+        expect(await publishedIso('CVE-2024-0001')).toBe(published.toISOString());
+        expect(await publishedIso('CVE-2024-0002')).toBeNull();
+    });
+
+    test('a second sighting does not erase a date already recorded', async () => {
+        const published = new Date('2026-08-10T12:00:00Z');
+        await cache.add({ ...sampleVuln, publishedDate: published });
+        // The same CVE from a feed that publishes no date.
+        await cache.add({ ...sampleVuln, source: 'vuldb', publishedDate: null });
+
+        expect(await publishedIso('CVE-2024-0001')).toBe(published.toISOString());
+    });
+
+    test('a later sighting fills in a date the first one lacked', async () => {
+        await cache.add({ ...sampleVuln, publishedDate: null });
+        await cache.add({ ...sampleVuln, publishedDate: new Date('2026-08-10T12:00:00Z') });
+
+        expect((await cache.get('CVE-2024-0001')).published_date).not.toBeNull();
+    });
+
+    test('a stored vulnerability is not marked as announced until it is', async () => {
+        await cache.add(sampleVuln);
+        expect((await cache.get('CVE-2024-0001')).notified_at).toBeNull();
+
+        await cache.markNotified('CVE-2024-0001');
+        expect((await cache.get('CVE-2024-0001')).notified_at).not.toBeNull();
+    });
+
+    test('query() sorts by publication date', async () => {
+        await cache.add({ ...sampleVuln, publishedDate: new Date('2026-08-01T00:00:00Z') });
+        await cache.add({ ...sampleVuln, cveId: 'CVE-2024-0002', publishedDate: new Date('2026-08-15T00:00:00Z') });
+
+        const result = await cache.query({ sort: 'published_date', order: 'desc' });
+        expect(result.vulnerabilities[0].cve_id).toBe('CVE-2024-0002');
     });
 
     test('stats() counts in SQL and returns numbers, not strings', async () => {

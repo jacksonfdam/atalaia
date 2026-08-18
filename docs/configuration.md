@@ -83,6 +83,9 @@ Cloudflare's quick tunnel needs no account and no token, and downloads its binar
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `VULN_MAX_AGE_DAYS` | `7` | How recently an advisory must have been published to earn an alert. Most sources serve a catalogue rather than a window — CISA's KEV list goes back to 2021 and arrives whole on every fetch — so the cutoff is applied to all of them here rather than per feed. An advisory with no publication date is discarded, not assumed recent. `0` disables the cutoff. |
+| `MAX_ALERTS_PER_CYCLE` | `20` | Alerts one cycle may send. Past it the findings are still stored and visible in the console; only the message is dropped. Worst first: exploited, then severity, then score, then newest. |
+| `ALERT_DELAY_MS` | `1000` | Pause between alerts. Telegram accepts about twenty messages a minute to a group and answers the rest with `429`. |
 | `FEED_TIMEOUT_MS` | `15000` | Per-feed HTTP timeout. |
 | `FEED_DELAY_MS` | `2000` | Pause between feeds in a cycle — keeps scraped sources happy. |
 | `FEED_HEALTH_TTL_MS` | `60000` | Cache TTL for `/api/v1/feeds/health`. |

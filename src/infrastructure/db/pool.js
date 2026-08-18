@@ -28,6 +28,27 @@ pg.types.setTypeParser(pg.types.builtins.INT8, value => (value === null ? null :
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, value => value);
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, value => value);
 
+/**
+ * A timestamp column, back as a `Date`.
+ *
+ * The parsers above hand these over as the text Postgres wrote, which is
+ * `2026-08-10 12:00:00+00` — a space instead of the T, and an offset with no
+ * minutes. `new Date()` rejects both: the offset especially, since the spec
+ * wants ±hh:mm and V8 does not guess. Anything doing date arithmetic on a
+ * column read from here needs this rather than its own `replace`.
+ *
+ * @param {string|Date|null|undefined} value
+ * @returns {Date|null}
+ */
+export function toDate(value) {
+    if (value === null || value === undefined || value === '') return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+    const iso = String(value).replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
+    const parsed = new Date(iso);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function connectionString() {
     const url = process.env.DATABASE_URL;
     if (!url) {

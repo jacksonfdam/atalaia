@@ -3,9 +3,15 @@ import { generateWeeklyReport, SECTION_LIMIT } from '../../../src/application/ge
 
 const NOW = '2026-08-13T09:00:00.000Z';
 
-/** Days before NOW, in the space-separated shape the database returns. */
+/**
+ * Days before NOW, in the exact shape the database returns.
+ *
+ * Down to the `+00`: without the offset these strings parse as local time, and
+ * that is how the report was tested green for months while every real row came
+ * back as Invalid Date and counted as new.
+ */
 function daysAgo(days) {
-    return new Date(Date.parse(NOW) - days * 86_400_000).toISOString().replace('T', ' ').slice(0, 19);
+    return `${new Date(Date.parse(NOW) - days * 86_400_000).toISOString().replace('T', ' ').slice(0, 19)}+00`;
 }
 
 function report(vulns, options = {}) {

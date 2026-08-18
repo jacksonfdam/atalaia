@@ -76,7 +76,7 @@ export function createRssAdvisoryFeed({ name, url, label }) {
                         cveId,
                         title: item.title ?? cveId,
                         description: body || 'No description available.',
-                        publishedDate: item.isoDate ?? item.pubDate ?? new Date().toISOString(),
+                        publishedDate: item.isoDate ?? item.pubDate ?? null,
                         type: 'Unknown',
                         severity,
                         source: name,

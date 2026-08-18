@@ -24,6 +24,8 @@ export const QUEUES = {
     REPO_SCAN: 'repo.scan',
     /** Ask each registry for the latest published version, per repository. */
     DEPS_VERSIONS: 'deps.versions',
+    /** Write the model's text for a selection of vulnerabilities. */
+    VULN_EXPLAIN: 'vuln.explain',
     /** The Monday digest. */
     REPORT_WEEKLY: 'report.weekly',
     /** Delete spent challenges and long-dead sessions. */
@@ -78,6 +80,22 @@ export const QUEUE_DEFINITIONS = [
         retryDelay: 60,
         expireInSeconds: 1800,
         why: 'Per repository, via singletonKey: two checks of the same repository would ask every registry twice.',
+    },
+    {
+        name: QUEUES.VULN_EXPLAIN,
+        policy: 'singleton',
+        retryLimit: 0,
+        retryDelay: 0,
+        // Sized to the work, not to the worst model imaginable: two hundred
+        // CVEs — the cap — at four seconds each is fifteen minutes.
+        //
+        // Generosity here is not free. This window is how long a batch blocks
+        // the queue after the worker running it is killed: pg-boss cannot tell
+        // a dead worker from a slow one, and a singleton holds the next job in
+        // `created` until it passes. An hour of that was found by rebuilding
+        // the containers mid-batch. DELETE the endpoint to clear it.
+        expireInSeconds: 900,
+        why: 'Singleton rather than exclusive: a second selection must be allowed to queue behind the first instead of being refused, because a batch acknowledgement enqueues its guides and the operator did not ask for a queue lesson. One at a time still, so two batches cannot double up on the model. No retry: a failed CVE is recorded per CVE, and replaying the batch would rewrite everything that already succeeded.',
     },
     {
         name: QUEUES.REPORT_WEEKLY,

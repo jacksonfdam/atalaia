@@ -68,7 +68,7 @@ export async function fetch() {
             const description = cve.descriptions?.find(d => d.lang === 'en')?.value || 'No description';
             const { score, severity } = extractCvss(cve.metrics);
             const sourceUrl = `https://nvd.nist.gov/vuln/detail/${cveId}`;
-            const published = cve.published || new Date().toISOString();
+            const published = cve.published ?? null;
 
             return new Vulnerability({
                 cveId,

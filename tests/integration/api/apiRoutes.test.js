@@ -224,6 +224,163 @@ describe('PATCH /vulnerabilities/:cveId/status', () => {
     });
 });
 
+describe('the batch actions', () => {
+    beforeEach(() =>
+        seed([
+            { cveId: 'CVE-2026-0400', severity: 'HIGH' },
+            { cveId: 'CVE-2026-0401', severity: 'LOW' },
+            { cveId: 'CVE-2026-0402', severity: 'MEDIUM', status: 'RESOLVED' },
+        ])
+    );
+
+    const batchStatus = body =>
+        request(app).patch('/api/v1/vulnerabilities/batch/status').set(KEY).send(body);
+
+    test('acknowledges a selection in one call', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400', 'CVE-2026-0401'],
+            status: 'ACKNOWLEDGED',
+            changedBy: 'test',
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.changed).toBe(2);
+        expect((await cache.get('CVE-2026-0400')).status).toBe('ACKNOWLEDGED');
+        expect((await cache.get('CVE-2026-0401')).status).toBe('ACKNOWLEDGED');
+    });
+
+    // The selection comes off a table, so it will contain rows that cannot move.
+    test('reports what it could not change, and changes the rest', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400', 'CVE-2026-0402'],
+            status: 'ACKNOWLEDGED',
+            changedBy: 'test',
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.changed).toBe(1);
+        expect(res.body.skipped).toBe(1);
+
+        const refused = res.body.results.find(row => row.cveId === 'CVE-2026-0402');
+        expect(refused.ok).toBe(false);
+        expect(refused.error).toMatch(/Invalid transition/);
+
+        expect((await cache.get('CVE-2026-0400')).status).toBe('ACKNOWLEDGED');
+    });
+
+    test('resolves a selection', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400', 'CVE-2026-0401'],
+            status: 'RESOLVED',
+            changedBy: 'test',
+        });
+
+        expect(res.body.changed).toBe(2);
+        expect((await cache.get('CVE-2026-0400')).status).toBe('RESOLVED');
+    });
+
+    test('the same CVE sent twice is acted on once', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400', 'CVE-2026-0400'],
+            status: 'ACKNOWLEDGED',
+            changedBy: 'test',
+        });
+
+        expect(res.body.requested).toBe(1);
+        expect(res.body.changed).toBe(1);
+    });
+
+    test('an unknown CVE in the selection is reported, not a 404', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400', 'CVE-0000-0000'],
+            status: 'ACKNOWLEDGED',
+            changedBy: 'test',
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.changed).toBe(1);
+        expect(res.body.results.find(row => row.cveId === 'CVE-0000-0000').error).toMatch(/not found/);
+    });
+
+    test('refuses an empty selection', async () => {
+        const res = await batchStatus({ cveIds: [], status: 'ACKNOWLEDGED', changedBy: 'test' });
+        expect(res.status).toBe(400);
+    });
+
+    test('refuses a selection larger than one batch', async () => {
+        const res = await batchStatus({
+            cveIds: Array.from({ length: 201 }, (_unused, index) => `CVE-2026-${index}`),
+            status: 'ACKNOWLEDGED',
+            changedBy: 'test',
+        });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toMatch(/at most 200/);
+    });
+
+    test('refuses a status outside the two a batch may set', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400'],
+            status: 'OPEN',
+            changedBy: 'test',
+        });
+
+        expect(res.status).toBe(400);
+    });
+
+    // The literal path has to win over /:cveId, or this is a lookup for a CVE
+    // called "batch".
+    test('the batch job state is a job, not a CVE lookup', async () => {
+        const res = await request(app).get('/api/v1/vulnerabilities/batch/explain').set(KEY);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('running');
+    });
+
+    // No model is configured in the test environment, which is the point: a job
+    // that would fail on every row is refused before it is queued.
+    test('refuses to queue text with no model configured', async () => {
+        const res = await request(app)
+            .post('/api/v1/vulnerabilities/batch/explain')
+            .set(KEY)
+            .send({ cveIds: ['CVE-2026-0400'] });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBeTruthy();
+    });
+
+    // The way out of "queued, and nothing is happening": a worker killed
+    // mid-batch leaves its job active until the expiry window passes, and a
+    // singleton queue holds everything behind it until then.
+    test('a batch can be cancelled, and says how many it cleared', async () => {
+        const res = await request(app).delete('/api/v1/vulnerabilities/batch/explain').set(KEY);
+
+        expect(res.status).toBe(200);
+        expect(typeof res.body.cancelled).toBe('number');
+    });
+
+    test('acknowledging says why no mitigation guides were queued', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400'],
+            status: 'ACKNOWLEDGED',
+            changedBy: 'test',
+        });
+
+        expect(res.body.mitigation.accepted).toBe(false);
+        expect(res.body.mitigation.reason).toBeTruthy();
+    });
+
+    test('resolving queues nothing', async () => {
+        const res = await batchStatus({
+            cveIds: ['CVE-2026-0400'],
+            status: 'RESOLVED',
+            changedBy: 'test',
+        });
+
+        expect(res.body.mitigation).toBeNull();
+    });
+});
+
 describe('GET /stats', () => {
     test('aggregates by status, severity and source', async () => {
         await seed([

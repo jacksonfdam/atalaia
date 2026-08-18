@@ -35,7 +35,7 @@ export async function fetch() {
                 ? `${item.vendorProject} ${item.vulnerabilityName}`
                 : item.vulnerabilityName,
             description: item.shortDescription || 'No description available',
-            publishedDate: item.dateAdded || new Date().toISOString(),
+            publishedDate: item.dateAdded ?? null,
             type: 'Unknown',
             severity: 'Critical',
             source: 'cisa',

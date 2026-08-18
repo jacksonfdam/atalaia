@@ -266,7 +266,7 @@ function renderAffecting(report) {
                     ${vuln.exploited ? '<span style="color: #DC2626; font-weight: 600;"> · known exploited</span>' : ''}
                 </div>
                 ${vuln.title ? `<div style="font-size: 12px; color: ${UTILITY_COLORS.text}; margin-bottom: 4px;">${escapeHtml(vuln.title)}</div>` : ''}
-                ${vuln.explanation ? `<div style="font-size: 12px; color: ${UTILITY_COLORS.textMuted}; margin-bottom: 4px;"><em>${escapeHtml(vuln.explanationSource ?? '')}</em> — ${escapeHtml(vuln.explanation)}</div>` : ''}
+                ${vuln.explanation ? `<div style="font-size: 12px; color: ${UTILITY_COLORS.textMuted}; margin-bottom: 4px;">${escapeHtml(vuln.explanation)}</div>` : ''}
                 <div style="font-size: 11px; color: ${UTILITY_COLORS.textMuted};">Arrives through ${via}</div>
             </div>`;
         }
@@ -405,7 +405,7 @@ export function formatRepositoryAlertHtml(vulnerability, repositories, owner) {
 
         ${vulnerability.exploited ? '<p style="margin: 0 0 12px 0; font-size: 13px; color: #DC2626; font-weight: 600;">Known to be exploited in the wild.</p>' : ''}
         ${vulnerability.title ? `<p style="margin: 0 0 12px 0; font-size: 14px; color: ${UTILITY_COLORS.text};">${escapeHtml(vulnerability.title)}</p>` : ''}
-        ${short ? `<p style="margin: 0 0 16px 0; font-size: 13px; color: ${UTILITY_COLORS.textMuted};"><em>${escapeHtml(short.source)}</em> — ${escapeHtml(short.text.slice(0, 400))}</p>` : ''}
+        ${short ? `<p style="margin: 0 0 16px 0; font-size: 13px; color: ${UTILITY_COLORS.textMuted};">${escapeHtml(short.text.slice(0, 400))}</p>` : ''}
 
         <h2 style="margin: 16px 0 8px 0; font-size: 14px; color: ${UTILITY_COLORS.text};">Where it reaches you</h2>
         ${repositories

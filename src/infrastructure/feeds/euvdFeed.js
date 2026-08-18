@@ -18,7 +18,9 @@ function titleFrom(description, id) {
 /** Dates arrive as "Apr 9, 2026, 9:41:15 AM" rather than ISO. */
 function toIso(value) {
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+    // No date rather than today's: a substituted date makes a stale advisory
+    // look like this morning's, which is what the age cutoff exists to catch.
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 /**

@@ -28,4 +28,6 @@ curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/feeds/catalog
 | `certfr` | off | Regional, French. |
 | `cvedetails` | off | Blocks scrapers with a 403. |
 
+Most of these publish a catalogue, not a window: CISA serves the whole KEV list on every fetch, OpenCVE pages through its own, Snyk and GHSA return a listing. Only NVD and MITRE ask their source for what is recent. So the monitoring cycle applies one age cutoff to everything it collects — `VULN_MAX_AGE_DAYS`, seven days by default — and an advisory older than that is dropped before anything is alerted or stored. An advisory a source publishes with no date at all is dropped too, and logged with the source's name: the age of it cannot be established, and substituting today's date is exactly how a 2021 advisory reaches a chat marked as new.
+
 A source that answers with zero items is reported as `EMPTY` rather than healthy, and the health report shows how many of the items actually carry a CVSS score — a feed can be alive and still be useless for triage.

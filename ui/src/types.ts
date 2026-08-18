@@ -32,6 +32,70 @@ export interface VulnerabilityPage {
   vulnerabilities: Vulnerability[];
 }
 
+/** One CVE's outcome in a batch: partial success is the normal case. */
+export interface BatchStatusOutcome {
+  cveId: string;
+  ok: boolean;
+  status?: Status;
+  error?: string;
+}
+
+export interface BatchStatusResult {
+  requested: number;
+  changed: number;
+  skipped: number;
+  changedIds: string[];
+  results: BatchStatusOutcome[];
+  /**
+   * Acknowledging writes a mitigation guide, which is a model call per CVE and
+   * so runs as a job. Null when nothing moved, or when the batch was a resolve.
+   */
+  mitigation: {
+    accepted: boolean;
+    jobId: string | null;
+    queued: number;
+    reason?: string;
+  } | null;
+}
+
+/**
+ * The batch text job, as the console polls it.
+ *
+ * Every field under `progress` is optional for the same reason the fleet scan's
+ * are: the worker writes the row as it goes, so it can be read before it says
+ * anything at all.
+ */
+export interface ExplainBatchState {
+  running: boolean;
+  jobId?: string | null;
+  startedAt: string | null;
+  progress: {
+    kind?: 'explanation' | 'mitigation';
+    total?: number;
+    done?: number;
+    written?: number;
+    skipped?: number;
+    failed?: number;
+    current?: string | null;
+    errors?: { cveId: string; error: string }[];
+    errorsTruncated?: boolean;
+  } | null;
+  lastRun: {
+    jobId?: string;
+    startedAt: string;
+    finishedAt: string;
+    ok: boolean;
+    error?: string | null;
+    output?: {
+      kind?: string;
+      total?: number;
+      written?: number;
+      skipped?: number;
+      failed?: number;
+    } | null;
+  } | null;
+}
+
 export interface TimelineEvent {
   at: string;
   event: string;
@@ -560,8 +624,6 @@ export interface ReportVulnerability {
   sourceUrl: string | null;
   /** The model's explanation, or the advisory text trimmed. Null when neither. */
   explanation: string | null;
-  /** Which of the two `explanation` is: "written by a model" or "from the advisory". */
-  explanationSource: string | null;
   /** Only on the affecting section: the dependencies it arrives through. */
   via?: { dependency: string; ecosystem: string; manifestFile: string | null }[];
 }

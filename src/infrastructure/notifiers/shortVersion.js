@@ -1,27 +1,25 @@
 /**
- * The short version of a vulnerability, and where it came from.
+ * The short version of a vulnerability.
  *
  * Two different things land in this slot: a paragraph a model wrote, and the
- * advisory's own words when no model is configured. They used to arrive under
- * the same heading in every channel, so a reader could not tell which one they
- * had — and a generated paragraph passing as source text is the one thing this
- * slot must never be allowed to do.
+ * advisory's own words when no model is configured. One definition here, every
+ * channel reading it, so the fallback cannot drift apart between them the way
+ * it already had once.
  *
- * One definition here, every channel reading it, so the labelling cannot drift
- * apart the way the fallback itself already had.
+ * `generated` says which of the two it is. Nothing renders it today — the
+ * heading each channel used to carry was dropped deliberately — but the answer
+ * is kept rather than thrown away, because the question is a real one and the
+ * caller that wants it should not have to work it out again from the row.
  */
-
-export const MODEL_SOURCE = 'written by a model';
-export const ADVISORY_SOURCE = 'from the advisory';
 
 /**
  * @param {object} vuln              Entity or row; both spellings of the column are read
  * @param {number} [fallbackLimit]   Cap applied to the advisory text only, never to the model's
- * @returns {{ text: string, source: string, generated: boolean } | null} null when there is neither
+ * @returns {{ text: string, generated: boolean } | null} null when there is neither
  */
 export function shortVersion(vuln, fallbackLimit = Infinity) {
     const generated = vuln.clientExplanation ?? vuln.client_explanation;
-    if (generated) return { text: generated, source: MODEL_SOURCE, generated: true };
+    if (generated) return { text: generated, generated: true };
 
     const description = vuln.description ?? '';
     if (!description) return null;
@@ -30,5 +28,5 @@ export function shortVersion(vuln, fallbackLimit = Infinity) {
         ? `${description.slice(0, fallbackLimit - 1)}…`
         : description;
 
-    return { text, source: ADVISORY_SOURCE, generated: false };
+    return { text, generated: false };
 }

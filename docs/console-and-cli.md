@@ -12,7 +12,7 @@ open http://localhost:3001
 | Page | What it manages |
 |------|-----------------|
 | Overview | Counts by severity/status/source, open criticals, trigger a monitoring cycle |
-| Vulnerabilities | Filter, paginate, acknowledge and resolve |
+| Vulnerabilities | Filter, paginate, acknowledge and resolve — one row at a time, or a ticked selection in batch |
 | Reports | The weekly digest as the email sends it: findings grouped by repository, each with the dependency it arrives through and a short explanation. *Send now* mails it immediately |
 | Sources | Enable/disable each source, live per-feed health, and the full database catalog |
 | Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies, and subscribe someone to be told when a CVE reaches one |
@@ -31,6 +31,20 @@ Settings is tabbed, because stacking every integration on one page made the bott
 | Email | `/settings/email` | Provider, credential and recipients for the weekly digest |
 | Desktop | `/settings/desktop` | Browser notifications for new CVEs |
 | Model | `/settings/model` | The LLM provider behind the plain-English explanations |
+
+**Batch actions.** Tick the rows and a bar appears above the table: acknowledge,
+resolve, or have the model write the text. The counts come back per CVE, so
+"12 acknowledged · 3 unchanged (CVE-… : Invalid transition …)" is what a mixed
+selection says rather than a silent partial success. Ticking survives sorting,
+but not a filter change or a new page — those are different rows, and acting on
+a selection you can no longer see is how the wrong thing gets resolved.
+
+Acknowledging in batch queues the mitigation guides rather than writing them in
+the request, so the table updates immediately and the text arrives behind it.
+*Explain the ones without text* fills in whatever was collected before a model
+was configured; *Rewrite all explanations* does it again for everything ticked.
+Progress shows above the table while the job runs, and the table reloads when it
+finishes. See [queues.md](queues.md) for the job itself.
 
 `/organizations` and `/owners` still work — they redirect to the tab that took them over.
 

@@ -46,7 +46,7 @@ function toVulnerability(record) {
         cveId,
         title: cna.title || description.slice(0, 160),
         description,
-        publishedDate: record.cveMetadata?.datePublished ?? new Date().toISOString(),
+        publishedDate: record.cveMetadata?.datePublished ?? null,
         type: cna.problemTypes?.[0]?.descriptions?.[0]?.description ?? 'Unknown',
         severity: cvssToSeverity(score),
         source: 'mitre',
