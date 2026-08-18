@@ -224,6 +224,31 @@ describe('PATCH /vulnerabilities/:cveId/status', () => {
     });
 });
 
+describe('the batch text job', () => {
+    beforeEach(() => seed([{ cveId: 'CVE-2026-0400', severity: 'HIGH' }]));
+
+    // The literal path has to win over /:cveId, or this is a lookup for a CVE
+    // called "batch".
+    test('the batch job state is a job, not a CVE lookup', async () => {
+        const res = await request(app).get('/api/v1/vulnerabilities/batch/explain').set(KEY);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toHaveProperty('running');
+    });
+
+    // No model is configured in the test environment, which is the point: a job
+    // that would fail on every row is refused before it is queued.
+    test('refuses to queue text with no model configured', async () => {
+        const res = await request(app)
+            .post('/api/v1/vulnerabilities/batch/explain')
+            .set(KEY)
+            .send({ cveIds: ['CVE-2026-0400'] });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBeTruthy();
+    });
+});
+
 describe('GET /stats', () => {
     test('aggregates by status, severity and source', async () => {
         await seed([

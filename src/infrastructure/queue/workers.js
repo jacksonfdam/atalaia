@@ -7,9 +7,10 @@ import { scanAllRepositories } from '../../application/scanAllRepositories.js';
 import { scanRepository } from '../../application/scanRepository.js';
 import { checkDependencyVersions } from '../../application/checkDependencyVersions.js';
 import { buildReport } from '../../application/buildReport.js';
+import { generateExplanations } from '../../application/generateExplanations.js';
 import { sendWeeklyEmail } from '../notifiers/emailNotifier.js';
 import { sendTelegramDigest } from '../notifiers/telegramDigest.js';
-import { getAll } from '../cache/postgresCache.js';
+import { getAll, get, update } from '../cache/postgresCache.js';
 import { sendSubscriberDigests } from '../../application/notifySubscribers.js';
 import { getRepository } from '../cache/repositoryStore.js';
 import { providerForOrg } from '../../application/manageOrganization.js';
@@ -157,6 +158,28 @@ export async function registerWorkers() {
                 maxAgeHours,
                 onProgress: progress => writeProgress(job.id, QUEUES.DEPS_VERSIONS, progress),
             });
+        })
+    );
+
+    // The model's text for a selection, one CVE at a time. The handler reports
+    // after every one, because the only useful thing to say about a batch that
+    // is a third of the way through is that it is a third of the way through.
+    await boss.work(
+        QUEUES.VULN_EXPLAIN,
+        { batchSize: 1 },
+        one(async job => {
+            const { cveIds = [], kind, force } = job.data ?? {};
+
+            const result = await generateExplanations({
+                cveIds,
+                kind,
+                force,
+                cache: { get, update },
+                onProgress: progress => writeProgress(job.id, QUEUES.VULN_EXPLAIN, progress),
+            });
+
+            logger.info({ jobId: job.id, ...result, errors: undefined }, 'Batch text generation complete');
+            return result;
         })
     );
 
