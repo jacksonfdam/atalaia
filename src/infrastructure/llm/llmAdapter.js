@@ -5,11 +5,28 @@ import { OpenAIProvider } from './openaiProvider.js';
 import { OllamaProvider } from './ollamaProvider.js';
 import { AnthropicProvider } from './anthropicProvider.js';
 import { resolveLlmConfig } from './llmConfig.js';
+import { cleanAnswer } from './cleanAnswer.js';
 
 class NoOpProvider {
     async complete() {
         return null;
     }
+}
+
+/**
+ * Every answer, minus its preamble.
+ *
+ * Wrapped around the provider rather than applied at each call site: there are
+ * four of those and each one stores what it gets, so a fifth added later would
+ * have quietly started writing "Certainly! Here's an explanation:" into the
+ * database again.
+ */
+function withoutPreamble(provider) {
+    return {
+        async complete(prompt) {
+            return cleanAnswer(await provider.complete(prompt));
+        },
+    };
 }
 
 /**
@@ -33,13 +50,15 @@ export async function createLLMAdapter() {
     );
 
     if (config.api === 'anthropic') {
-        return new AnthropicProvider({ apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl });
+        return withoutPreamble(
+            new AnthropicProvider({ apiKey: config.apiKey, model: config.model, baseUrl: config.baseUrl })
+        );
     }
     if (config.api === 'ollama') {
-        return new OllamaProvider(config.baseUrl, config.model);
+        return withoutPreamble(new OllamaProvider(config.baseUrl, config.model));
     }
 
-    return new OpenAIProvider(config.apiKey, config.model, config.baseUrl);
+    return withoutPreamble(new OpenAIProvider(config.apiKey, config.model, config.baseUrl));
 }
 
 /**

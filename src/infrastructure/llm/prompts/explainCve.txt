@@ -14,3 +14,5 @@ Vulnerability:
 - Affected Technologies: {{technologies}}
 
 Write in a professional but accessible tone. Avoid jargon. If the severity is CRITICAL or it's known to be exploited, make the urgency very clear.
+
+Output the explanation itself and nothing else. No preamble, no "Certainly", no restating what you were asked for, no heading, no sign-off. Begin with the first word of the explanation.

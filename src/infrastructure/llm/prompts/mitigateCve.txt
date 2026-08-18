@@ -23,3 +23,5 @@ Responsible system owners:
 {{owners}}
 
 Write in a professional but accessible tone. Be specific about remediation — mention exact package names and suggest checking for updates. If severity is CRITICAL or it's actively exploited, emphasize immediate action. Keep the response under 300 words.
+
+Output the guide itself and nothing else. No preamble, no "Certainly", no restating what you were asked for, no sign-off. Begin with the first section.
