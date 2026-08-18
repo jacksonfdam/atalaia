@@ -38,13 +38,19 @@ Four files come back — those three and the adapter itself. Nothing in `src/dom
 
 Specifically, no model output is used for severity or CVSS, for exploited status, for whether a CVE matches your stack, for whether it reaches a given repository, for de-duplication across feeds — which is keyed on `cve_id`, not on meaning — or for who gets alerted. Turn the model off and Atalaia loses prose. The set of findings is unchanged, because nothing downstream of the explanation reads it.
 
-### And it is labelled where it appears
+### It comes from one definition, and it is no longer labelled
 
-A generated paragraph and an advisory's own words read alike, and a channel that shows one where you expected the other is its own kind of quiet failure. So the label travels with the text, from a single definition in `src/infrastructure/notifiers/shortVersion.js`: *written by a model*, or *from the advisory*.
+Which text lands in the summary slot — the model's paragraph, or the advisory's own words when no model is configured — is decided once, in `src/infrastructure/notifiers/shortVersion.js`. Every surface reads that one definition: Slack, Teams, Telegram, the alert email, and the weekly digest in both its email and console forms. `tests/unit/infrastructure/shortVersion.test.js` asserts the model's text is never silently capped and that no channel has reintroduced its own copy of the fallback.
 
-Every surface reads that one definition — Slack, Teams, Telegram, the alert email, and the weekly digest in both its email and console forms. `tests/unit/infrastructure/shortVersion.test.js` asserts the labels are distinct, that the model's text is never silently capped, and that no channel has reintroduced its own copy of the fallback.
+Each channel used to have its own `clientExplanation || description`, under a heading that named neither, so a reader could not tell which one they had. That was found while writing this page, which is roughly the argument for writing one.
 
-This was not true until recently. Each channel had its own copy of `clientExplanation || description`, under a heading that named neither, so a reader could not tell which one they had. It was found while writing this page, which is roughly the argument for writing one.
+**The heading that named which is gone**, removed on request because it read as noise above every alert. `shortVersion` still returns `generated`, so the answer exists and any caller may render it — nothing does today. So: a reader looking at a summary cannot tell from the summary whether a model wrote it. What still holds is everything above — the text is prose, it decides nothing, and turning the model off changes no finding. The row itself is unambiguous either way: `client_explanation` is populated only by a model, and the advisory's own words live in `description`.
+
+### Nothing a model says arrives with its throat-clearing
+
+Asked for a paragraph, an assistant-tuned model tends to answer "Certainly! Here's an explanation for your non-technical audience:" and then the paragraph. Both prompts now forbid it, and because a prompt is a request rather than a guarantee, `src/infrastructure/llm/cleanAnswer.js` removes it from every answer before it is stored — wrapped around the provider, so a fifth call site added later cannot skip it.
+
+It is deliberately narrow: an opener that introduces the answer, and nothing else. An explanation that merely begins with one of those words is left alone, and an answer that is *only* an introduction is left alone too, because blanking it would hide a model failing behind an empty explanation. `tests/unit/infrastructure/cleanAnswer.test.js` pins both halves.
 
 ## What is enforced
 

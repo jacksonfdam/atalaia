@@ -48,7 +48,7 @@ Most of Atalaia was written by a language model under my direction, and I would 
 
 So the useful question is not whether a model typed the code. It is what stops the output from being wrong.
 
-**Nothing that decides is generated.** Severity, CVSS, exploited status and advisory links are read from the feed and stored as they arrived. No model ranks, scores, filters or de-duplicates anything. A model is asked for three things, all of them prose, all of them after triage — `grep -rln "createLLMAdapter" src/` returns four files, and the fourth is the adapter. Where that prose appears it is labelled *written by a model* or *from the advisory*, from one definition every channel reads.
+**Nothing that decides is generated.** Severity, CVSS, exploited status and advisory links are read from the feed and stored as they arrived. No model ranks, scores, filters or de-duplicates anything. A model is asked for three things, all of them prose, all of them after triage — `grep -rln "createLLMAdapter" src/` returns four files, and the fourth is the adapter. Which prose appears where — the model's, or the advisory's own words when no model is configured — is decided in one definition every channel reads.
 
 **Read-only is enforced, not promised.** A test greps the GitHub provider for write calls and asserts every request goes through the single GET helper, so no future method can route around it.
 
