@@ -1,6 +1,7 @@
 import { Status } from '../domain/enums/Status.js';
 import { compareVersions } from './versionComparison.js';
 import { shortVersion } from '../infrastructure/notifiers/shortVersion.js';
+import { toDate } from '../infrastructure/db/pool.js';
 
 /**
  * The weekly digest.
@@ -46,13 +47,17 @@ const SECTION_LIMIT = 25;
 /** Ecosystems that are infrastructure rather than application code. */
 const INFRASTRUCTURE_ECOSYSTEMS = new Set(['DOCKER', 'GITHUB_ACTIONS', 'TERRAFORM', 'HELM']);
 
-/** Rows arrive from the database (snake_case) or straight from the entity. */
+/**
+ * Rows arrive from the database (snake_case) or straight from the entity.
+ *
+ * Parsed by toDate rather than by hand: `new Date(raw.replace(' ', 'T'))` gave
+ * Invalid Date for every single database row, because Postgres writes the
+ * offset as `+00` and V8 wants `+00:00`. Every one of them therefore had no
+ * usable timestamp, took the "counts as new" branch below, and the weekly
+ * digest listed the entire open backlog every week instead of the window.
+ */
 function firstSeen(vuln) {
-    const raw = vuln.first_seen_at ?? vuln.firstSeenAt ?? vuln.publishedDate ?? null;
-    if (!raw) return null;
-
-    const parsed = new Date(typeof raw === 'string' ? raw.replace(' ', 'T') : raw);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    return toDate(vuln.first_seen_at ?? vuln.firstSeenAt ?? vuln.publishedDate ?? null);
 }
 
 function severityOf(vuln) {
