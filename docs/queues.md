@@ -1,6 +1,6 @@
 # Queues
 
-Everything that takes longer than a request is a job: the monitoring cycle, the fleet scan, a single repository scan, the dependency freshness check and the weekly report.
+Everything that takes longer than a request is a job: the monitoring cycle, the fleet scan, a single repository scan, the dependency freshness check, batch explanations and the weekly report.
 
 They used to run inside the API process, detached with a module-level variable and guarded by a `409` that only held for as long as that process lived. A restart lost the work *and* the progress describing it, and a second API container would have run everything twice. They are [pg-boss](https://github.com/timgit/pg-boss) jobs now, in the same Postgres as everything else — **no Redis**: the workload is an hourly cycle and a nightly sweep, and a second datastore would be a second place for state to disagree with the database.
 
@@ -14,11 +14,14 @@ Defined once in `src/infrastructure/queue/jobs.js`, which the API, the worker an
 | `repo.scanAll` | exclusive | none | Walk each organization: import what appeared, remove what is gone, scan each repository |
 | `repo.scan` | standard | 2, after 30s | One repository's manifests |
 | `deps.versions` | exclusive per repository | 1, after 60s | Ask each registry for the latest published version |
+| `vuln.explain` | singleton | none | Write the model's text — an explanation or a mitigation guide — for a selection of CVEs |
 | `report.weekly` | exclusive | 3, after 5min | The Monday digest |
 
 **`exclusive` is the old `409`.** The queue allows one job queued or active at a time, so a second `send` returns no id — and that is what the API answers `409` to. The difference from the variable it replaced is that this holds after a restart, and across however many API containers are running.
 
 `deps.versions` is exclusive *per repository*, through a `singletonKey` of `repo:<id>`: two repositories may be checked at once, the same one may not.
+
+`vuln.explain` is a **singleton** rather than exclusive: one runs at a time, and a second selection queues behind it instead of being refused. Acknowledging a batch enqueues the mitigation guides for it, and refusing that because somebody else's batch is halfway through would be a queue lesson nobody asked for. It does not retry — a CVE the model choked on is recorded per CVE in the progress row, and replaying the batch would rewrite everything that already succeeded.
 
 `repo.scan` is deliberately not exclusive — the jobs must be free to queue up. How many run at once is the worker's concurrency, `SCAN_CONCURRENCY` (default 10), the same number a fleet sweep uses inside its own job: the limit that matters is somebody else's rate limit, and it does not care which queue the work arrived on.
 
