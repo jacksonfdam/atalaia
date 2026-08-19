@@ -548,6 +548,57 @@ export async function dependenciesWithLatest() {
 }
 
 /**
+ * Every live dependency, with its freshness columns as they were written.
+ *
+ * dependenciesWithLatest() above drops anything unresolved, because the digest
+ * only lists what is behind. A report has to state what was never asked as well:
+ * a dependency with no latest_checked_at is not up to date, it is unknown, and
+ * folding it into "current" is the one mistake that makes the whole number a lie.
+ *
+ * @param {{ repositoryId?: number|null }} [options] one repository, or the fleet
+ */
+export async function dependencyInventory({ repositoryId = null } = {}) {
+    // Scoped to one repository the enabled switch is the operator's, not a
+    // filter: they opened that page. Across the fleet it is what every other
+    // aggregate counts.
+    const scope = repositoryId ? 'd.repository_id = @repositoryId' : 'r.enabled';
+
+    return queryAll(
+        `SELECT r.id AS repository_id, r.name AS repository_name, r.url AS repository_url,
+                d.ecosystem, d.name, d.version, d.manifest_file,
+                d.latest_version, d.latest_checked_at, d.latest_error
+         FROM repository_dependencies d
+         JOIN repositories r ON r.id = d.repository_id
+         WHERE d.deleted_at IS NULL
+           AND r.deleted_at IS NULL
+           AND ${scope}
+         ORDER BY r.name, d.ecosystem, d.name`,
+        { repositoryId }
+    );
+}
+
+/**
+ * The repositories a report covers, with what the provider says they are built
+ * with. Returned even when they hold no dependencies at all — a repository
+ * nobody has scanned is the most important row on the page.
+ *
+ * @param {{ repositoryId?: number|null }} [options]
+ */
+export async function repositoryInventory({ repositoryId = null } = {}) {
+    const scope = repositoryId ? 'id = @repositoryId' : 'enabled';
+
+    return queryAll(
+        `SELECT id, name, url, primary_language, languages, topics,
+                last_scanned_at, enabled, archived
+         FROM repositories
+         WHERE deleted_at IS NULL
+           AND ${scope}
+         ORDER BY name`,
+        { repositoryId }
+    );
+}
+
+/**
  * How exposed every tracked repository is, in one pass.
  * Used for the list view, where running the per-repository query N times would
  * mean N round trips for a column.
