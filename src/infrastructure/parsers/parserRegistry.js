@@ -37,6 +37,7 @@ import * as vcpkgParser from './vcpkgParser.js';
 import * as haskellParser from './haskellParser.js';
 import * as haskellLockParser from './haskellLockParser.js';
 import * as opamParser from './opamParser.js';
+import * as opamLockParser from './opamLockParser.js';
 import * as zigParser from './zigParser.js';
 import * as luaParser from './luaParser.js';
 import * as swiftManifestParser from './swiftManifestParser.js';
@@ -91,6 +92,7 @@ export const parsers = [
     haskellParser,
     haskellLockParser,
     opamParser,
+    opamLockParser,
     zigParser,
     luaParser,
     swiftManifestParser,

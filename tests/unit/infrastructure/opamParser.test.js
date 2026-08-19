@@ -1,6 +1,7 @@
 import { describe, test, expect } from '@jest/globals';
 
 const opam = await import('#app/infrastructure/parsers/opamParser.js');
+const opamLock = await import('#app/infrastructure/parsers/opamLockParser.js');
 const { findParsersForFile } = await import('#app/infrastructure/parsers/parserRegistry.js');
 const { Ecosystem } = await import('#app/domain/enums/Ecosystem.js');
 const { supportsEcosystem, unsupportedReason } = await import('#app/infrastructure/registries/index.js');
@@ -68,14 +69,31 @@ describe('discovery', () => {
         ['lwt.opam', 1],
         ['dune-project', 1],
         ['src/thing.opam', 1],
+        ['opam.locked', 1],
+        ['lwt.opam.locked', 1],
         // A `dune` file declares libraries to build, not packages to fetch.
         ['dune', 0],
     ])('%s matches %i parser(s)', (filePath, expected) => {
         expect(findParsersForFile(filePath)).toHaveLength(expected);
     });
 
-    test('neither file resolves a version', () => {
+    test('only the locked file resolves a version', () => {
         expect(opam.resolvesVersions).toBeUndefined();
+        expect(opamLock.resolvesVersions).toBe(true);
+    });
+});
+
+describe('an opam.locked', () => {
+    // The same syntax with every constraint pinned exactly, so the reading is
+    // identical and only the meaning differs.
+    const deps = Object.fromEntries(
+        opamLock
+            .parse('depends: [\n  "dune" {= "3.18.2"}\n  "ocplib-endian" {= "1.2"}\n]\n', 'opam.locked')
+            .map(d => [d.name, d.version])
+    );
+
+    test('reads an exact pin', () => {
+        expect(deps).toEqual({ dune: '= 3.18.2', 'ocplib-endian': '= 1.2' });
     });
 });
 
