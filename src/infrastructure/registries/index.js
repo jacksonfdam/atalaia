@@ -122,6 +122,11 @@ const LOOKUPS = {
         return versions.length ? versions[versions.length - 1] : (data?.versions?.at(-1) ?? null);
     },
 
+    async PUB(name) {
+        const data = await get(`https://pub.dev/api/packages/${encodeURIComponent(name)}`);
+        return data?.latest?.version ?? null;
+    },
+
     async GO(name) {
         // @latest, not @v/list: the list is unordered, so its last line is not
         // the newest version — it just happened to be published last.

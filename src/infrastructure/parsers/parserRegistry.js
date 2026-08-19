@@ -13,6 +13,8 @@ import * as terraformParser from './terraformParser.js';
 import * as githubActionsParser from './githubActionsParser.js';
 import * as swiftParser from './swiftParser.js';
 import * as cocoapodsParser from './cocoapodsParser.js';
+import * as pubParser from './pubParser.js';
+import * as pubLockParser from './pubLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -35,6 +37,8 @@ export const parsers = [
     githubActionsParser,
     swiftParser,
     cocoapodsParser,
+    pubParser,
+    pubLockParser,
 ];
 
 /**
