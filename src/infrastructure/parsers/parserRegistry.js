@@ -38,6 +38,7 @@ import * as haskellParser from './haskellParser.js';
 import * as haskellLockParser from './haskellLockParser.js';
 import * as opamParser from './opamParser.js';
 import * as zigParser from './zigParser.js';
+import * as luaParser from './luaParser.js';
 
 /**
  * All registered dependency parsers.
@@ -85,6 +86,7 @@ export const parsers = [
     haskellLockParser,
     opamParser,
     zigParser,
+    luaParser,
 ];
 
 /**

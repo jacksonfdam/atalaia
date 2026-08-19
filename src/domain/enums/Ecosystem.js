@@ -32,6 +32,7 @@ export const Ecosystem = Object.freeze({
     OPAM: 'OPAM',
     // Content-addressed: a Zig dependency is a URL and a hash, not a version.
     ZIG: 'ZIG',
+    LUAROCKS: 'LUAROCKS',
     UNKNOWN: 'UNKNOWN',
 });
 

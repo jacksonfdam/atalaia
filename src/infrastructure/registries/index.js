@@ -212,6 +212,7 @@ const UNSUPPORTED = {
     OPAM: 'The opam repository is a git tree of version directories with no package endpoint.',
     // Not a gap that could be closed: Zig identifies a dependency by content.
     ZIG: 'Dependencies are content-addressed by URL and hash; there is no registry.',
+    LUAROCKS: 'No lookup against the LuaRocks manifest yet.',
     CONAN: 'Conan Center is a git tree of recipes with no per-package endpoint.',
     VCPKG: 'Versions come from the registry baseline commit, not from the manifest.',
     // trunk.cocoapods.org could answer this one — the lookup is simply not
