@@ -1,5 +1,6 @@
 import Dependency from '../../domain/entities/Dependency.js';
 import { isConstraintTable, isPackage, isRequirementArray } from './pyprojectSections.js';
+import { normalizePythonName } from './pythonNames.js';
 
 /**
  * Parse Python dependency files: requirements.txt, Pipfile, pyproject.toml.
@@ -28,7 +29,7 @@ function parseRequirements(content, manifestFileName) {
         if (match) {
             deps.push(new Dependency({
                 ecosystem: 'PIP',
-                name: match[1].toLowerCase(),
+                name: normalizePythonName(match[1]),
                 version: match[2] ? match[2].trim() : null,
                 manifestFile: manifestFileName,
             }));
@@ -60,7 +61,7 @@ function parsePipfile(content, manifestFileName) {
                 const versionMatch = trimmed.match(/=\s*"([^"]+)"/);
                 deps.push(new Dependency({
                     ecosystem: 'PIP',
-                    name: match[1].toLowerCase(),
+                    name: normalizePythonName(match[1]),
                     version: versionMatch ? versionMatch[1] : null,
                     manifestFile: manifestFileName,
                 }));
@@ -93,12 +94,12 @@ function splitRequirement(spec) {
     // A direct reference — `poetry-core @ git+https://...`, which python-poetry
     // uses on itself — names a source, not a version. Nothing to compare a URL
     // against, so it reports unknown.
-    if (specifier.startsWith('@')) return { name: parts[1].toLowerCase(), version: null };
+    if (specifier.startsWith('@')) return { name: normalizePythonName(parts[1]), version: null };
 
     // PEP 508 allows the specifier in brackets: `build (>=1.2.1,<2.0.0)`. The
     // brackets are syntax, and leaving them in makes the version uncomparable.
     const version = specifier.replace(/^\((.*)\)$/, '$1') || null;
-    return { name: parts[1].toLowerCase(), version };
+    return { name: normalizePythonName(parts[1]), version };
 }
 
 /**
@@ -164,7 +165,7 @@ function projectName(content) {
         if (table !== 'project' && table !== 'tool.poetry') continue;
 
         const name = line.match(/^name\s*=\s*["']([^"']+)["']/);
-        if (name) return name[1].toLowerCase();
+        if (name) return normalizePythonName(name[1]);
     }
 
     return null;
@@ -185,7 +186,7 @@ function parsePyproject(content, manifestFileName) {
     const add = (name, version) => {
         if (!name || !isPackage(name)) return;
 
-        const key = name.toLowerCase();
+        const key = normalizePythonName(name);
 
         // A project lists itself, with an extra, in a dev group: psf/requests
         // has `requests[socks]` under its test dependencies. That is an
@@ -248,7 +249,7 @@ function parsePyproject(content, manifestFileName) {
             continue;
         }
 
-        if (isConstraintTable(table)) add(key.toLowerCase(), poetryConstraint(value));
+        if (isConstraintTable(table)) add(normalizePythonName(key), poetryConstraint(value));
     }
 
     return [...byName.values()];
