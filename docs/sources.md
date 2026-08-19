@@ -33,3 +33,5 @@ Most of these publish a catalogue, not a window: CISA serves the whole KEV list 
 A source that answers with zero items is reported as `EMPTY` rather than healthy, and the health report shows how many of the items actually carry a CVSS score — a feed can be alive and still be useless for triage.
 
 A source that is missing its credentials or its URL is `NOT_CONFIGURED`, and the row says which setting is missing. It is a separate status because it is a separate problem: `EMPTY` means the source answered and had nothing, `NOT_CONFIGURED` means it was never called. Both count towards the degraded tally in the console — an enabled source collecting nothing is worth knowing about either way — but only one of them is the source's fault.
+
+**NVD rate limits.** NVD allows five requests per rolling thirty seconds without a key and fifty with one, and refuses the ones over the line with `403` or `503` rather than `429`. Set `NVD_API_KEY` (free, issued instantly at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key)) and the health check stops reporting a limit as an outage.
