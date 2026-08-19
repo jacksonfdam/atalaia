@@ -188,6 +188,9 @@ const UNSUPPORTED = {
     TERRAFORM: 'Providers and modules resolve per registry.',
     HELM: 'Charts resolve per repository.',
     SWIFT: 'A package resolves from its own git repository; there is no central index.',
+    // trunk.cocoapods.org could answer this one — the lookup is simply not
+    // written yet, which is a different thing from unanswerable.
+    COCOAPODS: 'No lookup against trunk.cocoapods.org yet.',
     UNKNOWN: 'Unrecognised ecosystem.',
 };
 
