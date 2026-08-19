@@ -9,6 +9,10 @@ import Dependency from '../../domain/entities/Dependency.js';
  */
 export const manifestFiles = ['Podfile.lock'];
 
+// Podfile.lock states the version in the build, so its rows supersede a
+// constraint read from a Podfile. See reconcileDependencies.js.
+export const resolvesVersions = true;
+
 // Two spaces is a pod that is in the build in its own right; four is a
 // subdependency of the pod above it, which is already listed at the top level.
 const TOP_LEVEL_POD = /^ {2}- (.+?)$/;

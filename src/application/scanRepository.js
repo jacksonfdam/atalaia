@@ -1,6 +1,7 @@
 import logger from '../infrastructure/logger.js';
 import { findParsersForFile } from '../infrastructure/parsers/parserRegistry.js';
 import { resolveVendorProduct } from '../infrastructure/feeds/opencveVendorLookup.js';
+import { reconcileDependencies, resolvedManifests } from './reconcileDependencies.js';
 import {
     getRepository,
     replaceDependencies,
@@ -71,10 +72,22 @@ export async function scanRepository(repositoryId, provider, options = {}) {
         }
     }
 
-    // 4. Resolve vendor/product mappings (optional, can be slow for many deps)
-    let unmappedCount = allDeps.length;
+    // 4. A lockfile beside a manifest states what the manifest only constrained,
+    //    so its rows supersede the manifest's. Before the vendor lookup, not
+    //    after: that lookup is one request per dependency, and a superseded row
+    //    would pay for an answer nothing goes on to store.
+    const deps = reconcileDependencies(allDeps, resolvedManifests(parseJobs));
+    if (deps.length !== allDeps.length) {
+        logger.info(
+            { repoId: repositoryId, superseded: allDeps.length - deps.length },
+            'Manifest rows superseded by a lockfile'
+        );
+    }
+
+    // 5. Resolve vendor/product mappings (optional, can be slow for many deps)
+    let unmappedCount = deps.length;
     if (!options.skipVendorLookup) {
-        for (const dep of allDeps) {
+        for (const dep of deps) {
             try {
                 const mapping = await resolveVendorProduct(dep.ecosystem, dep.name);
                 if (mapping) {
@@ -88,15 +101,15 @@ export async function scanRepository(repositoryId, provider, options = {}) {
         }
     }
 
-    // 5. Atomic replace in database
-    await replaceDependencies(repositoryId, allDeps);
+    // 6. Atomic replace in database
+    await replaceDependencies(repositoryId, deps);
 
-    // 6. Update scan timestamp
+    // 7. Update scan timestamp
     await updateRepository(repositoryId, { lastScannedAt: new Date().toISOString() });
 
     const result = {
         repoName: repo.name,
-        dependencyCount: allDeps.length,
+        dependencyCount: deps.length,
         ecosystems: [...ecosystems],
         unmappedCount,
     };
