@@ -17,6 +17,7 @@ import * as pubParser from './pubParser.js';
 import * as pubLockParser from './pubLockParser.js';
 import * as helmParser from './helmParser.js';
 import * as helmLockParser from './helmLockParser.js';
+import * as npmLockParser from './npmLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -43,6 +44,7 @@ export const parsers = [
     pubLockParser,
     helmParser,
     helmLockParser,
+    npmLockParser,
 ];
 
 /**
