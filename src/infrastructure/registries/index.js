@@ -209,6 +209,7 @@ const UNSUPPORTED = {
     SWIFT: 'A package resolves from its own git repository; there is no central index.',
     // Both registries are git trees of recipe directories rather than services
     // with a per-package endpoint, so there is nothing single to ask.
+    OPAM: 'The opam repository is a git tree of version directories with no package endpoint.',
     CONAN: 'Conan Center is a git tree of recipes with no per-package endpoint.',
     VCPKG: 'Versions come from the registry baseline commit, not from the manifest.',
     // trunk.cocoapods.org could answer this one — the lookup is simply not
