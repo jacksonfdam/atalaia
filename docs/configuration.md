@@ -62,6 +62,8 @@ Read by the **API**, and describing the **console's** address — the ceremony h
 | `SLACK_APP_ID` | — | Dev only: the app to update. |
 | `TEAMS_WEBHOOK_URL` | — | Microsoft Teams Workflows webhook. Pins the integration to the environment. |
 | `TEAMS_ENABLED` | — | Forces Teams delivery on or off wherever it is configured. |
+| `DISCORD_WEBHOOK_URL` | — | Discord channel webhook. Pins the integration to the environment. |
+| `DISCORD_ENABLED` | — | Forces Discord delivery on or off wherever it is configured. |
 | `TELEGRAM_BOT_TOKEN` | — | Bot token from `@BotFather`. Pins the integration to the environment. |
 | `TELEGRAM_CHAT_ID` | — | Where alerts go: a group (`-100…`), a channel (`@name`) or a person's chat. |
 | `TELEGRAM_ENABLED` | — | Forces Telegram delivery on or off wherever it is configured. |

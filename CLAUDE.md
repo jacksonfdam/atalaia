@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Atalaia monitors public vulnerability feeds, filters findings against the technologies the user ships, correlates them with imported GitHub repositories, and alerts through Slack, Microsoft Teams and email.
+Atalaia monitors public vulnerability feeds, filters findings against the technologies the user ships, correlates them with imported GitHub repositories, and alerts through Slack, Microsoft Teams, Discord, Telegram and email.
 
 **Three processes, one Postgres.** The **API** (`src/interface/index.js`, Express, port 3000) serves requests and enqueues work. The **worker** (`src/interface/worker.js`, no port) takes jobs off the queue and does it. The **console** (`ui/`, React + a BFF, port 3001) talks only to the API. The database is any Postgres 13+, reached through `DATABASE_URL`, and it also holds the queue (pg-boss) and the schedules. Nothing host-specific is used, so a container, a managed instance or a local Supabase all work the same.
 
@@ -46,7 +46,7 @@ Clean Architecture with strict layer boundaries — **`src/domain/` has zero ext
   - `db/` — `pool.js` (one `pg` pool; named `@param` bindings translated to `$1`) and `migrationRunner.js` (one transaction per file, behind a `pg_advisory_lock`)
   - `queue/` — `jobs.js` (the one list of queues and schedules), `boss.js` (pg-boss, enqueue, state, progress), `workers.js` (handlers)
   - `cache/` — `postgresCache.js` (vulnerabilities), `repositoryStore.js`, `organizationStore.js`
-  - `notifiers/` — Slack, Teams, Telegram, email (`emailProviders.js` catalog, nodemailer transport) and their config modules
+  - `notifiers/` — Slack, Teams, Discord, Telegram, email (`emailProviders.js` catalog, nodemailer transport) and their config modules
   - `tunnels/` — public URLs for callbacks; one file per provider (ngrok, cloudflared), listed in `tunnelRegistry.js`. `PUBLIC_URL` beats any tunnel
   - `llm/` — provider catalog (`llmProviders.js`) plus OpenAI-compatible, Anthropic and Ollama adapters; prompts in `llm/prompts/*.txt`
   - `providers/githubProvider.js` — **read-only**; every request goes through one GET helper and a test fails the build if a write call appears there

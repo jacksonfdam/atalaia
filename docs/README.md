@@ -9,7 +9,7 @@ Published at **[atalaia-console.vercel.app](https://atalaia-console.vercel.app)*
 | [Queues](queues.md) | The jobs, the schedules, retries, and how to look inside |
 | [Sources](sources.md) | The vulnerability feeds, their defaults and their health |
 | [Organizations and repositories](repositories.md) | GitHub import, dependency scanning, exposure and relevance |
-| [Notifications](notifications.md) | Slack, Microsoft Teams, desktop, weekly email, LLM explanations |
+| [Notifications](notifications.md) | Slack, Microsoft Teams, Discord, Telegram, desktop, weekly email, LLM explanations |
 | [Console and CLI](console-and-cli.md) | The management console and the terminal client |
 | [Authentication](authentication.md) | Passkeys, the first account, recovery codes, and what happens when one is lost |
 | [Security](security.md) | The four credentials, what never leaves, the boundaries between the console, the API and agents |

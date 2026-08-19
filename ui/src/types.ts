@@ -520,6 +520,9 @@ export interface TeamsPayload {
   status: { ready: boolean; reason: string | null; source: 'env' | 'database' | 'none' };
 }
 
+/** Discord is the same shape as Teams: one incoming webhook, one channel. */
+export type DiscordPayload = TeamsPayload;
+
 export interface TelegramChats {
   count: number;
   chats: {

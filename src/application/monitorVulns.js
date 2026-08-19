@@ -9,6 +9,7 @@ import path from 'path';
 import notifySlack from '../infrastructure/notifySlack.js';
 import { notifyTeams } from '../infrastructure/notifiers/notifyTeams.js';
 import { notifyTelegram } from '../infrastructure/notifiers/notifyTelegram.js';
+import { notifyDiscord } from '../infrastructure/notifiers/notifyDiscord.js';
 import { has, add, markNotified } from '../infrastructure/cache/postgresCache.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
@@ -414,6 +415,7 @@ async function monitorVulns() {
             await notifySlack(vuln, highlight, correlation);
             await notifyTeams(vuln, highlight, correlation);
             await notifyTelegram(vuln, highlight, correlation);
+            await notifyDiscord(vuln, highlight, correlation);
 
             // And the people who asked about one of these repositories in
             // particular. Immediate, because a CVE in something you ship is not
