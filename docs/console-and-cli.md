@@ -13,9 +13,9 @@ open http://localhost:3001
 |------|-----------------|
 | Overview | Counts by severity/status/source, open criticals, trigger a monitoring cycle |
 | Vulnerabilities | Filter, paginate, acknowledge and resolve — one row at a time, or a ticked selection in batch |
-| Reports | The weekly digest as the email sends it: findings grouped by repository, each with the dependency it arrives through and a short explanation. *Send now* mails it immediately |
+| Reports | Two tabs. **Weekly digest** is what the email sends: findings grouped by repository, each with the dependency it arrives through and a short explanation — *Send now* mails it immediately. **Dependencies & technologies** is the other direction: what the fleet is made of, what is behind, and what nobody has checked |
 | Sources | Enable/disable each source, live per-feed health, and the full database catalog |
-| Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies, and subscribe someone to be told when a CVE reaches one |
+| Repositories | Add, enable/disable, scan, inspect technologies and parsed dependencies, read the same dependency report scoped to one repository, and subscribe someone to be told when a CVE reaches one |
 | Settings | Everything configurable, one tab at a time |
 
 Settings is tabbed, because stacking every integration on one page made the bottom of it unreachable. Each tab has its own URL, so `/settings/slack` is a link you can send someone:
@@ -31,6 +31,32 @@ Settings is tabbed, because stacking every integration on one page made the bott
 | Email | `/settings/email` | Provider, credential and recipients for the weekly digest |
 | Desktop | `/settings/desktop` | Browser notifications for new CVEs |
 | Model | `/settings/model` | The LLM provider behind the plain-English explanations |
+
+**The dependency report** answers the question the digest does not: not "what
+was published this week that reaches us" but "what are we made of, and how far
+behind is it". It is one endpoint — `GET /reports/dependencies` — rendered in two
+places: the fleet on the Reports page, and one repository on its own *Report* tab.
+
+It keeps four states apart, and the distinction is the whole point:
+
+| State | Means |
+|-------|-------|
+| `current` | The manifest already allows the newest published release |
+| `behind` | The registry has a release the manifest does not admit |
+| `unknown` | Checked, and not comparable — a digest, a commit, an interval, or a registry that refused |
+| `unchecked` | Never compared with a registry |
+
+`unchecked` is **not** up to date. Counting it as current would make every
+percentage on the page a claim nobody verified, so the report says how many were
+never asked, names the repositories nobody has scanned, and dates the newest
+registry answer it is reasoning from.
+
+Packages behind are grouped across repositories and ranked by how many they
+reach, because one upgrade that clears nine repositories is a different piece of
+work from nine unrelated ones. Languages come from the hosting provider and
+describe the code; ecosystems come from the manifests a scan found and describe
+what it depends on — the two are never merged, since a repository can report
+TypeScript and carry its risk in a Dockerfile.
 
 **Batch actions.** Tick the rows and a bar appears above the table: acknowledge,
 resolve, or have the model write the text. The counts come back per CVE, so

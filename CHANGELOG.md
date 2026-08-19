@@ -6,6 +6,32 @@ minor bump adds capability, a patch bump only fixes.
 Every entry says what changed and, where it matters, what it was doing wrong before — a
 changelog that only lists additions hides the half of the work that mattered most.
 
+## Unreleased
+
+### The dependency report
+
+**`GET /reports/dependencies`, on the Reports page and on each repository's own
+*Report* tab.** The weekly digest answers what was published this week that
+reaches us. This answers the question asked the other way round: what do we
+depend on, how much of it has moved on without us, and which languages and
+ecosystems is that spread across.
+
+It keeps four version states apart rather than three. A dependency nobody has
+compared with a registry is `unchecked` — unknown, not up to date — and folding
+those into "current" is what would turn every percentage on the page into a claim
+nobody verified. Alongside them the report names the repositories nobody has
+scanned, says how old the newest registry answer is, and explains the pins it
+cannot compare instead of dropping them.
+
+Packages behind are grouped across repositories and ranked by how many they
+reach: one upgrade that clears nine repositories is a different piece of work
+from nine unrelated ones. Technologies stay two independent signals — languages
+from the hosting provider, ecosystems from the manifests a scan found — because a
+repository can report TypeScript and carry its risk in a Dockerfile.
+
+One endpoint, one shape, two places to read it, so the fleet view and a
+repository's own cannot drift apart.
+
 ## 1.2.0
 
 Dependency coverage went from 14 of the 61 manifest and lock files people actually commit to 58,

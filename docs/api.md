@@ -77,6 +77,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/settings/llm/test` | Send one short prompt to the configured model. |
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | The digest the email sends: `affecting` grouped by repository, `infrastructure` and `other` capped, `dependencies` behind. `?windowDays=N` changes the period. |
+| `GET` | `/api/v1/reports/dependencies` | What the fleet is built with and how far behind it is: coverage, the four version states, the packages behind ranked by how many repositories they reach, languages, ecosystems, manifests and topics. `?repositoryId=N` scopes it to one. |
 | `GET` `PUT` | `/api/v1/settings/telegram` | Bot token, chat id, and what Telegram was told to call. |
 | `POST` | `/api/v1/settings/telegram/test` | Post a real message to the configured chat. |
 | `GET` | `/api/v1/settings/telegram/chats` | Chats the bot has heard from, newest first — where a chat id comes from. |
