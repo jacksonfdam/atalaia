@@ -43,6 +43,8 @@ import * as swiftManifestParser from './swiftManifestParser.js';
 import * as podfileParser from './podfileParser.js';
 import * as carthageParser from './carthageParser.js';
 import * as carthageLockParser from './carthageLockParser.js';
+import * as condaParser from './condaParser.js';
+import * as condaLockParser from './condaLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -95,6 +97,8 @@ export const parsers = [
     podfileParser,
     carthageParser,
     carthageLockParser,
+    condaParser,
+    condaLockParser,
 ];
 
 /**

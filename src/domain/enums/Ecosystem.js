@@ -33,6 +33,10 @@ export const Ecosystem = Object.freeze({
     // Content-addressed: a Zig dependency is a URL and a hash, not a version.
     ZIG: 'ZIG',
     LUAROCKS: 'LUAROCKS',
+    // Conda resolves from its own channels, and the names disagree with PyPI's:
+    // pytorch on conda-forge is torch on PyPI. Filing one as the other would send
+    // every lookup and every correlation to the wrong package.
+    CONDA: 'CONDA',
     UNKNOWN: 'UNKNOWN',
 });
 
