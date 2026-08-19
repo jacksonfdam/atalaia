@@ -20,6 +20,9 @@ export const Ecosystem = Object.freeze({
     COCOAPODS: 'COCOAPODS',
     PUB: 'PUB',
     SWIFT: 'SWIFT',
+    // Elixir and Erlang share one registry, so Mix and Rebar3 share one
+    // ecosystem — two would never be told apart by a CVE naming a package.
+    HEX: 'HEX',
     UNKNOWN: 'UNKNOWN',
 });
 
