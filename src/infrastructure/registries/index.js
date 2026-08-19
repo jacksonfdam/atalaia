@@ -200,6 +200,10 @@ const UNSUPPORTED = {
     TERRAFORM: 'Providers and modules resolve per registry.',
     HELM: 'Charts resolve per repository.',
     SWIFT: 'A package resolves from its own git repository; there is no central index.',
+    // Both registries are git trees of recipe directories rather than services
+    // with a per-package endpoint, so there is nothing single to ask.
+    CONAN: 'Conan Center is a git tree of recipes with no per-package endpoint.',
+    VCPKG: 'Versions come from the registry baseline commit, not from the manifest.',
     // trunk.cocoapods.org could answer this one — the lookup is simply not
     // written yet, which is a different thing from unanswerable.
     COCOAPODS: 'No lookup against trunk.cocoapods.org yet.',

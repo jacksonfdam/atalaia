@@ -31,6 +31,9 @@ import * as sbtParser from './sbtParser.js';
 import * as ivyParser from './ivyParser.js';
 import * as hexParser from './hexParser.js';
 import * as hexLockParser from './hexLockParser.js';
+import * as conanParser from './conanParser.js';
+import * as conanLockParser from './conanLockParser.js';
+import * as vcpkgParser from './vcpkgParser.js';
 
 /**
  * All registered dependency parsers.
@@ -71,6 +74,9 @@ export const parsers = [
     ivyParser,
     hexParser,
     hexLockParser,
+    conanParser,
+    conanLockParser,
+    vcpkgParser,
 ];
 
 /**

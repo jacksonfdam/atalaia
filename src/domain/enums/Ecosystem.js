@@ -23,6 +23,10 @@ export const Ecosystem = Object.freeze({
     // Elixir and Erlang share one registry, so Mix and Rebar3 share one
     // ecosystem — two would never be told apart by a CVE naming a package.
     HEX: 'HEX',
+    // C and C++ have no single manager. Conan and vcpkg are separate registries
+    // with separate naming, and merging them would make a lookup ambiguous.
+    CONAN: 'CONAN',
+    VCPKG: 'VCPKG',
     UNKNOWN: 'UNKNOWN',
 });
 
