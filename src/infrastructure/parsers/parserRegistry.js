@@ -29,6 +29,8 @@ import * as paketLockParser from './paketLockParser.js';
 import * as gradleLockParser from './gradleLockParser.js';
 import * as sbtParser from './sbtParser.js';
 import * as ivyParser from './ivyParser.js';
+import * as hexParser from './hexParser.js';
+import * as hexLockParser from './hexLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -67,6 +69,8 @@ export const parsers = [
     gradleLockParser,
     sbtParser,
     ivyParser,
+    hexParser,
+    hexLockParser,
 ];
 
 /**

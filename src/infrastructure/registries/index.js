@@ -122,6 +122,13 @@ const LOOKUPS = {
         return versions.length ? versions[versions.length - 1] : (data?.versions?.at(-1) ?? null);
     },
 
+    async HEX(name) {
+        const data = await get(`https://hex.pm/api/packages/${encodeURIComponent(name)}`);
+        // Newest first. `releases` carries pre-releases too, and `latest_stable_version`
+        // is absent on a package that has only ever published one.
+        return data?.latest_stable_version ?? data?.releases?.[0]?.version ?? null;
+    },
+
     async PUB(name) {
         const data = await get(`https://pub.dev/api/packages/${encodeURIComponent(name)}`);
         return data?.latest?.version ?? null;

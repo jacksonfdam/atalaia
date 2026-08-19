@@ -42,7 +42,7 @@ Clean Architecture with strict layer boundaries — **`src/domain/` has zero ext
 - **`src/application/`** — use cases: `monitorVulns.js` (fetch → filter → dedupe → notify), `scanRepository.js` / `scanAllRepositories.js`, `checkDependencyVersions.js`, `correlateVulnerability.js`, `generateWeeklyReport.js`, `acknowledgeVuln.js` / `resolveVuln.js`, `manageOrganization.js` / `manageRepository.js` / `manageOwner.js`
 - **`src/infrastructure/`** — external integrations:
   - `feeds/` — one file per source, all listed in `feedRegistry.js` (the single list both the monitoring cycle and the health check read). Runtime enable/disable is persisted in `feed_state`
-  - `parsers/` — one file per ecosystem, registered in `parserRegistry.js` (npm, pip, Go, Cargo, Maven, Gradle + version catalogs, RubyGems, NuGet, Composer, Terraform, Swift, CocoaPods, Dart/Flutter, Helm, Docker, GitHub Actions)
+  - `parsers/` — one file per ecosystem, registered in `parserRegistry.js` (npm, pip, Go, Cargo, Maven, Gradle + version catalogs, RubyGems, NuGet, Composer, Terraform, Swift, CocoaPods, Dart/Flutter, Helm, Elixir/Erlang, Docker, GitHub Actions)
   - `db/` — `pool.js` (one `pg` pool; named `@param` bindings translated to `$1`) and `migrationRunner.js` (one transaction per file, behind a `pg_advisory_lock`)
   - `queue/` — `jobs.js` (the one list of queues and schedules), `boss.js` (pg-boss, enqueue, state, progress), `workers.js` (handlers)
   - `cache/` — `postgresCache.js` (vulnerabilities), `repositoryStore.js`, `organizationStore.js`
