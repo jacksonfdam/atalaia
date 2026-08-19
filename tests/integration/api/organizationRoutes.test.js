@@ -541,8 +541,9 @@ describe('vulnerability relevance', () => {
             `INSERT INTO repository_dependencies (repository_id, ecosystem, name, manifest_file)
                  VALUES ($1, 'NPM', 'express', 'package.json'),
                         ($2, 'GITHUB_ACTIONS', 'actions/checkout', '.github/workflows/ci.yml'),
-                        ($3, 'DOCKER', 'node', 'Dockerfile')`,
-                [created.body.id, created.body.id, created.body.id]
+                        ($3, 'DOCKER', 'node', 'Dockerfile'),
+                        ($4, 'HELM', 'mariadb', 'Chart.lock')`,
+                [created.body.id, created.body.id, created.body.id, created.body.id]
         );
 
         await query(
@@ -551,7 +552,8 @@ describe('vulnerability relevance', () => {
                         ('CVE-2026-3001', 'Checkout', 'HIGH', false, 'ghsa', '["actions/checkout"]', 'OPEN'),
                         ('CVE-2026-3002', 'Node image', 'MEDIUM', false, 'nvd', '["node"]', 'OPEN'),
                         ('CVE-2026-3003', 'Something in Wordpress', 'CRITICAL', false, 'nvd', '["wordpress"]', 'OPEN'),
-                        ('CVE-2026-3004', 'Kubernetes', 'HIGH', false, 'nvd', '["kubernetes"]', 'OPEN')`
+                        ('CVE-2026-3004', 'Kubernetes', 'HIGH', false, 'nvd', '["kubernetes"]', 'OPEN'),
+                        ('CVE-2026-3005', 'MariaDB chart', 'HIGH', false, 'nvd', '["mariadb"]', 'OPEN')`
         );
     });
 
@@ -560,25 +562,32 @@ describe('vulnerability relevance', () => {
     test('keeps only what names something the fleet uses', async () => {
         const res = await request(app).get('/api/v1/vulnerabilities?relevance=affecting').set(KEY);
 
-        expect(ids(res.body)).toEqual(['CVE-2026-3000', 'CVE-2026-3001', 'CVE-2026-3002']);
-        expect(res.body.total).toBe(3);
+        expect(ids(res.body)).toEqual([
+            'CVE-2026-3000',
+            'CVE-2026-3001',
+            'CVE-2026-3002',
+            'CVE-2026-3005',
+        ]);
+        expect(res.body.total).toBe(4);
     });
 
     test('narrows to containers and CI on request', async () => {
         const res = await request(app).get('/api/v1/vulnerabilities?relevance=infrastructure').set(KEY);
 
-        // The Docker image and the workflow action; not the npm package.
-        expect(ids(res.body)).toEqual(['CVE-2026-3001', 'CVE-2026-3002']);
+        // The Docker image, the workflow action and the Helm subchart; not the
+        // npm package. HELM was in this filter's IN list long before anything
+        // could produce a HELM row, so the position matched nothing.
+        expect(ids(res.body)).toEqual(['CVE-2026-3001', 'CVE-2026-3002', 'CVE-2026-3005']);
     });
 
     test('still returns everything when asked', async () => {
-        expect((await request(app).get('/api/v1/vulnerabilities').set(KEY)).body.total).toBe(5);
+        expect((await request(app).get('/api/v1/vulnerabilities').set(KEY)).body.total).toBe(6);
     });
 
     test('reports the counts behind the filter', async () => {
         const res = await request(app).get('/api/v1/vulnerabilities').set(KEY);
 
-        expect(res.body.relevance).toEqual({ total: 5, affecting: 3, infrastructure: 2 });
+        expect(res.body.relevance).toEqual({ total: 6, affecting: 4, infrastructure: 3 });
     });
 
     test('a disabled repository stops counting', async () => {
