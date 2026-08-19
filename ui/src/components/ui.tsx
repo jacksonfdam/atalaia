@@ -59,6 +59,7 @@ export const HEALTH_COLOR: Record<string, string> = {
   EMPTY: 'var(--health-empty)',
   ERROR: 'var(--health-error)',
   DISABLED: 'var(--health-disabled)',
+  NOT_CONFIGURED: 'var(--health-not-configured)',
 };
 
 export function SeverityBadge({ severity }: { severity: string }) {

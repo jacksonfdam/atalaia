@@ -1,6 +1,6 @@
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN';
 export type Status = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
-export type FeedStatus = 'OK' | 'EMPTY' | 'ERROR' | 'DISABLED';
+export type FeedStatus = 'OK' | 'EMPTY' | 'ERROR' | 'DISABLED' | 'NOT_CONFIGURED';
 
 export interface Vulnerability {
   id: number;

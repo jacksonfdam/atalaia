@@ -90,7 +90,7 @@ Cloudflare's quick tunnel needs no account and no token, and downloads its binar
 | `FEED_DELAY_MS` | `2000` | Pause between feeds in a cycle — keeps scraped sources happy. |
 | `FEED_HEALTH_TTL_MS` | `60000` | Cache TTL for `/api/v1/feeds/health`. |
 | `OPENCVE_API_URL` | — | OpenCVE instance for vendor/product lookup. |
-| `OPENCVE_API_TOKEN` | — | OpenCVE token. |
+| `OPENCVE_API_TOKEN` | — | OpenCVE token. Without it the source reports `NOT_CONFIGURED` instead of being called. |
 | `GITHUB_TOKEN` | — | Fallback token for the GHSA feed and for repository scanning when an organization has none of its own. |
 | `TOKEN_ENCRYPTION_KEY` | falls back to `API_KEY` | Key used to encrypt organization tokens at rest. Change it and the stored tokens become unreadable. |
 | `LLM_TIMEOUT_MS` | `90000` local, `20000` hosted | How long a model has to answer. Ollama unloads an idle model and the cycle runs hourly, so nearly every call is a cold start: a 12B writing a 300-word guide measured 21s warm and 30.3s cold. |

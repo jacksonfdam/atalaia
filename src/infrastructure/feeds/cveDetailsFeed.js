@@ -40,15 +40,25 @@ const CVE_DETAILS_HEADERS = {
 const PAGE_DELAY_MS = 3000;
 
 /**
+ * What is missing before this source can be called at all.
+ * @returns {string|null}
+ */
+export function unconfiguredReason() {
+    return config.feeds?.cveDetails ? null : 'No listing URL. Set feeds.cveDetails in config.json.';
+}
+
+/**
  * Scrape vulnerabilities from CVE Details website.
  * @returns {Promise<Vulnerability[]>}
  */
 export async function fetch() {
-    let currentUrl = config.feeds?.cveDetails;
-    if (!currentUrl) {
-        logger.warn('No CVE Details URL configured, skipping');
+    const missing = unconfiguredReason();
+    if (missing) {
+        logger.warn({ reason: missing }, 'CVE Details feed not configured, skipping');
         return [];
     }
+
+    let currentUrl = config.feeds.cveDetails;
 
     return withRetry('cveDetailsFeed', async () => {
         const vulns = [];

@@ -78,6 +78,8 @@
   --health-empty: var(--orange);
   --health-error: var(--severity-critical);
   --health-disabled: var(--win-mid);
+  /* Enabled but never called: the operator's own setup, not the source's fault. */
+  --health-not-configured: var(--lime);
 
   /* Metrics */
   --gap: clamp(0.75rem, 1.1vw, 1.1rem);

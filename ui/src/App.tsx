@@ -32,7 +32,7 @@ function Shell({ onAuthLost, session }: { onAuthLost: () => void; session: Sessi
   useDesktopAlerts();
 
   const degraded = (health.data?.feeds ?? []).filter(
-    feed => feed.status === 'ERROR' || feed.status === 'EMPTY'
+    feed => feed.status === 'ERROR' || feed.status === 'EMPTY' || feed.status === 'NOT_CONFIGURED'
   ).length;
 
   const tallies: Record<string, number | undefined> = {

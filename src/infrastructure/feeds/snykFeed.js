@@ -8,15 +8,25 @@ import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 const SEVERITY_MAP = { C: 'Critical', H: 'High', M: 'Medium', L: 'Low' };
 
 /**
+ * What is missing before this source can be called at all.
+ * @returns {string|null}
+ */
+export function unconfiguredReason() {
+    return config.feeds?.snyk ? null : 'No feed URL. Set feeds.snyk in config.json.';
+}
+
+/**
  * Scrape vulnerabilities from Snyk vulnerability database.
  * @returns {Promise<Vulnerability[]>}
  */
 export async function fetch() {
-    const baseUrl = config.feeds?.snyk;
-    if (!baseUrl) {
-        logger.warn('No Snyk feed URL configured, skipping');
+    const missing = unconfiguredReason();
+    if (missing) {
+        logger.warn({ reason: missing }, 'Snyk feed not configured, skipping');
         return [];
     }
+
+    const baseUrl = config.feeds.snyk;
 
     return withRetry('snykFeed', async () => {
         const vulns = [];

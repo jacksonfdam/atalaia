@@ -5,15 +5,25 @@ import logger from '../logger.js';
 import { FEED_TIMEOUT_MS, USER_AGENT, withRetry } from './feedUtils.js';
 
 /**
+ * What is missing before this source can be called at all.
+ * @returns {string|null}
+ */
+export function unconfiguredReason() {
+    return config.feeds?.cisaJson ? null : 'No feed URL. Set feeds.cisaJson in config.json.';
+}
+
+/**
  * Fetch vulnerabilities from CISA Known Exploited Vulnerabilities JSON feed.
  * @returns {Promise<Vulnerability[]>}
  */
 export async function fetch() {
-    const url = config.feeds?.cisaJson;
-    if (!url) {
-        logger.warn('No CISA feed URL configured, skipping');
+    const missing = unconfiguredReason();
+    if (missing) {
+        logger.warn({ reason: missing }, 'CISA feed not configured, skipping');
         return [];
     }
+
+    const url = config.feeds.cisaJson;
 
     return withRetry('cisaFeed', async () => {
         logger.info('Fetching CISA KEV feed');
