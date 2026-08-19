@@ -134,7 +134,7 @@ describe('packages.lock.json', () => {
     // A Project entry is another project in the solution: code in this
     // repository rather than a package to advise about.
     test('a project reference is not a package', () => {
-        expect(deps).not.toHaveProperty('Ocelot.Provider.Consul');
+        expect(Object.keys(deps)).not.toContain('Ocelot.Provider.Consul');
     });
 });
 
@@ -208,14 +208,14 @@ describe('paket.lock', () => {
     // A package's own dependencies sit two spaces deeper with a constraint.
     test('a nested constraint line is not a row', () => {
         expect(Object.values(deps).some(version => version.includes('>='))).toBe(false);
-        expect(deps).not.toHaveProperty('System.Configuration.ConfigurationManager');
+        expect(Object.keys(deps)).not.toContain('System.Configuration.ConfigurationManager');
     });
 
     // A GITHUB section lists source files at the same indentation as a package,
     // with a commit in the brackets where a version would be.
     test('a GITHUB source file is not a package', () => {
-        expect(deps).not.toHaveProperty('src/app/FakeLib/Globbing/Globbing.fs');
-        expect(deps).not.toHaveProperty('FsUnit.fs');
+        expect(Object.keys(deps)).not.toContain('src/app/FakeLib/Globbing/Globbing.fs');
+        expect(Object.keys(deps)).not.toContain('FsUnit.fs');
     });
 
     // A GROUP starts a whole new set of sections, so being inside NUGET cannot

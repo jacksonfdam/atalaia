@@ -71,7 +71,7 @@ describe('go.sum', () => {
     // A module with only a /go.mod line was consulted to resolve versions and
     // its source was never downloaded, so nothing of it is in the binary.
     test('a module with only a /go.mod line is not in the build', () => {
-        expect(deps).not.toHaveProperty('buf.build/go/protovalidate');
+        expect(Object.keys(deps)).not.toContain('buf.build/go/protovalidate');
     });
 
     test('no version carries the /go.mod suffix', () => {
@@ -124,7 +124,7 @@ describe('go.mod replace directives', () => {
     // A redirect to another module means that module is what is compiled, under
     // its own path and at its own version.
     test('a redirect to another module reports the module that is built', () => {
-        expect(deps).not.toHaveProperty('github.com/stretchr/testify');
+        expect(Object.keys(deps)).not.toContain('github.com/stretchr/testify');
         expect(deps['github.com/someone/testify']).toBe('v1.9.0');
     });
 
@@ -137,7 +137,7 @@ describe('go.mod replace directives', () => {
     });
 
     test('the module declaration is not a dependency', () => {
-        expect(deps).not.toHaveProperty('k8s.io/kubernetes');
+        expect(Object.keys(deps)).not.toContain('k8s.io/kubernetes');
     });
 });
 
