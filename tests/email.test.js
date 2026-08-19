@@ -15,6 +15,26 @@ jest.unstable_mockModule('nodemailer', () => ({
   createTransport,
 }));
 
+/**
+ * The email configuration, stubbed.
+ *
+ * sendWeeklyEmail resolves its configuration through emailConfig, which reads a
+ * row from the database when the environment does not pin one. This suite is
+ * about report generation and formatting and never sets up a schema, so every
+ * run logged "Failed to read email configuration (DATABASE_URL is not set)" and
+ * passed anyway — a test exercising a database path with no database, and one
+ * whose behaviour depended on whatever SMTP_* variables happened to be in the
+ * developer's environment.
+ *
+ * Stubbed rather than given a schema: the configuration is an input to what is
+ * under test here, so the suite should state it.
+ */
+const resolveEmailConfig = jest.fn();
+jest.unstable_mockModule('../src/infrastructure/notifiers/emailConfig.js', () => ({
+  resolveEmailConfig,
+  isEnvConfigured: () => true,
+}));
+
 const nodemailer = (await import('nodemailer')).default;
 const { generateWeeklyReport } = await import('../src/application/generateWeeklyReport.js');
 const { formatReportHtmlProfessional } = await import(
@@ -27,6 +47,20 @@ const { sendWeeklyEmail } = await import(
 describe('Email Functionality', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    // What the suite has always been implicitly relying on, now stated.
+    resolveEmailConfig.mockResolvedValue({
+      ready: true,
+      source: 'env',
+      provider: 'smtp',
+      host: 'smtp.example.com',
+      port: 587,
+      username: 'atalaia',
+      password: 'secret',
+      from: 'atalaia@example.com',
+      recipients: ['test@example.com'],
+      template: 'professional',
+    });
   });
 
   // ============================================
