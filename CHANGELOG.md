@@ -32,6 +32,31 @@ repository can report TypeScript and carry its risk in a Dockerfile.
 One endpoint, one shape, two places to read it, so the fleet view and a
 repository's own cannot drift apart.
 
+### Printing
+
+**Ctrl+P cut the page, and two of the causes lost content rather than looking
+wrong.** `.table-scroll` scrolls sideways and the dependency tables cap their
+height inline; a printer does neither. Measured at a 700px page, the dependency
+table wanted 954px of width inside a 630px box and 1511px of height inside 384px
+— five columns and three quarters of the rows were absent from the paper. Print
+now has its own layout: one column, no navigation or buttons, nothing clipped, a
+fixed table layout so no column can push past the sheet, headers repeated on
+every page a table spills onto, and rows that do not split down the middle.
+
+The window titlebar is absolutely positioned, so it landed on top of the rows
+when a window broke across pages; in print it sits in the flow. Titlebars and
+table headers are white text on a coloured background, which disappears entirely
+when Chrome drops background graphics — its default — so those print black on
+white, and colour is forced only where it is the information: severity badges and
+the bars.
+
+### Fixes
+
+- **The bar charts never had a fill.** `.bar-fill` is a span, and width and
+  height do not apply to an inline box, so every bar — Overview, feed health, the
+  new report — measured 0x0 and drew an empty track. The track showed because it
+  is a grid item and grid items are blockified; its child is not.
+
 ## 1.2.0
 
 Dependency coverage went from 14 of the 61 manifest and lock files people actually commit to 58,
