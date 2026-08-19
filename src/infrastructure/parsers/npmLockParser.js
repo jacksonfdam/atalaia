@@ -1,4 +1,5 @@
 import Dependency from '../../domain/entities/Dependency.js';
+import { lowerVersion } from './pickVersion.js';
 
 /**
  * Parse the four npm-family lockfiles.
@@ -67,20 +68,34 @@ export function parse(fileContent, manifestFileName) {
     return fromNpm(fileContent, manifestFileName);
 }
 
-/** One row per name, first version seen. */
+/**
+ * One row per name.
+ *
+ * An npm tree carries the same package at several versions under nested
+ * node_modules paths, and one file can only store one row per package. The
+ * lower version is the one kept; see pickVersion.js for why.
+ */
 function collector(manifestFileName) {
     const byName = new Map();
 
     return {
         add(name, version) {
-            if (!name || byName.has(name)) return;
+            if (!name) return;
+
+            const resolved = published(version);
+            const existing = byName.get(name);
+
+            if (existing) {
+                existing.version = lowerVersion(existing.version, resolved);
+                return;
+            }
 
             byName.set(
                 name,
                 new Dependency({
                     ecosystem: 'NPM',
                     name,
-                    version: published(version),
+                    version: resolved,
                     manifestFile: manifestFileName,
                 })
             );
