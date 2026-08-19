@@ -31,6 +31,12 @@ import {
 } from '../../infrastructure/notifiers/teamsConfig.js';
 import { sendTeamsTestMessage } from '../../infrastructure/notifiers/notifyTeams.js';
 import {
+    describeDiscordConfig,
+    saveDiscordConfig,
+    isEnvConfigured as isDiscordEnvConfigured,
+} from '../../infrastructure/notifiers/discordConfig.js';
+import { sendDiscordTestMessage } from '../../infrastructure/notifiers/notifyDiscord.js';
+import {
     describeTelegramConfig,
     saveTelegramConfig,
     isEnvConfigured as isTelegramEnvConfigured,
@@ -204,6 +210,41 @@ export function createSettingsRoutes(cache) {
             res.status(result.ok ? 200 : 400).json(result);
         } catch (error) {
             logger.error({ err: error }, 'Teams test failed');
+            res.status(500).json({ error: error.message });
+        }
+    });
+
+    // GET /settings/discord — the channel webhook, if any
+    router.get('/discord', async (_req, res) => {
+        res.json(await describeDiscordConfig());
+    });
+
+    // PUT /settings/discord
+    router.put('/discord', async (req, res) => {
+        if (isDiscordEnvConfigured()) {
+            return res.status(409).json({
+                error: 'Discord is pinned by DISCORD_WEBHOOK_URL in the environment',
+                hint: 'Unset DISCORD_WEBHOOK_URL to manage it from the console.',
+            });
+        }
+
+        const { webhookUrl, enabled, changedBy } = req.body ?? {};
+
+        try {
+            res.json(await saveDiscordConfig({ webhookUrl, enabled }, changedBy ?? 'api'));
+        } catch (error) {
+            logger.warn({ err: error }, 'Discord configuration update failed');
+            res.status(400).json({ error: error.message });
+        }
+    });
+
+    // POST /settings/discord/test — post a real embed to the channel
+    router.post('/discord/test', async (_req, res) => {
+        try {
+            const result = await sendDiscordTestMessage();
+            res.status(result.ok ? 200 : 400).json(result);
+        } catch (error) {
+            logger.error({ err: error }, 'Discord test failed');
             res.status(500).json({ error: error.message });
         }
     });

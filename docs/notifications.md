@@ -1,6 +1,6 @@
 # Notifications
 
-Slack, Microsoft Teams, Telegram, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
+Slack, Microsoft Teams, Discord, Telegram, desktop pop-ups and the weekly email digest. Each integration is independent: enable any, all, or none. A vulnerability is offered to each, and each decides for itself whether it is configured.
 
 ## What gets alerted
 
@@ -49,6 +49,16 @@ The second chat integration, configured under **Settings → Teams**. In Teams: 
 Alerts arrive as an Adaptive Card carrying the severity, the affected repositories, the owners and a link to the advisory. There are **no Acknowledge/Resolve buttons**: those need a registered app with an endpoint Teams can call back, which is what Slack's signing secret gives us for free.
 
 A workflow webhook is bound to the channel it was created in, so there is no destination to choose — one webhook, one channel. The URL is a credential (anyone holding it can post there), so it is encrypted at rest and never returned by the API. `TEAMS_WEBHOOK_URL` and `TEAMS_ENABLED` pin it from the environment, same as everywhere else.
+
+## Discord alerts
+
+Configured under **Settings → Discord**. In Discord: channel → *Edit Channel* → *Integrations* → *Webhooks* → *New Webhook*. Paste the URL it gives you.
+
+Alerts arrive as an embed carrying the severity as its colour, the affected repositories, the owners and a link to the advisory — the title itself is the link. There are **no Acknowledge/Resolve buttons**, for the same reason Teams has none: components need a registered application with an endpoint Discord can call back.
+
+An incoming webhook is bound to the channel it was created in, so there is no destination to choose. The URL is a credential (anyone holding it can post there), so it is encrypted at rest and never returned by the API. `DISCORD_WEBHOOK_URL` and `DISCORD_ENABLED` pin it from the environment.
+
+One difference worth knowing: Discord **rejects** an over-long payload outright rather than trimming it, so a long alert would be lost rather than shortened. The embed is truncated to Discord's own limits before it is sent — 256 characters of title, 4096 of description, 1024 per field.
 
 ## Telegram alerts
 

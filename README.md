@@ -7,7 +7,7 @@
 
 **Atalaia tells you whether a CVE actually reaches you.**
 
-For maintainers with more repositories than attention. It watches fourteen public vulnerability feeds, filters them against the technologies you ship, works out which of your repositories each finding lands in and through which manifest file, and tells the person who owns it — in Slack, Teams, Telegram or email.
+For maintainers with more repositories than attention. It watches fifteen public vulnerability feeds, filters them against the technologies you ship, works out which of your repositories each finding lands in and through which manifest file, and tells the person who owns it — in Slack, Teams, Discord, Telegram or email.
 
 It reads. It never opens a pull request, never edits a manifest, never gates a build, and never phones home.
 
@@ -82,7 +82,7 @@ Any Postgres 13+ works: a container like the one above, a managed instance, or a
 
 The console has no password. `SETUP_PASSWORD` creates the first account and stops working the moment it has; from then on it is passkeys, with recovery codes for the day a device is lost — [docs/authentication.md](docs/authentication.md).
 
-Slack, Teams, Telegram, email and model explanations all stay off until you configure them, from the console.
+Slack, Teams, Discord, Telegram, email and model explanations all stay off until you configure them, from the console.
 
 ```bash
 ./scripts/atalaia.sh status              # health of each service

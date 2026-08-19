@@ -6,6 +6,7 @@ import { EmailSettings } from './EmailSettings';
 import { LlmSettings } from './LlmSettings';
 import { SlackSettings } from './SlackSettings';
 import { TeamsSettings } from './TeamsSettings';
+import { DiscordSettings } from './DiscordSettings';
 import { TelegramSettings } from './TelegramSettings';
 import { DesktopAlerts } from './DesktopAlerts';
 import { AccountSettings } from './AccountSettings';
@@ -26,6 +27,7 @@ type TabId =
   | 'organizations'
   | 'slack'
   | 'teams'
+  | 'discord'
   | 'telegram'
   | 'email'
   | 'desktop'
@@ -39,6 +41,7 @@ const TABS: { id: TabId; label: string; admin?: boolean }[] = [
   { id: 'organizations', label: 'Organizations' },
   { id: 'slack', label: 'Slack' },
   { id: 'teams', label: 'Teams' },
+  { id: 'discord', label: 'Discord' },
   { id: 'telegram', label: 'Telegram' },
   { id: 'email', label: 'Email' },
   { id: 'desktop', label: 'Desktop' },
@@ -72,6 +75,7 @@ export function Settings({
     organizations: <Organizations onAuthLost={onAuthLost} />,
     slack: <SlackSettings onAuthLost={onAuthLost} />,
     teams: <TeamsSettings onAuthLost={onAuthLost} />,
+    discord: <DiscordSettings onAuthLost={onAuthLost} />,
     telegram: <TelegramSettings onAuthLost={onAuthLost} />,
     email: <EmailSettings onAuthLost={onAuthLost} />,
     desktop: <DesktopAlerts onAuthLost={onAuthLost} />,
