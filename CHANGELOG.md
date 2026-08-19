@@ -6,7 +6,10 @@ minor bump adds capability, a patch bump only fixes.
 Every entry says what changed and, where it matters, what it was doing wrong before — a
 changelog that only lists additions hides the half of the work that mattered most.
 
-## Unreleased
+## 1.3.0
+
+A report for the question the digest does not answer — what the fleet is made of
+and how far behind it is — and the printing it turned out nobody had ever tried.
 
 ### The dependency report
 
