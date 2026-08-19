@@ -21,6 +21,7 @@ import * as npmLockParser from './npmLockParser.js';
 import * as pipLockParser from './pipLockParser.js';
 import * as composerLockParser from './composerLockParser.js';
 import * as gemLockParser from './gemLockParser.js';
+import * as cargoLockParser from './cargoLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -51,6 +52,7 @@ export const parsers = [
     pipLockParser,
     composerLockParser,
     gemLockParser,
+    cargoLockParser,
 ];
 
 /**
