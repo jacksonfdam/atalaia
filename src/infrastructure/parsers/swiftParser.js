@@ -42,7 +42,12 @@ export function parse(fileContent, manifestFileName) {
     const deps = [];
 
     for (const pin of pinsOf(document)) {
-        const name = pin?.identity || pin?.package;
+        // SPM's identity is the last path component of the URL, lowercased.
+        // Version 2 and 3 store it that way; version 1 names a pin by repository
+        // with its original case, so `Alamofire` and `alamofire` were two names
+        // for one package depending on which schema a repository had. Lowercasing
+        // here is what lets swiftManifestParser and carthageParser agree with it.
+        const name = (pin?.identity || pin?.package)?.toLowerCase();
         if (!name) continue;
 
         deps.push(new Dependency({

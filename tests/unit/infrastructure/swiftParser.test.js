@@ -58,7 +58,8 @@ describe('lockfile discovery', () => {
     test.each([
         ['Package.resolved', 1],
         ['App.xcworkspace/xcshareddata/swiftpm/Package.resolved', 1],
-        ['Package.swift', 0],
+        // Read since #38: a library that does not commit its lockfile.
+        ['Package.swift', 1],
     ])('%s matches %i parser(s)', (filePath, expected) => {
         expect(findParsersForFile(filePath)).toHaveLength(expected);
     });
@@ -67,10 +68,14 @@ describe('lockfile discovery', () => {
 describe('version 1', () => {
     const deps = parser.parse(VERSION_1, 'Package.resolved');
 
-    test('reads a pin named by its repository', () => {
+    // SPM's identity is the last path component of the URL, lowercased. Version 2
+    // and 3 store it that way; version 1 names a pin by repository with its
+    // original case, so without normalising, `Alamofire` and `alamofire` were two
+    // names for one package depending on which schema a repository had.
+    test('reads a pin named by its repository, lowercased to the SPM identity', () => {
         expect(deps[0]).toMatchObject({
             ecosystem: 'SWIFT',
-            name: 'Alamofire',
+            name: 'alamofire',
             version: '5.9.1',
             manifestFile: 'Package.resolved',
         });
@@ -79,7 +84,7 @@ describe('version 1', () => {
     // The revision is what is in the build, but it is not a version, and
     // reporting it as one would make every comparison against a registry lie.
     test('a pin following a branch has no version', () => {
-        expect(deps[1]).toMatchObject({ name: 'SnapKit', version: null });
+        expect(deps[1]).toMatchObject({ name: 'snapkit', version: null });
     });
 });
 
