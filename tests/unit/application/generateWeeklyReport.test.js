@@ -99,6 +99,22 @@ describe('the three sections', () => {
         expect(result.other.count).toBe(1);
     });
 
+    // HELM has been in the infrastructure set since before anything could
+    // produce a HELM row. A Helm subchart is infrastructure by the same
+    // argument as a container image: it is not application code.
+    test('a Helm subchart counts as infrastructure', () => {
+        const result = report(
+            [...vulns, { cve_id: 'CVE-CHART', severity: 'HIGH', status: 'OPEN' }],
+            { links: [...links, link('CVE-CHART', API, 'mariadb', 'HELM', 'Chart.lock')] }
+        );
+
+        expect(result.infrastructure.vulnerabilities.map(v => v.cveId).sort()).toEqual([
+            'CVE-CHART',
+            'CVE-IMAGE',
+        ]);
+        expect(result.affecting.count).toBe(1);
+    });
+
     test('add up to everything detected in the window', () => {
         const result = report(vulns, { links });
 

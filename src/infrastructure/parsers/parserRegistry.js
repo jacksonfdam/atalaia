@@ -15,6 +15,8 @@ import * as swiftParser from './swiftParser.js';
 import * as cocoapodsParser from './cocoapodsParser.js';
 import * as pubParser from './pubParser.js';
 import * as pubLockParser from './pubLockParser.js';
+import * as helmParser from './helmParser.js';
+import * as helmLockParser from './helmLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -39,6 +41,8 @@ export const parsers = [
     cocoapodsParser,
     pubParser,
     pubLockParser,
+    helmParser,
+    helmLockParser,
 ];
 
 /**
