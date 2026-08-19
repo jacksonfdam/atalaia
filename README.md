@@ -97,6 +97,8 @@ Apple's runtime, scaling the worker, and developing against the stack are in [do
 
 The same pages, rendered: **[atalaia-console.vercel.app](https://atalaia-console.vercel.app)**.
 
+What changed and when: [CHANGELOG.md](CHANGELOG.md).
+
 Everything else lives in [`docs/`](docs/README.md): [running](docs/running.md), [configuration](docs/configuration.md), [authentication](docs/authentication.md), [security](docs/security.md), [correctness](docs/correctness.md), [queues](docs/queues.md), [sources](docs/sources.md), [repositories](docs/repositories.md), [notifications](docs/notifications.md), [console and CLI](docs/console-and-cli.md), [architecture](docs/architecture.md), [REST API](docs/api.md), [MCP server](docs/mcp.md) and [troubleshooting](docs/troubleshooting.md).
 
 ## Contributing
