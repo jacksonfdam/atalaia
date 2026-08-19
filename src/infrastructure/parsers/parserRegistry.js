@@ -23,6 +23,9 @@ import * as composerLockParser from './composerLockParser.js';
 import * as gemLockParser from './gemLockParser.js';
 import * as cargoLockParser from './cargoLockParser.js';
 import * as goSumParser from './goSumParser.js';
+import * as nugetLockParser from './nugetLockParser.js';
+import * as paketParser from './paketParser.js';
+import * as paketLockParser from './paketLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -55,6 +58,9 @@ export const parsers = [
     gemLockParser,
     cargoLockParser,
     goSumParser,
+    nugetLockParser,
+    paketParser,
+    paketLockParser,
 ];
 
 /**
