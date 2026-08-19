@@ -121,8 +121,16 @@ describe('PEP 621, the shape that was already read', () => {
 
     // Every one of these used to be stored with a null version.
     test('the constraint survives', () => {
-        expect(deps['charset_normalizer']).toBe('>=2,<4');
+        expect(deps['charset-normalizer']).toBe('>=2,<4');
         expect(deps['certifi']).toBe('>=2023.5.7');
+    });
+
+    // PEP 503: `charset_normalizer` in the file, `charset-normalizer` on PyPI
+    // and in every lockfile. Storing both spellings would mean the lockfile row
+    // could not supersede the manifest one.
+    test('the name is normalised the way PyPI spells it', () => {
+        expect(deps).not.toHaveProperty('charset_normalizer');
+        expect(deps).toHaveProperty('charset-normalizer');
     });
 
     test('an extra is a dependency too', () => {
@@ -132,7 +140,7 @@ describe('PEP 621, the shape that was already read', () => {
 
     test('a PEP 735 group is read', () => {
         expect(deps['pytest']).toBe('>=8.0');
-        expect(deps['typing_extensions']).toBeNull();
+        expect(deps['typing-extensions']).toBeNull();
     });
 
     // `{include-group = "typing"}` names a group, not a package.
@@ -150,11 +158,11 @@ describe('PEP 621, the shape that was already read', () => {
         expect(Object.keys(deps).sort()).toEqual([
             'certifi',
             'chardet',
-            'charset_normalizer',
+            'charset-normalizer',
             'idna',
             'pysocks',
             'pytest',
-            'typing_extensions',
+            'typing-extensions',
         ]);
     });
 });
@@ -174,7 +182,7 @@ describe('Poetry', () => {
     });
 
     test('a path dependency has no version to compare against', () => {
-        expect(deps['local_thing']).toBeNull();
+        expect(deps['local-thing']).toBeNull();
     });
 
     test('a group is read', () => {
