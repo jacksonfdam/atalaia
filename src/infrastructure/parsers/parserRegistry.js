@@ -20,6 +20,7 @@ import * as helmLockParser from './helmLockParser.js';
 import * as npmLockParser from './npmLockParser.js';
 import * as pipLockParser from './pipLockParser.js';
 import * as composerLockParser from './composerLockParser.js';
+import * as gemLockParser from './gemLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -49,6 +50,7 @@ export const parsers = [
     npmLockParser,
     pipLockParser,
     composerLockParser,
+    gemLockParser,
 ];
 
 /**
