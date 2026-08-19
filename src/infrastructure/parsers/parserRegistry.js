@@ -26,6 +26,9 @@ import * as goSumParser from './goSumParser.js';
 import * as nugetLockParser from './nugetLockParser.js';
 import * as paketParser from './paketParser.js';
 import * as paketLockParser from './paketLockParser.js';
+import * as gradleLockParser from './gradleLockParser.js';
+import * as sbtParser from './sbtParser.js';
+import * as ivyParser from './ivyParser.js';
 
 /**
  * All registered dependency parsers.
@@ -61,6 +64,9 @@ export const parsers = [
     nugetLockParser,
     paketParser,
     paketLockParser,
+    gradleLockParser,
+    sbtParser,
+    ivyParser,
 ];
 
 /**
