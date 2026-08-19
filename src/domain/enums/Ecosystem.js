@@ -30,6 +30,8 @@ export const Ecosystem = Object.freeze({
     // Cabal and Stack both resolve against Hackage.
     HACKAGE: 'HACKAGE',
     OPAM: 'OPAM',
+    // Content-addressed: a Zig dependency is a URL and a hash, not a version.
+    ZIG: 'ZIG',
     UNKNOWN: 'UNKNOWN',
 });
 
