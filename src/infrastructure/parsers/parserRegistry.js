@@ -36,6 +36,7 @@ import * as conanLockParser from './conanLockParser.js';
 import * as vcpkgParser from './vcpkgParser.js';
 import * as haskellParser from './haskellParser.js';
 import * as haskellLockParser from './haskellLockParser.js';
+import * as opamParser from './opamParser.js';
 
 /**
  * All registered dependency parsers.
@@ -81,6 +82,7 @@ export const parsers = [
     vcpkgParser,
     haskellParser,
     haskellLockParser,
+    opamParser,
 ];
 
 /**

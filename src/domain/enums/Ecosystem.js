@@ -29,6 +29,7 @@ export const Ecosystem = Object.freeze({
     VCPKG: 'VCPKG',
     // Cabal and Stack both resolve against Hackage.
     HACKAGE: 'HACKAGE',
+    OPAM: 'OPAM',
     UNKNOWN: 'UNKNOWN',
 });
 
