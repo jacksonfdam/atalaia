@@ -78,7 +78,7 @@ The same disposition runs through the rest: a feed returning zero items is `EMPT
 
 ### One list, not two
 
-A source that was monitored but invisible to the health check, or a parser registered in one place and not the other, is a gap that nobody notices until it matters. Feeds live in one registry (`src/infrastructure/feeds/feedRegistry.js`, 14 sources — 8 on by default, 6 off with the reason stated in the file), parsers in another (`src/infrastructure/parsers/parserRegistry.js`, 12 ecosystems), queues and MCP tools likewise. The monitoring cycle and the health endpoint read the same list.
+A source that was monitored but invisible to the health check, or a parser registered in one place and not the other, is a gap that nobody notices until it matters. Feeds live in one registry (`src/infrastructure/feeds/feedRegistry.js`, 15 sources — 8 on by default, 7 off with the reason stated in the file), parsers in another (`src/infrastructure/parsers/parserRegistry.js`, 48 parsers across 24 ecosystems), queues and MCP tools likewise. The monitoring cycle and the health endpoint read the same list.
 
 ## What is not verified
 
