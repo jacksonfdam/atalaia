@@ -22,7 +22,8 @@ curl -H "X-API-Key: $API_KEY" http://localhost:3000/api/v1/feeds/catalog
 | `snyk` | on | Scraped. |
 | `vuldb` | on | RSS; rarely carries a CVSS score. |
 | `redhat` | off | Vendor source, for Red Hat and CentOS based images. |
-| `ubuntu` | off | Vendor source, for Debian and Ubuntu based images. |
+| `ubuntu` | off | Vendor source, for Ubuntu based images. |
+| `debian` | off | Vendor source, for Debian based images — which most images are. |
 | `zdi` | off | Often published before a patch exists. |
 | `certeu` | off | Regional, largely redundant with NVD. |
 | `certfr` | off | Regional, French. |
@@ -33,5 +34,9 @@ Most of these publish a catalogue, not a window: CISA serves the whole KEV list 
 A source that answers with zero items is reported as `EMPTY` rather than healthy, and the health report shows how many of the items actually carry a CVSS score — a feed can be alive and still be useless for triage.
 
 A source that is missing its credentials or its URL is `NOT_CONFIGURED`, and the row says which setting is missing. It is a separate status because it is a separate problem: `EMPTY` means the source answered and had nothing, `NOT_CONFIGURED` means it was never called. Both count towards the degraded tally in the console — an enabled source collecting nothing is worth knowing about either way — but only one of them is the source's fault.
+
+**Debian is read from its advisory lists, not from its tracker.** `security-tracker.debian.org/tracker/data/json` is the obvious endpoint and the wrong one: it is a status database rather than a feed — 4061 packages, every CVE each has ever had back to 2012, 85.9 MB, 15.2 seconds, and no publication date anywhere. Since an advisory whose age cannot be established is discarded, every item would be dropped and warned about, so it would cost 86 MB an hour to contribute nothing. The `DSA` and `DLA` lists are dated, newest first, and 1.1 MB and 0.8 MB — a live fetch reads 20 advisories into 395 dated vulnerabilities in two seconds. `DEBIAN_LIMIT` caps how many advisories per list are read, because one kernel advisory can name three hundred CVEs.
+
+Neither list states a severity, so Debian rows are `Unknown`. The `urgency` field in the tracker JSON is not a severity either: `unimportant` there does not mean low, it means Debian judged the issue not worth a security update at all, and mapping it onto `LOW` would turn a decision not to fix into a finding.
 
 **NVD rate limits.** NVD allows five requests per rolling thirty seconds without a key and fifty with one, and refuses the ones over the line with `403` or `503` rather than `429`. Set `NVD_API_KEY` (free, issued instantly at [nvd.nist.gov/developers/request-an-api-key](https://nvd.nist.gov/developers/request-an-api-key)) and the health check stops reporting a limit as an outage.
