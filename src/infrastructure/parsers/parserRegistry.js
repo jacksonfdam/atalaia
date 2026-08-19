@@ -39,6 +39,10 @@ import * as haskellLockParser from './haskellLockParser.js';
 import * as opamParser from './opamParser.js';
 import * as zigParser from './zigParser.js';
 import * as luaParser from './luaParser.js';
+import * as swiftManifestParser from './swiftManifestParser.js';
+import * as podfileParser from './podfileParser.js';
+import * as carthageParser from './carthageParser.js';
+import * as carthageLockParser from './carthageLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -87,6 +91,10 @@ export const parsers = [
     opamParser,
     zigParser,
     luaParser,
+    swiftManifestParser,
+    podfileParser,
+    carthageParser,
+    carthageLockParser,
 ];
 
 /**

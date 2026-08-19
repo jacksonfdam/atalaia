@@ -41,7 +41,8 @@ describe('lockfile discovery', () => {
     test.each([
         ['Podfile.lock', 1],
         ['ios/Podfile.lock', 1],
-        ['Podfile', 0],
+        // Read since #38: an iOS project that does not commit its lockfile.
+        ['Podfile', 1],
     ])('%s matches %i parser(s)', (filePath, expected) => {
         expect(findParsersForFile(filePath)).toHaveLength(expected);
     });
