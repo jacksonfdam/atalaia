@@ -15,6 +15,7 @@ import {
     tearDownSchema,
     truncateAll,
 } from '../../helpers/postgres.js';
+import { listening, closeServer } from '../../helpers/server.js';
 
 const { schema } = useSchema('api_routes');
 
@@ -60,11 +61,12 @@ beforeAll(async () => {
     if (!hasDatabase) return;
     await setUpSchema(schema);
     await initializeDatabase();
-    app = createApp(cache);
+    app = await listening(createApp(cache));
 });
 
 afterAll(async () => {
     if (!hasDatabase) return;
+    await closeServer(app);
     await tearDownSchema(schema);
 });
 

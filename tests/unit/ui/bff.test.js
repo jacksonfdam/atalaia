@@ -8,6 +8,7 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll, jest } from '@jest/globals';
 import request from 'supertest';
 import http from 'node:http';
+import { listening, closeServer } from '../../helpers/server.js';
 
 process.env.API_KEY = 'super-secret-api-key';
 process.env.ATALAIA_API_URL = 'http://atalaia-api.test';
@@ -52,28 +53,29 @@ function signedIn() {
  */
 function raw(path) {
     return new Promise((resolve, reject) => {
-        const server = app.listen(0, () => {
-            const req = http.request(
-                {
-                    port: server.address().port,
-                    path,
-                    method: 'GET',
-                    headers: { Cookie: `${COOKIE_NAME}=an-opaque-token` },
-                },
-                res => {
-                    res.resume();
-                    res.on('end', () => server.close(() => resolve(res.statusCode)));
-                }
-            );
+        // The suite's own server, already listening. Starting another one here
+        // is what the rest of this file stopped doing: a bind-and-close per
+        // request is what made the suite intermittent.
+        const req = http.request(
+            {
+                port: app.address().port,
+                path,
+                method: 'GET',
+                headers: { Cookie: `${COOKIE_NAME}=an-opaque-token` },
+            },
+            res => {
+                res.resume();
+                res.on('end', () => resolve(res.statusCode));
+            }
+        );
 
-            req.on('error', error => server.close(() => reject(error)));
-            req.end();
-        });
+        req.on('error', reject);
+        req.end();
     });
 }
 
-beforeAll(() => {
-    app = createServer();
+beforeAll(async () => {
+    app = await listening(createServer());
 });
 
 beforeEach(() => {
@@ -84,8 +86,9 @@ beforeEach(() => {
     upstream({ total: 3 });
 });
 
-afterAll(() => {
+afterAll(async () => {
     globalThis.fetch = realFetch;
+    await closeServer(app);
 });
 
 describe('the session endpoint', () => {

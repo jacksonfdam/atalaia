@@ -9,11 +9,41 @@ const PROJECT_ROOT = path.resolve(path.dirname(__filename), '..', '..', '..');
 const MIGRATIONS_DIR = path.join(PROJECT_ROOT, 'db/migrations');
 
 /**
- * An arbitrary but fixed key. Any two processes using the same number
- * serialise against each other, which is the whole point: the API container and
- * the worker container both migrate on boot and would otherwise race.
+ * An arbitrary but fixed namespace for the lock, so it can never collide with an
+ * advisory lock some other application took on the same database.
  */
-const LOCK_KEY = 8_010_071;
+const LOCK_NAMESPACE = 8_010_071;
+
+/**
+ * The lock is per schema, not per database.
+ *
+ * What it has to prevent is two processes migrating *the same* schema at once:
+ * the API container and the worker container both migrate on boot and would
+ * otherwise race. Two processes migrating *different* schemas do not conflict at
+ * all, and a single key made them queue anyway.
+ *
+ * That over-serialisation is what made the test suite intermittent. Every
+ * integration suite migrates its own throwaway schema, twice — once through
+ * setUpSchema and again through initializeDatabase — so eleven Jest workers
+ * queued twenty-two acquisitions on one key, each holding it for a full replay
+ * of every migration file. Measured mid-run, six suites were waiting on it at
+ * once. Whichever suite ended up last paid for all the others, and on a busy
+ * machine that is what pushed a test past its timeout.
+ *
+ * A signed 32-bit hash, because that is what pg_advisory_lock's second key is.
+ *
+ * @param {string} schema
+ * @returns {number}
+ */
+function lockKeyFor(schema) {
+    let hash = 0;
+
+    for (let index = 0; index < schema.length; index += 1) {
+        hash = (Math.imul(hash, 31) + schema.charCodeAt(index)) | 0;
+    }
+
+    return hash;
+}
 
 /**
  * Apply every pending migration, in filename order, each one in its own
@@ -35,8 +65,14 @@ export async function runMigrations() {
     // it, so it has to be taken, used and released on the same connection.
     const client = await getPool().connect();
 
+    // The schema the connection resolves to, which is what the migrations are
+    // about to be applied into. Read before the try, because the unlock in the
+    // finally needs the same key.
+    const { rows: current } = await client.query('SELECT current_schema() AS schema');
+    const key = lockKeyFor(current[0]?.schema ?? 'public');
+
     try {
-        await client.query('SELECT pg_advisory_lock($1)', [LOCK_KEY]);
+        await client.query('SELECT pg_advisory_lock($1, $2)', [LOCK_NAMESPACE, key]);
 
         await client.query(`
             CREATE TABLE IF NOT EXISTS _migrations (
@@ -72,7 +108,7 @@ export async function runMigrations() {
 
         if (count > 0) logger.info({ count }, 'Migrations completed');
     } finally {
-        await client.query('SELECT pg_advisory_unlock($1)', [LOCK_KEY]).catch(() => {
+        await client.query('SELECT pg_advisory_unlock($1, $2)', [LOCK_NAMESPACE, key]).catch(() => {
             // Releasing on a dead connection is moot: the lock dies with the
             // session anyway.
         });

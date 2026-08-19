@@ -16,6 +16,7 @@ import {
     tearDownSchema,
     truncateAll,
 } from '../../helpers/postgres.js';
+import { listening, closeServer } from '../../helpers/server.js';
 import { createAuthenticator } from '../../helpers/authenticator.js';
 
 const { schema } = useSchema('auth_routes');
@@ -100,11 +101,12 @@ beforeAll(async () => {
     if (!hasDatabase) return;
     await setUpSchema(schema);
     await initializeDatabase();
-    app = createApp(cache);
+    app = await listening(createApp(cache));
 });
 
 afterAll(async () => {
     if (!hasDatabase) return;
+    await closeServer(app);
     await tearDownSchema(schema);
 });
 
