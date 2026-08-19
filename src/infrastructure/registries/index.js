@@ -187,6 +187,7 @@ const UNSUPPORTED = {
     DOCKER: 'Image tags depend on the registry the image comes from.',
     TERRAFORM: 'Providers and modules resolve per registry.',
     HELM: 'Charts resolve per repository.',
+    SWIFT: 'A package resolves from its own git repository; there is no central index.',
     UNKNOWN: 'Unrecognised ecosystem.',
 };
 
