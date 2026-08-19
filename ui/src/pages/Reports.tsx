@@ -3,21 +3,31 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, Empty, SeverityBadge, formatDate } from '../components/ui';
-import type { WeeklyReport, ReportSection } from '../types';
+import { DependencyReportView } from '../components/DependencyReportView';
+import type { WeeklyReport, ReportSection, DependencyReport } from '../types';
+
+type Tab = 'digest' | 'dependencies';
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'digest', label: 'Weekly digest' },
+  { id: 'dependencies', label: 'Dependencies & technologies' },
+];
 
 /**
- * The digest, on screen.
+ * The reports, on screen.
  *
- * The same payload the email sends — `GET /reports/weekly` is what both read —
- * so what is here and what lands in an inbox cannot drift apart. That was the
- * complaint that started this: the email listed everything ever collected while
- * the console led with the handful that name something we ship.
+ * Two of them, and they ask opposite questions. The weekly digest is what was
+ * *published* this week that reaches us — the same payload the email sends, so
+ * what is here and what lands in an inbox cannot drift apart. The dependency
+ * report is what *we* are made of and how far behind it is, which is a planning
+ * question rather than an incident one.
  */
 export function Reports({ onAuthLost }: { onAuthLost: () => void }) {
   const payload = useApi<{ report: WeeklyReport | null; reason?: string }>(
     '/reports/weekly',
     onAuthLost
   );
+  const [tab, setTab] = useState<Tab>('digest');
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -43,10 +53,41 @@ export function Reports({ onAuthLost }: { onAuthLost: () => void }) {
     }
   }
 
+  const dependencies = useApi<{ report: DependencyReport }>('/reports/dependencies', onAuthLost);
+
   const report = payload.data?.report ?? null;
 
   return (
     <>
+      <Window
+        title="REPORTS"
+        accent="var(--violet)"
+      >
+        <Body>
+          <div className="toolbar">
+            {TABS.map(entry => (
+              <button
+                key={entry.id}
+                className={tab === entry.id ? 'primary' : ''}
+                onClick={() => setTab(entry.id)}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
+        </Body>
+      </Window>
+
+      {tab === 'dependencies' ? (
+        <DependencyReportView
+          report={dependencies.data?.report ?? null}
+          loading={dependencies.loading}
+          error={dependencies.error}
+        />
+      ) : null}
+
+      {tab === 'digest' ? (
+      <>
       <Window
         title="REPORT.TXT"
         note={report ? `${report.windowDays} days` : undefined}
@@ -227,6 +268,8 @@ export function Reports({ onAuthLost }: { onAuthLost: () => void }) {
             </Window>
           ) : null}
         </>
+      ) : null}
+      </>
       ) : null}
     </>
   );

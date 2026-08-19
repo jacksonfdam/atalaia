@@ -680,3 +680,90 @@ export interface WeeklyReport {
   openTotal: number;
   openBySeverity: Record<string, number>;
 }
+
+/**
+ * A list the report caps: `count` is the whole truth, `items` a sample of it.
+ */
+export interface CappedList<T> {
+  count: number;
+  shown: number;
+  items: T[];
+}
+
+/**
+ * Four states, never three. `unchecked` is a dependency nobody has compared
+ * with a registry — unknown, not up to date.
+ */
+export interface DependencyStateCounts {
+  current: number;
+  behind: number;
+  unknown: number;
+  unchecked: number;
+}
+
+export interface BehindPackage {
+  ecosystem: string;
+  name: string;
+  latest: string | null;
+  worstGap: 'major' | 'minor' | 'patch' | null;
+  /** Up to three of the versions declared for it across the fleet. */
+  declared: string[];
+  repositories: number;
+}
+
+export interface ReportRepository {
+  id: number;
+  name: string;
+  url: string;
+  lastScannedAt: string | null;
+  total: number;
+  behind: number;
+  unchecked: number;
+}
+
+export interface DependencyReport {
+  generatedAt: string;
+  scope: {
+    kind: 'fleet' | 'repository';
+    repository: { id: number; name: string; url: string } | null;
+  };
+  coverage: {
+    repositories: number;
+    scanned: number;
+    neverScanned: number;
+    staleScans: number;
+    staleAfterDays: number;
+    oldestScanAt: string | null;
+    newestScanAt: string | null;
+  };
+  dependencies: {
+    total: number;
+    packages: number;
+    manifests: number;
+    ecosystems: number;
+    byState: DependencyStateCounts;
+    checkedAt: { oldest: string | null; newest: string | null };
+  };
+  updates: {
+    behind: number;
+    byGap: { major: number; minor: number; patch: number; other: number };
+    packages: CappedList<BehindPackage>;
+    repositories: CappedList<ReportRepository>;
+  };
+  technologies: {
+    languages: { name: string; bytes: number; repositories: number; share: number | null }[];
+    totalBytes: number;
+    ecosystems: {
+      name: string;
+      packages: number;
+      behind: number;
+      unchecked: number;
+      repositories: number;
+    }[];
+    topics: { name: string; repositories: number }[];
+    manifests: { file: string; packages: number; repositories: number }[];
+  };
+  repositories: CappedList<ReportRepository>;
+  /** What the report does not know, in the words it would use out loud. */
+  notes: { level: 'warn' | 'info'; text: string }[];
+}

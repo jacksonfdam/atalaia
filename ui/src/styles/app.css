@@ -566,6 +566,9 @@ tbody tr[data-selected] {
 }
 
 .bar-fill {
+  /* Blockified on purpose: an inline span takes neither width nor height, and
+     this one is nothing but width and height. */
+  display: block;
   height: 100%;
   width: var(--pct, 0%);
   background: var(--bar-color, var(--pink));
@@ -827,4 +830,207 @@ a {
   .timeline li {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ---------------------------------------------------------------- print */
+
+/*
+ * Ctrl+P.
+ *
+ * Everything that makes the console readable on screen works against it on
+ * paper, and three of those things lose content outright rather than looking
+ * ugly:
+ *
+ *  - `.table-scroll` scrolls sideways. A printer cannot scroll, so every column
+ *    past the fold was simply gone — and the dependency tables are the widest
+ *    thing here.
+ *  - The titlebar is absolutely positioned inside `.window`, which reflows onto
+ *    whichever page fragment the browser puts it on and lands on top of the
+ *    rows underneath.
+ *  - White text on a coloured background — titlebars, table headers, badges —
+ *    disappears completely when Chrome drops background graphics, which is its
+ *    default.
+ *
+ * So print gets its own layout: one column, no chrome, headers that repeat on
+ * every page, and ink only where it carries meaning.
+ */
+
+@media print {
+    @page {
+        margin: 12mm;
+    }
+
+    html,
+    body {
+        overflow: visible;
+        min-height: 0;
+        background: #fff;
+        color: #000;
+    }
+
+    /* The neon desktop is four gradients and a fixed attachment: on paper it is
+       either nothing or a full-bleed grey, and `fixed` can add a blank page. */
+    body {
+        background-image: none;
+    }
+
+    /* One column. The sidebar is navigation, and paper does not navigate. */
+    .shell {
+        display: block;
+        padding: 0;
+        min-height: 0;
+    }
+
+    .sidebar,
+    .tabs,
+    .toolbar,
+    .batch-bar,
+    .pagination,
+    .cell-actions,
+    td.pick,
+    th.pick,
+    button,
+    .button {
+        display: none !important;
+    }
+
+    .main {
+        display: block;
+    }
+
+    .main > * {
+        margin-bottom: 6mm;
+    }
+
+    /* Window chrome down to a single rule. The hard shadow is 11px of ink that
+       says nothing, and the raised/inset border pairs read as smudges. */
+    .window,
+    .window-body,
+    .stat {
+        background: #fff;
+        border: 1px solid #000;
+        box-shadow: none;
+    }
+
+    .window {
+        padding: 0;
+        break-inside: auto;
+    }
+
+    /* In the flow, not over it. */
+    .window > .titlebar {
+        position: static;
+        height: auto;
+        padding: 0.2rem 0.4rem;
+        color: #000;
+        background: none;
+        border-bottom: 1px solid #000;
+        break-after: avoid;
+    }
+
+    .window > .titlebar .grow {
+        overflow: visible;
+        white-space: normal;
+    }
+
+    .window-body {
+        border: 0;
+        padding: 0.5rem 0.4rem;
+    }
+
+    /* The fix that matters: nothing clipped, nothing cropped, including the
+       inline max-height the dependency and import tables set. */
+    .table-scroll {
+        overflow: visible !important;
+        max-height: none !important;
+    }
+
+    /* Four figures side by side at 700px leave no room for their labels. */
+    .grid.cols-3,
+    .grid.cols-4 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    /* A window whose whole body was a row of buttons has nothing left to say:
+       the tab bar prints as an empty box otherwise. */
+    .window:has(> .window-body > .toolbar:only-child) {
+        display: none;
+    }
+
+    table {
+        width: 100%;
+        /* Fixed, so no column can push the table wider than the sheet — which
+           is the bug this whole block exists for. */
+        table-layout: fixed;
+        font-size: 8.5pt;
+    }
+
+    /* Repeat the header on every page a long table spills onto, and let it wrap
+       rather than force the table wider than the sheet. */
+    thead {
+        display: table-header-group;
+    }
+
+    thead th {
+        position: static;
+        color: #000;
+        background: none;
+        border-bottom: 1.5px solid #000;
+        white-space: normal;
+    }
+
+    tbody tr {
+        break-inside: avoid;
+    }
+
+    tbody tr:nth-child(even) {
+        background: none;
+    }
+
+    /* Package names, versions and manifest paths are long and unbreakable by
+       nature; wrapping them is what keeps the columns beside them on the page. */
+    .mono,
+    td {
+        overflow-wrap: anywhere;
+    }
+
+    /* `tight` cells are nowrap on screen, which beats overflow-wrap and let a
+       sha256 digest run straight across the two columns beside it. */
+    td.tight,
+    th {
+        white-space: normal;
+    }
+
+    /* Colour is kept only where it is the information: severity, health and the
+       bars. `exact` because Chrome drops backgrounds by default, and a badge
+       whose text is white on a dropped background prints as nothing at all. */
+    .badge,
+    .bar-track,
+    .bar-fill {
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+    }
+
+    .badge {
+        border: 1px solid #000;
+    }
+
+    .stat,
+    .bar-row,
+    .notice,
+    .kv,
+    .timeline li {
+        break-inside: avoid;
+    }
+
+    /* A link's colour is lost anyway; underline says it was one. */
+    a {
+        color: #000;
+        text-decoration: underline;
+    }
+
+    /* Panels that only say "wait" or "nothing here yet" are not worth a sheet. */
+    .loading {
+        display: none;
+    }
 }
