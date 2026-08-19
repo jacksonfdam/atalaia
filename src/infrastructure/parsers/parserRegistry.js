@@ -34,6 +34,8 @@ import * as hexLockParser from './hexLockParser.js';
 import * as conanParser from './conanParser.js';
 import * as conanLockParser from './conanLockParser.js';
 import * as vcpkgParser from './vcpkgParser.js';
+import * as haskellParser from './haskellParser.js';
+import * as haskellLockParser from './haskellLockParser.js';
 
 /**
  * All registered dependency parsers.
@@ -77,6 +79,8 @@ export const parsers = [
     conanParser,
     conanLockParser,
     vcpkgParser,
+    haskellParser,
+    haskellLockParser,
 ];
 
 /**
