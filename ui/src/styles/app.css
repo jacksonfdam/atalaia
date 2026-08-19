@@ -566,6 +566,9 @@ tbody tr[data-selected] {
 }
 
 .bar-fill {
+  /* Blockified on purpose: an inline span takes neither width nor height, and
+     this one is nothing but width and height. */
+  display: block;
   height: 100%;
   width: var(--pct, 0%);
   background: var(--bar-color, var(--pink));
