@@ -12,6 +12,7 @@ import {
   formatDate,
   relativeTime,
 } from '../components/ui';
+import { DependencyReportView } from '../components/DependencyReportView';
 import type {
   Dependency,
   DependencyPage,
@@ -19,13 +20,15 @@ import type {
   RepositoryRiskReport,
   TechnologyReport,
   VersionCheckState,
+  DependencyReport,
   Owner,
 } from '../types';
 
-type Tab = 'exposure' | 'dependencies' | 'technologies';
+type Tab = 'exposure' | 'report' | 'dependencies' | 'technologies';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'exposure', label: 'Exposure' },
+  { id: 'report', label: 'Report' },
   { id: 'dependencies', label: 'Dependencies' },
   { id: 'technologies', label: 'Technologies' },
 ];
@@ -47,6 +50,13 @@ export function RepositoryDetail({ onAuthLost }: { onAuthLost: () => void }) {
   const risk = useApi<RepositoryRiskReport>(`/repositories/${id}/vulnerabilities`, onAuthLost);
   const techs = useApi<TechnologyReport>(`/repositories/${id}/technologies`, onAuthLost);
   const deps = useApi<DependencyPage>(`/repositories/${id}/dependencies`, onAuthLost);
+
+  // The same endpoint the Reports page reads, scoped to this repository: the
+  // summary is defined once and rendered in both places.
+  const summary = useApi<{ report: DependencyReport }>(
+    `/reports/dependencies?repositoryId=${id}`,
+    onAuthLost
+  );
 
   async function run(action: () => Promise<string>) {
     setBusy(true);
@@ -135,6 +145,13 @@ export function RepositoryDetail({ onAuthLost }: { onAuthLost: () => void }) {
       </Window>
 
       {tab === 'exposure' ? <ExposureTab report={risk.data} loading={risk.loading} /> : null}
+      {tab === 'report' ? (
+        <DependencyReportView
+          report={summary.data?.report ?? null}
+          loading={summary.loading}
+          error={summary.error}
+        />
+      ) : null}
       {tab === 'dependencies' ? (
         <DependenciesTab repositoryId={String(id)} page={deps.data} loading={deps.loading} reload={deps.reload} />
       ) : null}
