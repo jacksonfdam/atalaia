@@ -93,6 +93,7 @@ Cloudflare's quick tunnel needs no account and no token, and downloads its binar
 | `OPENCVE_API_TOKEN` | — | OpenCVE token. |
 | `GITHUB_TOKEN` | — | Fallback token for the GHSA feed and for repository scanning when an organization has none of its own. |
 | `TOKEN_ENCRYPTION_KEY` | falls back to `API_KEY` | Key used to encrypt organization tokens at rest. Change it and the stored tokens become unreadable. |
+| `LLM_TIMEOUT_MS` | `90000` local, `20000` hosted | How long a model has to answer. Ollama unloads an idle model and the cycle runs hourly, so nearly every call is a cold start: a 12B writing a 300-word guide measured 21s warm and 30.3s cold. |
 | `MITRE_MAX_RECORDS` | `25` | CVE records fetched per cycle from the MITRE delta — one request each. |
 | `REDHAT_PAGE_SIZE` | `100` | CVEs per Red Hat Security Data page. |
 | `USN_LIMIT` | `10` | Ubuntu notices per cycle. A single kernel notice can carry hundreds of CVEs. |
