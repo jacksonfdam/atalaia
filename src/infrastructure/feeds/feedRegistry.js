@@ -1,11 +1,3 @@
-import { fetch as fetchCisa } from './cisaFeed.js';
-import { fetch as fetchSnyk } from './snykFeed.js';
-import { fetch as fetchVuldb } from './vuldbFeed.js';
-import { fetch as fetchNvd } from './nvdFeed.js';
-import { fetch as fetchOpenCVE } from './opencveFeed.js';
-import { fetch as fetchGhsa } from './ghsaFeed.js';
-import { fetch as fetchEuvd } from './euvdFeed.js';
-import { fetch as fetchMitre } from './mitreFeed.js';
 import { catalogEntryForFeed } from './databaseCatalog.js';
 import { listOverrides, setEnabled, clearOverride } from './feedState.js';
 
@@ -24,24 +16,24 @@ import { listOverrides, setEnabled, clearOverride } from './feedState.js';
  * @typedef {object} FeedDescriptor
  * @property {string} name          Stable key, matches the `source` column
  * @property {string} label         Human-readable name
- * @property {() => Promise<import('../../domain/entities/Vulnerability.js').default[]>} fetch
+ * @property {() => Promise<object>} load     Imports the adapter module
  * @property {boolean} defaultEnabled
  * @property {string} [disabledReason]  Why the default is off
  */
 
 /** @type {FeedDescriptor[]} */
 const REGISTRY = [
-    { name: 'nvd', label: 'NVD', fetch: fetchNvd, defaultEnabled: true },
-    { name: 'cisa', label: 'CISA KEV', fetch: fetchCisa, defaultEnabled: true },
-    { name: 'opencve', label: 'OpenCVE', fetch: fetchOpenCVE, defaultEnabled: true },
-    { name: 'snyk', label: 'Snyk', fetch: fetchSnyk, defaultEnabled: true },
-    { name: 'vuldb', label: 'VulDB', fetch: fetchVuldb, defaultEnabled: true },
-    { name: 'mitre', label: 'MITRE CVE List', fetch: fetchMitre, defaultEnabled: true },
-    { name: 'euvd', label: 'EUVD (ENISA)', fetch: fetchEuvd, defaultEnabled: true },
+    { name: 'nvd', label: 'NVD', load: () => import('./nvdFeed.js'), defaultEnabled: true },
+    { name: 'cisa', label: 'CISA KEV', load: () => import('./cisaFeed.js'), defaultEnabled: true },
+    { name: 'opencve', label: 'OpenCVE', load: () => import('./opencveFeed.js'), defaultEnabled: true },
+    { name: 'snyk', label: 'Snyk', load: () => import('./snykFeed.js'), defaultEnabled: true },
+    { name: 'vuldb', label: 'VulDB', load: () => import('./vuldbFeed.js'), defaultEnabled: true },
+    { name: 'mitre', label: 'MITRE CVE List', load: () => import('./mitreFeed.js'), defaultEnabled: true },
+    { name: 'euvd', label: 'EUVD (ENISA)', load: () => import('./euvdFeed.js'), defaultEnabled: true },
     {
         name: 'ghsa',
         label: 'GitHub Advisories',
-        fetch: fetchGhsa,
+        load: () => import('./ghsaFeed.js'),
         defaultEnabled: true,
         // Not a hard requirement, but an unauthenticated caller gets 60
         // requests/hour per IP and will usually be rate-limited already.
@@ -50,22 +42,21 @@ const REGISTRY = [
     {
         name: 'redhat',
         label: 'Red Hat Security Data',
-        // Imported lazily: the module is otherwise dead weight while disabled.
-        fetch: async () => (await import('./redhatFeed.js')).fetch(),
+        load: () => import('./redhatFeed.js'),
         defaultEnabled: false,
         disabledReason: 'Vendor source. Enable it if you ship Red Hat or CentOS based images.',
     },
     {
         name: 'ubuntu',
         label: 'Ubuntu Security Notices',
-        fetch: async () => (await import('./ubuntuFeed.js')).fetch(),
+        load: () => import('./ubuntuFeed.js'),
         defaultEnabled: false,
         disabledReason: 'Vendor source. Enable it if you ship Debian or Ubuntu based images.',
     },
     {
         name: 'zdi',
         label: 'Zero Day Initiative',
-        fetch: async () => (await import('./zdiFeed.js')).fetch(),
+        load: () => import('./zdiFeed.js'),
         defaultEnabled: false,
         disabledReason:
             'Advisories are often published before the vendor patch exists, so most items are not actionable yet.',
@@ -73,26 +64,48 @@ const REGISTRY = [
     {
         name: 'certeu',
         label: 'CERT-EU',
-        fetch: async () => (await import('./certEuFeed.js')).fetch(),
+        load: () => import('./certEuFeed.js'),
         defaultEnabled: false,
         disabledReason: 'Regional source, largely redundant with NVD. Enable it if you report to EU institutions.',
     },
     {
         name: 'certfr',
         label: 'CERT-FR (ANSSI)',
-        fetch: async () => (await import('./certFrFeed.js')).fetch(),
+        load: () => import('./certFrFeed.js'),
         defaultEnabled: false,
         disabledReason: 'Regional source; advisories are in French and rarely name the CVE in the title.',
     },
     {
         name: 'cvedetails',
         label: 'CVE Details',
-        fetch: async () => (await import('./cveDetailsFeed.js')).fetch(),
+        load: () => import('./cveDetailsFeed.js'),
         defaultEnabled: false,
         disabledReason:
             'cvedetails.com returns 403 to scraper requests (bot protection). Its data is largely redundant with NVD/CISA/OpenCVE, which rank higher in SOURCE_PRIORITY.',
     },
 ];
+
+/**
+ * Turn a descriptor into something callable.
+ *
+ * The module is imported on use rather than at boot: most sources are off, and
+ * an adapter nobody calls is dead weight — the scrapers pull cheerio in with
+ * them. Both hooks go through the same import, so a source can never be
+ * fetchable but unaskable about its own configuration.
+ *
+ * A source that needs credentials or a URL says so itself, by exporting
+ * `unconfiguredReason()`. Anything else is configured by definition.
+ */
+function bind(feed) {
+    return {
+        ...feed,
+        fetch: async () => (await feed.load()).fetch(),
+        unconfiguredReason: async () => {
+            const module = await feed.load();
+            return module.unconfiguredReason ? module.unconfiguredReason() : null;
+        },
+    };
+}
 
 /**
  * The registry with the operator's overrides applied.
@@ -105,7 +118,7 @@ export async function listFeeds() {
         const override = overrides.get(feed.name);
 
         return {
-            ...feed,
+            ...bind(feed),
             enabled: override ? override.enabled : feed.defaultEnabled,
             overridden: Boolean(override),
             updatedAt: override?.updatedAt ?? null,

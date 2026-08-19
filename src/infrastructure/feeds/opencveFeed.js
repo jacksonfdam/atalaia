@@ -8,6 +8,15 @@ const DEFAULT_API_URL = 'https://app.opencve.io/api';
 const MAX_PAGES = 10; // Safety limit to avoid infinite pagination
 
 /**
+ * What is missing before this source can be called at all.
+ * @returns {string|null}
+ */
+export function unconfiguredReason() {
+    const token = config.opencve?.token || process.env.OPENCVE_API_TOKEN;
+    return token ? null : 'No API token. Set OPENCVE_API_TOKEN, or opencve.token in config.json.';
+}
+
+/**
  * Fetch vulnerabilities from OpenCVE REST API.
  * Requires OPENCVE_API_URL and OPENCVE_API_TOKEN environment variables.
  *
@@ -17,8 +26,9 @@ export async function fetch() {
     const apiUrl = config.opencve?.apiUrl || process.env.OPENCVE_API_URL || DEFAULT_API_URL;
     const token = config.opencve?.token || process.env.OPENCVE_API_TOKEN;
 
-    if (!token) {
-        logger.warn('OpenCVE API token not configured, skipping feed');
+    const missing = unconfiguredReason();
+    if (missing) {
+        logger.warn({ reason: missing }, 'OpenCVE feed not configured, skipping');
         return [];
     }
 

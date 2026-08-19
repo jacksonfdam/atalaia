@@ -11,6 +11,8 @@ import * as composerParser from './composerParser.js';
 import * as nugetParser from './nugetParser.js';
 import * as terraformParser from './terraformParser.js';
 import * as githubActionsParser from './githubActionsParser.js';
+import * as swiftParser from './swiftParser.js';
+import * as cocoapodsParser from './cocoapodsParser.js';
 
 /**
  * All registered dependency parsers.
@@ -31,6 +33,8 @@ export const parsers = [
     nugetParser,
     terraformParser,
     githubActionsParser,
+    swiftParser,
+    cocoapodsParser,
 ];
 
 /**

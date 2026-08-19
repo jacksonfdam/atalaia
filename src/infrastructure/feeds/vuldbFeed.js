@@ -10,15 +10,25 @@ const parser = new Parser({
 });
 
 /**
+ * What is missing before this source can be called at all.
+ * @returns {string|null}
+ */
+export function unconfiguredReason() {
+    return config.feeds?.vuldbRss ? null : 'No RSS URL. Set feeds.vuldbRss in config.json.';
+}
+
+/**
  * Fetch vulnerabilities from VulDB RSS feed.
  * @returns {Promise<Vulnerability[]>}
  */
 export async function fetch() {
-    const url = config.feeds?.vuldbRss;
-    if (!url) {
-        logger.warn('No VulDB RSS feed URL configured, skipping');
+    const missing = unconfiguredReason();
+    if (missing) {
+        logger.warn({ reason: missing }, 'VulDB feed not configured, skipping');
         return [];
     }
+
+    const url = config.feeds.vuldbRss;
 
     return withRetry('vuldbFeed', async () => {
         logger.info('Fetching VulDB RSS feed');

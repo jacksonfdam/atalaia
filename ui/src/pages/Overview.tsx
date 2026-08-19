@@ -65,7 +65,11 @@ export function Overview({ onAuthLost }: { onAuthLost: () => void }) {
   const severityMax = Math.max(1, ...Object.values(stats.data?.bySeverity ?? {}));
   const statusMax = Math.max(1, ...Object.values(stats.data?.byStatus ?? {}));
   const sourceMax = Math.max(1, ...Object.values(stats.data?.bySource ?? {}));
-  const brokenFeeds = (health.data?.feeds ?? []).filter(f => f.status === 'ERROR' || f.status === 'EMPTY');
+  // An enabled source with no credentials collects nothing, which is worth the
+  // same attention as one that is failing — it just needs a different fix.
+  const brokenFeeds = (health.data?.feeds ?? []).filter(
+    f => f.status === 'ERROR' || f.status === 'EMPTY' || f.status === 'NOT_CONFIGURED'
+  );
 
   return (
     <>

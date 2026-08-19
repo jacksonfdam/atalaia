@@ -292,6 +292,7 @@ p {
 .badge[data-health='EMPTY']    { background: var(--health-empty); color: var(--win-black); }
 .badge[data-health='ERROR']    { background: var(--health-error); }
 .badge[data-health='DISABLED'] { background: var(--health-disabled); }
+.badge[data-health='NOT_CONFIGURED'] { background: var(--health-not-configured); color: var(--win-black); }
 
 .badge.exploited {
   background: var(--win-black);

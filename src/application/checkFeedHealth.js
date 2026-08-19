@@ -21,16 +21,38 @@ function classify(feed, vulns, error) {
     if (vulns.length === 0) {
         return {
             status: 'EMPTY',
-            detail: 'Source responded but returned no vulnerabilities. Either it needs credentials, or its response shape changed.',
+            detail: 'Source responded but returned no vulnerabilities. Its response shape may have changed.',
         };
     }
     return { status: 'OK', detail: null };
+}
+
+/** A row for a source that was never called, so nothing about it is claimed. */
+function notProbed(feed, status, detail) {
+    return {
+        name: feed.name,
+        label: feed.label,
+        enabled: feed.enabled ?? false,
+        status,
+        detail,
+        count: 0,
+        withCvss: 0,
+        severities: {},
+        latencyMs: 0,
+    };
 }
 
 async function probe(feed) {
     const startedAt = Date.now();
     let vulns = [];
     let error = null;
+
+    // A source missing its credentials or its URL returns an empty array
+    // without making a request. Reporting that as EMPTY said the source had
+    // answered, which it had not — and sent the operator looking at the wrong
+    // thing. Asking first is the difference between "broken" and "not set up".
+    const missing = await feed.unconfiguredReason();
+    if (missing) return notProbed(feed, 'NOT_CONFIGURED', missing);
 
     try {
         vulns = (await feed.fetch()) ?? [];
@@ -82,17 +104,7 @@ export async function checkFeedHealth({ force = false } = {}) {
         (await listFeeds()).map(async feed =>
             feed.enabled
                 ? await probe(feed)
-                : Promise.resolve({
-                      name: feed.name,
-                      label: feed.label,
-                      enabled: false,
-                      status: 'DISABLED',
-                      detail: feed.disabledReason ?? null,
-                      count: 0,
-                      withCvss: 0,
-                      severities: {},
-                      latencyMs: 0,
-                  })
+                : notProbed(feed, 'DISABLED', feed.disabledReason ?? null)
         )
     );
 
