@@ -213,6 +213,9 @@ const UNSUPPORTED = {
     // Not a gap that could be closed: Zig identifies a dependency by content.
     ZIG: 'Dependencies are content-addressed by URL and hash; there is no registry.',
     LUAROCKS: 'No lookup against the LuaRocks manifest yet.',
+    // anaconda.org answers per channel, and a repository pinning a channel other
+    // than conda-forge would get an answer about a different build.
+    CONDA: 'A version depends on the channel, and this does not read which channel.',
     CONAN: 'Conan Center is a git tree of recipes with no per-package endpoint.',
     VCPKG: 'Versions come from the registry baseline commit, not from the manifest.',
     // trunk.cocoapods.org could answer this one — the lookup is simply not
