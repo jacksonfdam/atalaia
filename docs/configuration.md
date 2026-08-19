@@ -97,6 +97,7 @@ Cloudflare's quick tunnel needs no account and no token, and downloads its binar
 | `LLM_TIMEOUT_MS` | `90000` local, `20000` hosted | How long a model has to answer. Ollama unloads an idle model and the cycle runs hourly, so nearly every call is a cold start: a 12B writing a 300-word guide measured 21s warm and 30.3s cold. |
 | `MITRE_MAX_RECORDS` | `25` | CVE records fetched per cycle from the MITRE delta — one request each. |
 | `REDHAT_PAGE_SIZE` | `100` | CVEs per Red Hat Security Data page. |
+| `DEBIAN_LIMIT` | `10` | Debian advisories read per list, newest first. One kernel advisory can name three hundred CVEs. |
 | `USN_LIMIT` | `10` | Ubuntu notices per cycle. A single kernel notice can carry hundreds of CVEs. |
 | `REGISTRY_CONCURRENCY` | `6` | Registry lookups at once during a freshness check. |
 | `SCAN_CONCURRENCY` | `10` | Repositories scanned at once — by a fleet sweep and by one-off scan jobs alike. Parallelism does not reduce the number of GitHub requests, only the rate, and a token allows 5000 an hour: raise it for a fleet in the tens, lower it if GitHub starts refusing. |

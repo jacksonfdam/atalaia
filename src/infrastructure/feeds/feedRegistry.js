@@ -54,6 +54,13 @@ const REGISTRY = [
         disabledReason: 'Vendor source. Enable it if you ship Debian or Ubuntu based images.',
     },
     {
+        name: 'debian',
+        label: 'Debian Security Advisories',
+        load: () => import('./debianFeed.js'),
+        defaultEnabled: false,
+        disabledReason: 'Vendor source. Enable it if you ship Debian based images — which most images are.',
+    },
+    {
         name: 'zdi',
         label: 'Zero Day Initiative',
         load: () => import('./zdiFeed.js'),
