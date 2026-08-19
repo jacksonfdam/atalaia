@@ -8,6 +8,10 @@ import Dependency from '../../domain/entities/Dependency.js';
  */
 export const manifestFiles = ['Package.resolved'];
 
+// Package.resolved states the version in the build, so its rows supersede a
+// constraint read from Package.swift. See reconcileDependencies.js.
+export const resolvesVersions = true;
+
 /**
  * Version 1 nests the pins under `object` and names a pin by its repository
  * name; version 2 and 3 hoist them and name it by identity. Both are still in
