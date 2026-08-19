@@ -122,6 +122,13 @@ const LOOKUPS = {
         return versions.length ? versions[versions.length - 1] : (data?.versions?.at(-1) ?? null);
     },
 
+    async HACKAGE(name) {
+        // `preferred` answers with the versions Hackage recommends, newest last,
+        // and excludes the ones a maintainer has deprecated.
+        const data = await get(`https://hackage.haskell.org/package/${encodeURIComponent(name)}/preferred`);
+        return data?.['normal-version']?.[0] ?? null;
+    },
+
     async HEX(name) {
         const data = await get(`https://hex.pm/api/packages/${encodeURIComponent(name)}`);
         // Newest first. `releases` carries pre-releases too, and `latest_stable_version`

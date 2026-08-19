@@ -27,6 +27,8 @@ export const Ecosystem = Object.freeze({
     // with separate naming, and merging them would make a lookup ambiguous.
     CONAN: 'CONAN',
     VCPKG: 'VCPKG',
+    // Cabal and Stack both resolve against Hackage.
+    HACKAGE: 'HACKAGE',
     UNKNOWN: 'UNKNOWN',
 });
 
