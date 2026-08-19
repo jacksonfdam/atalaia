@@ -28,6 +28,8 @@ const NOT_A_PACKAGE = new Set(['ocaml']);
  * @returns {Dependency[]}
  */
 export function parse(fileContent, manifestFileName) {
+    // Anything that is not a dune-project is opam syntax, which includes an
+    // opam.locked — opamLockParser.js reads that one through here.
     return manifestFileName.split('/').pop() === 'dune-project'
         ? fromDuneProject(fileContent, manifestFileName)
         : fromOpam(fileContent, manifestFileName);
