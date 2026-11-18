@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
 import { Window, Body, Loading, Notice, formatDate } from '../components/ui';
-import type { LlmPayload, LlmProvider } from '../types';
+import type { LlmPayload, LlmProvider, ModelListing } from '../types';
 
 /**
  * Which model writes the plain-English explanation on an alert.
@@ -20,6 +20,9 @@ export function LlmSettings({ onAuthLost }: { onAuthLost: () => void }) {
   const [baseUrl, setBaseUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [enabled, setEnabled] = useState(false);
+  const [listing, setListing] = useState<ModelListing | null>(null);
+  const [listingFor, setListingFor] = useState('');
+  const [refreshTick, setRefreshTick] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -33,6 +36,38 @@ export function LlmSettings({ onAuthLost }: { onAuthLost: () => void }) {
     setApiKey('');
     setEnabled(config.enabled);
   }, [payload.data]);
+
+  // Ask the server what it can run whenever the provider or endpoint changes.
+  // Debounced, because the endpoint is typed one character at a time.
+  useEffect(() => {
+    if (!payload.data || !provider) return;
+
+    const query = new URLSearchParams({ provider });
+    if (baseUrl) query.set('baseUrl', baseUrl);
+    const key = query.toString();
+
+    let current = true;
+    setListingFor('');
+    const timer = setTimeout(() => {
+      api
+        .get<ModelListing>(`/settings/llm/models?${key}`)
+        .then(result => {
+          if (!current) return;
+          setListing(result);
+          setListingFor(key);
+        })
+        .catch(() => {
+          if (!current) return;
+          setListing(null);
+          setListingFor(key);
+        });
+    }, 400);
+
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [payload.data, provider, baseUrl, refreshTick]);
 
   const descriptor: LlmProvider | undefined = payload.data?.providers.find(entry => entry.id === provider);
   const locked = payload.data?.envLocked ?? false;
@@ -164,9 +199,15 @@ export function LlmSettings({ onAuthLost }: { onAuthLost: () => void }) {
                 <input
                   disabled={locked}
                   value={model}
+                  list="llm-models"
                   placeholder={descriptor?.defaultModel || 'model name'}
                   onChange={e => setModel(e.target.value)}
                 />
+                <datalist id="llm-models">
+                  {(listing?.models ?? []).map(name => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
               </label>
 
               <label className="row" style={{ gap: '0.3rem', alignSelf: 'flex-end' }}>
@@ -211,6 +252,39 @@ export function LlmSettings({ onAuthLost }: { onAuthLost: () => void }) {
                 </label>
               ) : null}
             </div>
+
+            {listing && !listing.reachable ? (
+              <Notice>
+                Cannot list models: {listing.error} {listing.hint}
+              </Notice>
+            ) : null}
+
+            {listing?.reachable && listing.models.length > 0 ? (
+              <p className="muted">
+                {listing.models.length} model{listing.models.length === 1 ? '' : 's'} available:{' '}
+                {listing.models.slice(0, 8).map(name => (
+                  <button
+                    key={name}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => setModel(name)}
+                    style={{ marginRight: '0.3rem' }}
+                  >
+                    {name}
+                  </button>
+                ))}
+                {listing.models.length > 8 ? `and ${listing.models.length - 8} more in the Model field. ` : ' '}
+                <a href="#refresh" onClick={e => { e.preventDefault(); setRefreshTick(n => n + 1); }}>
+                  Refresh
+                </a>
+              </p>
+            ) : null}
+
+            {listing?.reachable && listing.models.length === 0 && listing.hint ? (
+              <Notice>{listing.hint}</Notice>
+            ) : null}
+
+            {listing && listingFor === '' ? <p className="muted">Checking the server…</p> : null}
 
             {descriptor?.kind === 'hosted' ? (
               <Notice>

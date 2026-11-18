@@ -483,6 +483,14 @@ export interface LlmProvider {
   note: string | null;
 }
 
+/** What a model server says it can run; see GET /settings/llm/models. */
+export interface ModelListing {
+  reachable: boolean;
+  models: string[];
+  error?: string;
+  hint?: string;
+}
+
 export interface LlmPayload {
   providers: LlmProvider[];
   config: {
