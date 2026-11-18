@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { buildFixPrompt } from '../fixPrompt';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useApi } from '../hooks/useApi';
@@ -145,6 +146,7 @@ export function RepositoryDetail({ onAuthLost }: { onAuthLost: () => void }) {
       </Window>
 
       {tab === 'exposure' ? <ExposureTab report={risk.data} loading={risk.loading} /> : null}
+      {tab === 'exposure' && risk.data && risk.data.count > 0 ? <FixPrompt report={risk.data} /> : null}
       {tab === 'report' ? (
         <DependencyReportView
           report={summary.data?.report ?? null}
@@ -344,6 +346,78 @@ function ExposureTab({ report, loading }: { report: RepositoryRiskReport | null;
             </table>
           </div>
         ) : null}
+      </Body>
+    </Window>
+  );
+}
+
+/**
+ * A ready-made brief for a coding agent that fixes what the exposure list shows.
+ *
+ * Editable on purpose: the operator adds "also bump Node" or "open a PR" before
+ * copying. It is rebuilt only when the findings change, never while they type.
+ */
+function FixPrompt({ report }: { report: RepositoryRiskReport }) {
+  const generated = useMemo(() => buildFixPrompt(report), [report]);
+  const [text, setText] = useState(generated);
+  const [copied, setCopied] = useState<'ok' | 'failed' | null>(null);
+
+  useEffect(() => {
+    setText(generated);
+    setCopied(null);
+  }, [generated]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied('ok');
+    } catch {
+      // Clipboard access can be refused (insecure origin, no permission); the
+      // text is selected so the operator can still copy it by hand.
+      document.getElementById('fix-prompt')?.focus();
+      (document.getElementById('fix-prompt') as HTMLTextAreaElement | null)?.select();
+      setCopied('failed');
+    }
+  }
+
+  return (
+    <Window
+      title="FIX.PRM"
+      note="prompt for your agent"
+      accent="var(--lime)"
+      actions={
+        <>
+          <button disabled={text === generated} onClick={() => setText(generated)}>
+            Reset
+          </button>
+          <button className="primary" onClick={copy}>
+            {copied === 'ok' ? 'Copied' : 'Copy'}
+          </button>
+        </>
+      }
+    >
+      <Body>
+        <p className="muted">
+          Paste this into Claude Code, Codex or any coding agent, from a checkout of this repository.
+          It lists every exposed package and where it is declared, and tells the agent to update to a
+          patched, current version.
+        </p>
+        {copied === 'failed' ? (
+          <Notice kind="error">The browser refused clipboard access. The text is selected: copy it with Ctrl/Cmd+C.</Notice>
+        ) : null}
+        <textarea
+          id="fix-prompt"
+          className="mono"
+          value={text}
+          onChange={e => {
+            setText(e.target.value);
+            setCopied(null);
+          }}
+          rows={18}
+          spellCheck={false}
+          style={{ width: '100%', marginTop: '0.5rem', fontSize: '0.75rem' }}
+          aria-label="Prompt for a coding agent"
+        />
       </Body>
     </Window>
   );
