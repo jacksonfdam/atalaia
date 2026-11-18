@@ -29,6 +29,8 @@ Manifests do not declare versions, they declare *constraints* — `^4.17.0`, `~>
 
 Dependencies are **grouped by ecosystem**, since one repository routinely carries several: an Android project shows Gradle, GitHub Actions, its Fastlane gems and npm as separate tables, each with its own counts.
 
+**A prompt to fix what the exposure list shows.** When a repository has open vulnerabilities, its Exposure tab ends with **FIX.PRM**: an editable brief for a coding agent (Claude Code, Codex, anything that reads a prompt). It groups the CVEs by package and manifest file, worst first, and tells the agent to update each package to a patched, current version using the ecosystem's own package manager, run the tests, commit per package and report what it could not fix. Atalaia does not know each advisory's patched version, so the prompt has the agent look it up instead of naming one. It is built in the console from the same exposure data as the list above it; nothing is sent anywhere.
+
 **Finding one among many.** `GET /api/v1/repositories` takes `search`, `org`, `language`, `enabled`, `archived` and `exposure` (`affected` / `exploited` / `clean`), sorts by `name`, `exposure`, `last_scanned_at`, `primary_language`, `org_key` or `updated_at` in either direction, and pages with `limit` (25 by default, 200 at most) and `offset`. The response carries the totals behind the page and the values the console needs for its filter menus. The console exposes all of it in the toolbar above the table.
 
 **Personal accounts.** A token only ever exposes the private repositories of *its own* account, so registering someone else's login lists their public repositories and nothing more. The picker says so when that happens instead of quietly showing a short list.
