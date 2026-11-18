@@ -74,6 +74,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `PUT` | `/api/v1/settings/teams` | Microsoft Teams webhook. |
 | `POST` | `/api/v1/settings/teams/test` | Post a test card to the Teams channel. |
 | `GET` `PUT` | `/api/v1/settings/llm` | Model provider catalog and the configured model. |
+| `GET` | `/api/v1/settings/llm/models` | What a model server can run: `?provider=&baseUrl=`. Always `200`; an unreachable server answers `reachable: false` with the reason. |
 | `POST` | `/api/v1/settings/llm/test` | Send one short prompt to the configured model. |
 | `POST` | `/api/v1/settings/email/test` | Verify the SMTP connection, or `{"send":true}` to deliver a test digest. |
 | `GET` | `/api/v1/reports/weekly` | The digest the email sends: `affecting` grouped by repository, `infrastructure` and `other` capped, `dependencies` behind. `?windowDays=N` changes the period. |

@@ -21,9 +21,11 @@ import { sendTestMessage } from '../../infrastructure/notifySlack.js';
 import {
     describeLlmConfig,
     saveLlmConfig,
+    resolveModelTarget,
     isEnvConfigured as isLlmEnvConfigured,
 } from '../../infrastructure/llm/llmConfig.js';
 import { testLLM } from '../../infrastructure/llm/llmAdapter.js';
+import { listModels } from '../../infrastructure/llm/modelCatalog.js';
 import {
     describeTeamsConfig,
     saveTeamsConfig,
@@ -381,6 +383,24 @@ export function createSettingsRoutes(cache) {
         } catch (error) {
             logger.warn({ err: error }, 'LLM configuration update failed');
             res.status(400).json({ error: error.message });
+        }
+    });
+
+    // GET /settings/llm/models?provider=&baseUrl= — what that server can run.
+    // Always 200: a server that is down is an answer for the form, not a failure.
+    // The key is never a parameter; the stored one is used when it fits.
+    router.get('/llm/models', async (req, res) => {
+        const { provider, baseUrl } = req.query;
+        if (!provider) return res.status(400).json({ error: 'provider is required' });
+
+        try {
+            const target = await resolveModelTarget(String(provider), baseUrl ? String(baseUrl) : undefined);
+            if (!target) return res.status(400).json({ error: `Unknown LLM provider: ${provider}` });
+
+            res.json(await listModels(target));
+        } catch (error) {
+            logger.error({ err: error }, 'Listing LLM models failed');
+            res.status(500).json({ error: error.message });
         }
     });
 

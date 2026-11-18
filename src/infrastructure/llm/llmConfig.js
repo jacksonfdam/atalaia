@@ -241,3 +241,40 @@ function endpointFor(descriptor, pasted) {
 
     return descriptor.api === 'ollama' ? normalizeBaseUrl(url) : normalizeVersionedBaseUrl(url);
 }
+
+/**
+ * Where to ask for the model list, for whatever the form currently says.
+ *
+ * The form can be ahead of what is saved — a provider just picked, an endpoint
+ * half typed — so the provider and endpoint come from the caller. The key never
+ * does: it is the stored one, and only when it was saved for this same provider,
+ * for the reason `saveLlmConfig` already gives.
+ *
+ * @param {string} providerId
+ * @param {string} [baseUrl]
+ * @returns {Promise<{ api: string, baseUrl: string, apiKey: string|null }|null>} null for an unknown provider
+ */
+export async function resolveModelTarget(providerId, baseUrl) {
+    const descriptor = getLlmProvider(providerId);
+    if (!descriptor) return null;
+
+    let apiKey = null;
+    const row = await readRow();
+
+    if (row?.provider === descriptor.id && row.api_key_cipher) {
+        try {
+            apiKey = decrypt(row.api_key_cipher);
+        } catch (err) {
+            logger.error({ err }, 'Failed to decrypt the LLM API key');
+        }
+    }
+
+    return {
+        api: descriptor.api,
+        // A stored endpoint belongs to the stored provider, like its key.
+        baseUrl:
+            endpointFor(descriptor, baseUrl || (row?.provider === descriptor.id ? row.base_url : null)) ??
+            descriptor.baseUrl,
+        apiKey,
+    };
+}

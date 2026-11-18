@@ -17,6 +17,10 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+      # The same value the published port and the health check are built from.
+      # Left to env_file, an exported PORT moves those two while the app keeps
+      # listening on the one in .env, and the health check never connects.
+      - PORT=${PORT:-3000}
       # Required, and it has to be reachable *from inside a container*: a local
       # A database on 127.0.0.1 is the container itself in here. The launcher
       # translates loopback to host.docker.internal for you; running compose by
