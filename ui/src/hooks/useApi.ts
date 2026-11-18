@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, AuthError } from '../api/client';
 
 interface State<T> {
@@ -17,6 +17,13 @@ interface State<T> {
 export function useApi<T>(path: string | null, onAuthLost?: () => void) {
   const [state, setState] = useState<State<T>>({ data: null, error: null, loading: Boolean(path) });
 
+  // The callback is read through a ref, never listed as a dependency. A caller
+  // passing a fresh function on every render (an inline `() => {}`) would
+  // otherwise restart the effect after each response, and each response sets
+  // state and renders again: an endless request loop that fills the tab's memory.
+  const authLost = useRef(onAuthLost);
+  authLost.current = onAuthLost;
+
   const load = useCallback(async () => {
     if (!path) return;
     setState(prev => ({ ...prev, loading: true }));
@@ -26,12 +33,12 @@ export function useApi<T>(path: string | null, onAuthLost?: () => void) {
       setState({ data, error: null, loading: false });
     } catch (err) {
       if (err instanceof AuthError) {
-        onAuthLost?.();
+        authLost.current?.();
         return;
       }
       setState({ data: null, error: (err as Error).message, loading: false });
     }
-  }, [path, onAuthLost]);
+  }, [path]);
 
   useEffect(() => {
     let active = true;
@@ -51,7 +58,7 @@ export function useApi<T>(path: string | null, onAuthLost?: () => void) {
       } catch (err) {
         if (!active) return;
         if (err instanceof AuthError) {
-          onAuthLost?.();
+          authLost.current?.();
           return;
         }
         setState({ data: null, error: (err as Error).message, loading: false });
@@ -61,7 +68,7 @@ export function useApi<T>(path: string | null, onAuthLost?: () => void) {
     return () => {
       active = false;
     };
-  }, [path, onAuthLost]);
+  }, [path]);
 
   return { ...state, reload: load };
 }

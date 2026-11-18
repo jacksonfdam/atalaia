@@ -159,7 +159,7 @@ export function RepositoryDetail({ onAuthLost }: { onAuthLost: () => void }) {
       ) : null}
       {tab === 'technologies' ? <TechnologiesTab report={techs.data} loading={techs.loading} /> : null}
 
-      {repo.data ? <Subscribers repository={repo.data} /> : null}
+      {repo.data ? <Subscribers repository={repo.data} onAuthLost={onAuthLost} /> : null}
     </>
   );
 }
@@ -172,8 +172,8 @@ export function RepositoryDetail({ onAuthLost }: { onAuthLost: () => void }) {
  * rather than two that drift. Subscribing needs to know who you are, and the
  * console has no accounts, so you pick an owner or add one.
  */
-function Subscribers({ repository }: { repository: Repository }) {
-  const owners = useApi<{ owners: Owner[] }>('/owners', () => {});
+function Subscribers({ repository, onAuthLost }: { repository: Repository; onAuthLost: () => void }) {
+  const owners = useApi<{ owners: Owner[] }>('/owners', onAuthLost);
   const [selected, setSelected] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
