@@ -223,6 +223,15 @@ export function createRepositoryRoutes() {
         res.status(202).json({ accepted: true, jobId });
     });
 
+    // GET /repositories/:idOrUrl/scan — progress of this repository's scan, and
+    // how the last one ended (its `output` is the scan result)
+    router.get('/:idOrUrl/scan', async (req, res) => {
+        const repository = await resolveRepository(req.params.idOrUrl);
+        if (!repository) return res.status(404).json({ error: 'Repository not found' });
+
+        res.json(await queueState(QUEUES.REPO_SCAN, `repo:${repository.id}`));
+    });
+
     // POST /repositories/:idOrUrl/scan
     router.post('/:idOrUrl/scan', async (req, res) => {
         const repository = await resolveRepository(req.params.idOrUrl);
@@ -230,11 +239,17 @@ export function createRepositoryRoutes() {
 
         // Queued rather than run here: a scan reads every manifest in the
         // repository over the network, which outlives the console's proxy
-        // timeout on anything but a small project.
-        const { accepted, jobId } = await enqueue(QUEUES.REPO_SCAN, {
-            repositoryId: repository.id,
-            skipVendorLookup: req.body?.skipVendorLookup === true,
-        });
+        // timeout on anything but a small project. The singletonKey only tags
+        // the job (the queue's policy is standard, so it does not refuse a
+        // second one) so GET above can tell this repository's scans apart.
+        const { accepted, jobId } = await enqueue(
+            QUEUES.REPO_SCAN,
+            {
+                repositoryId: repository.id,
+                skipVendorLookup: req.body?.skipVendorLookup === true,
+            },
+            { singletonKey: `repo:${repository.id}` }
+        );
 
         if (!accepted) {
             return res.status(409).json({ error: 'A scan is already queued for this repository' });

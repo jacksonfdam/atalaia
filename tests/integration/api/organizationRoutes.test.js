@@ -489,6 +489,23 @@ describe('dependency freshness', () => {
         expect(res.body).toMatchObject({ running: false, lastRun: null });
     });
 
+    test('exposes the state of a repository scan, which is queued rather than answered', async () => {
+        const state = await request(app).get(`/api/v1/repositories/${repoId}/scan`).set(KEY);
+        expect(state.status).toBe(200);
+        expect(state.body).toMatchObject({ running: false, lastRun: null });
+
+        const queued = await request(app).post(`/api/v1/repositories/${repoId}/scan`).set(KEY).send({});
+        expect(queued.status).toBe(202);
+        expect(queued.body.jobId).toBeTruthy();
+
+        // The tag is what lets the GET above find this repository's job.
+        const running = await request(app).get(`/api/v1/repositories/${repoId}/scan`).set(KEY);
+        expect(running.body.running).toBe(true);
+        expect(running.body.jobId).toBe(queued.body.jobId);
+
+        expect((await request(app).get('/api/v1/repositories/9999/scan').set(KEY)).status).toBe(404);
+    });
+
     test('404s for a repository that does not exist', async () => {
         expect((await request(app).get('/api/v1/repositories/9999/versions').set(KEY)).status).toBe(404);
         expect((await request(app).post('/api/v1/repositories/9999/versions').set(KEY).send({})).status).toBe(404);
