@@ -1,11 +1,12 @@
 import logger from '../logger.js';
-import { getBoss, writeProgress } from './boss.js';
+import { getBoss, writeProgress, enqueue } from './boss.js';
 import { QUEUES, SCHEDULES } from './jobs.js';
 import { getSetting } from '../settings.js';
 import monitorVulns from '../../application/monitorVulns.js';
 import { scanAllRepositories } from '../../application/scanAllRepositories.js';
 import { scanRepository } from '../../application/scanRepository.js';
 import { checkDependencyVersions } from '../../application/checkDependencyVersions.js';
+import { enrichAdvisoryRanges } from '../../application/enrichAdvisoryRanges.js';
 import { buildReport } from '../../application/buildReport.js';
 import { generateExplanations } from '../../application/generateExplanations.js';
 import { sendWeeklyEmail } from '../notifiers/emailNotifier.js';
@@ -91,6 +92,10 @@ export async function registerWorkers() {
         one(async job => {
             logger.info({ jobId: job.id }, 'Monitoring cycle started');
             await monitorVulns();
+
+            // New CVEs may name something the fleet runs and arrive without a
+            // version range; ask for those while the cycle's results are fresh.
+            await enqueue(QUEUES.ADVISORY_ENRICH);
         })
     );
 
@@ -121,6 +126,9 @@ export async function registerWorkers() {
             });
 
             logger.info({ jobId: job.id, ...result }, 'Fleet scan complete');
+
+            // A sweep can introduce dependencies that match CVEs without ranges.
+            await enqueue(QUEUES.ADVISORY_ENRICH);
             return result;
         })
     );
@@ -143,6 +151,10 @@ export async function registerWorkers() {
 
             const result = await scanRepository(repositoryId, provider, { skipVendorLookup });
             logger.info({ jobId: job.id, repositoryId, ...result }, 'Repository scanned');
+
+            // A scan can introduce a dependency that matches a CVE nobody has
+            // ranges for yet.
+            await enqueue(QUEUES.ADVISORY_ENRICH);
             return result;
         })
     );
@@ -202,6 +214,19 @@ export async function registerWorkers() {
                 { jobId: job.id, subscribers, telegram: telegram.sent },
                 'Weekly report sent'
             );
+        })
+    );
+
+    // Version ranges for CVEs stored before anyone had them. Not required for a
+    // finding to exist — without them it reads "unverified" — so a failed run costs
+    // precision, never a finding.
+    await boss.work(
+        QUEUES.ADVISORY_ENRICH,
+        { batchSize: 1 },
+        one(async job => {
+            const result = await enrichAdvisoryRanges();
+            logger.info({ jobId: job.id, ...result }, 'Advisory enrichment finished');
+            return result;
         })
     );
 

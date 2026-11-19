@@ -100,3 +100,29 @@ export async function fetch() {
         return vulns;
     });
 }
+
+/**
+ * The version ranges GitHub publishes for one CVE.
+ *
+ * For a CVE some other feed delivered first, so the ranges are asked for rather
+ * than waited on. One GET; a CVE GitHub has no advisory for is an empty list,
+ * which is an answer, not an error. Rate limits and network failures throw.
+ *
+ * @param {string} cveId
+ * @returns {Promise<ReturnType<typeof affectedPackagesOf>>}
+ */
+export async function fetchPackagesForCve(cveId) {
+    const token = process.env.GITHUB_TOKEN;
+
+    const { data } = await axios.get(GHSA_API_URL, {
+        timeout: FEED_TIMEOUT_MS,
+        headers: {
+            Accept: 'application/vnd.github+json',
+            'User-Agent': USER_AGENT,
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        params: { cve_id: cveId },
+    });
+
+    return Array.isArray(data) ? data.flatMap(affectedPackagesOf) : [];
+}
