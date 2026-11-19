@@ -147,7 +147,12 @@ function groupByRepository(links, presented) {
             entry.via.push({
                 dependency: link.dependency,
                 ecosystem: link.ecosystem,
+                version: link.version ?? null,
                 manifestFile: link.manifest_file,
+                // `affected` when the advisory's range reaches this version,
+                // `unverified` when it could not be checked.
+                verdict: link.verdict ?? 'unverified',
+                patchedIn: link.patchedIn ?? null,
             });
         }
     }
@@ -216,7 +221,7 @@ function groupDependenciesBehind(rows) {
 /**
  * @param {Array} vulnerabilities Everything stored
  * @param {object} [options]
- * @param {Array} [options.links] Rows from vulnerabilityRepositoryLinks()
+ * @param {Array} [options.links] Rows from repositoryLinks() in exposure.js
  * @param {Array} [options.dependencies] Rows from dependenciesWithLatest()
  * @param {number[]} [options.repositoryIds] Scope to these repositories, for a
  *   per-owner digest. Omit for the whole fleet.

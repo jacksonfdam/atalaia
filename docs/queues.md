@@ -16,6 +16,7 @@ Defined once in `src/infrastructure/queue/jobs.js`, which the API, the worker an
 | `deps.versions` | exclusive per repository | 1, after 60s | Ask each registry for the latest published version |
 | `vuln.explain` | singleton | none | Write the model's text — an explanation or a mitigation guide — for a selection of CVEs |
 | `report.weekly` | exclusive | 3, after 5min | The Monday digest |
+| `advisory.enrich` | exclusive | 1, after 10min | Ask GitHub for the version ranges of stored CVEs that name something the fleet runs |
 
 **The definitions are applied on every boot, not only the first.** pg-boss creates a queue idempotently, and idempotent means no-op: an existing queue keeps the options it was created with. So an edit here used to change the file and nothing else — found by shortening an expiry window and watching the old one still apply. Each boot now updates the retries and the expiry to match this file.
 
@@ -40,6 +41,9 @@ Rows in the database, not `node-cron` calls in every process that boots:
 | `monitor.cycle` | the `cronSchedule` setting | `0 * * * *` |
 | `repo.scanAll` | the `repositories.scanCron` setting, and only when `repositories.autoScan` is on | `0 3 * * *` |
 | `report.weekly` | `WEEKLY_REPORT_CRON` | `0 9 * * 1` |
+| `advisory.enrich` | `ADVISORY_ENRICH_CRON` | `30 4 * * *` |
+
+`advisory.enrich` also runs after every monitoring cycle, fleet sweep and single-repository scan: each can introduce a CVE-to-dependency match whose advisory has no version range yet, and those are exactly the ones it asks GitHub about (100 per run, stopping when the rate limit is reached). A `GITHUB_TOKEN` is what makes that affordable; without one GitHub allows 60 requests an hour.
 
 The worker registers them on boot, so changing a schedule in the console takes effect when the worker restarts — the same as it needed before. Turning `autoScan` off *unschedules* the sweep rather than skipping it, so an earlier boot's schedule does not linger.
 

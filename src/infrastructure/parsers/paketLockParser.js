@@ -1,5 +1,5 @@
 import Dependency from '../../domain/entities/Dependency.js';
-import { lowerVersion } from './pickVersion.js';
+import { keepCopies } from './pickVersion.js';
 
 /**
  * Parse a paket.lock.
@@ -49,7 +49,7 @@ export function parse(fileContent, manifestFileName) {
 
         if (existing) {
             // A package can appear in more than one GROUP at different versions.
-            existing.version = lowerVersion(existing.version, version);
+            keepCopies(existing, version);
             continue;
         }
 

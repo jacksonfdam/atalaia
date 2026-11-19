@@ -1,8 +1,6 @@
 import { generateWeeklyReport } from './generateWeeklyReport.js';
-import {
-    vulnerabilityRepositoryLinks,
-    dependenciesWithLatest,
-} from '../infrastructure/cache/repositoryStore.js';
+import { dependenciesWithLatest } from '../infrastructure/cache/repositoryStore.js';
+import { repositoryLinks } from './exposure.js';
 
 /**
  * The digest, assembled.
@@ -19,7 +17,7 @@ import {
 export async function buildReport(cache, options = {}) {
     const [vulnerabilities, links, dependencies] = await Promise.all([
         cache.getAll(),
-        vulnerabilityRepositoryLinks(),
+        repositoryLinks(),
         dependenciesWithLatest(),
     ]);
 

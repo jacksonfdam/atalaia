@@ -192,6 +192,10 @@ export interface Repository {
 /** How exposed a repository is, as returned alongside the list. */
 export interface RepositoryRisk {
   total: number;
+  /** Of `total`: the advisory's range reaches a declared version. */
+  confirmed: number;
+  /** Of `total`: could not be checked against a range. */
+  unverified: number;
   bySeverity: Record<string, number>;
   exploited: boolean;
   worst: Severity | null;
@@ -206,17 +210,29 @@ export interface RepositoryVulnerability {
   status: Status;
   source: string;
   firstSeenAt: string;
+  /** `affected` if any match is proven, else `unverified`. */
+  verdict: MatchVerdict;
   matches: {
     dependency: string;
     ecosystem: string;
     version: string | null;
     manifestFile: string | null;
+    verdict: MatchVerdict;
+    /** Why it could not be checked; null when it was. */
+    reason: string | null;
+    /** First patched version(s), when the advisory says. */
+    patchedIn: string | null;
   }[];
 }
+
+/** Whether an advisory's version range was checked against what a repository declares. */
+export type MatchVerdict = 'affected' | 'unverified';
 
 export interface RepositoryRiskReport {
   repository: { id: number; name: string; url: string; enabled: boolean };
   count: number;
+  confirmed: number;
+  unverified: number;
   exploited: number;
   bySeverity: Record<string, number>;
   worst: Severity | null;
@@ -636,7 +652,14 @@ export interface ReportVulnerability {
   /** The model's explanation, or the advisory text trimmed. Null when neither. */
   explanation: string | null;
   /** Only on the affecting section: the dependencies it arrives through. */
-  via?: { dependency: string; ecosystem: string; manifestFile: string | null }[];
+  via?: {
+    dependency: string;
+    ecosystem: string;
+    version?: string | null;
+    manifestFile: string | null;
+    verdict?: MatchVerdict;
+    patchedIn?: string | null;
+  }[];
 }
 
 /** A section the report caps: `count` is the truth, the rows are a sample. */

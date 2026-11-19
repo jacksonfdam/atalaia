@@ -11,6 +11,7 @@ import { getRepositoryVulnerabilities } from '../../application/repositoryRisk.j
 import { getRepositoryTechnologies } from '../../application/repositoryTechnologies.js';
 import { listOwners } from '../../application/manageOwner.js';
 import { buildReport } from '../../application/buildReport.js';
+import { relevantVulnerabilityIds, relevanceSummary } from '../../application/exposure.js';
 
 /**
  * The tools an agent gets over MCP.
@@ -143,13 +144,15 @@ export function createTools(cache) {
             },
             annotations: READ_ONLY,
             handler: async args => {
-                const result = await cache.query(args);
+                const { relevance, ...filters } = args;
+                const relevantIds = relevance ? await relevantVulnerabilityIds(relevance) : undefined;
+                const result = await cache.query({ ...filters, relevantIds });
                 return {
                     total: result.total,
                     count: result.vulnerabilities.length,
                     limit: result.limit,
                     offset: result.offset,
-                    relevance: await cache.relevanceSummary(),
+                    relevance: await relevanceSummary(),
                     vulnerabilities: result.vulnerabilities.map(summarizeVulnerability),
                 };
             },
@@ -233,7 +236,7 @@ export function createTools(cache) {
             annotations: READ_ONLY,
             handler: async () => ({
                 ...(await cache.stats()),
-                relevance: await cache.relevanceSummary(),
+                relevance: await relevanceSummary(),
             }),
         },
         {

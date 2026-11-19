@@ -63,7 +63,7 @@ The transport is **stateless**: one MCP server per request, no session to keep. 
 | `list_repositories` | The monitored repositories with their exposure. `exposure=affected` narrows to the ones that are hit. |
 | `get_repository` | One repository with its languages, topics and ecosystems. |
 | `list_repository_dependencies` | Every parsed dependency with the latest published version, what is behind, and what nobody has looked up yet. |
-| `list_repository_vulnerabilities` | Which CVEs reach one repository, through which dependency, version and manifest file. |
+| `list_repository_vulnerabilities` | Which CVEs reach one repository, through which dependency, version and manifest file, with a `verdict` (`affected` or `unverified`, and why) and the fixed version when the advisory states one. |
 | `list_owners` | The people alerts route to, and what each of them owns. |
 | `get_weekly_report` | The digest the weekly email sends. |
 | `list_technologies` | The static stack filter in `config/technologies.json`. |

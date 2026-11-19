@@ -11,6 +11,7 @@ import { notifyTeams } from '../infrastructure/notifiers/notifyTeams.js';
 import { notifyTelegram } from '../infrastructure/notifiers/notifyTelegram.js';
 import { notifyDiscord } from '../infrastructure/notifiers/notifyDiscord.js';
 import { has, add, markNotified } from '../infrastructure/cache/postgresCache.js';
+import { replaceAdvisoryPackages } from '../infrastructure/cache/advisoryStore.js';
 import config from '../infrastructure/config.js';
 import logger from '../infrastructure/logger.js';
 import { createLLMAdapter, renderPrompt } from '../infrastructure/llm/llmAdapter.js';
@@ -84,6 +85,29 @@ function getPriorityScore(source) {
 }
 
 /**
+ * Store the version ranges a feed published for a CVE that is already stored.
+ *
+ * Separate from add(), which a known CVE never reaches: the first feed to
+ * deliver a CVE fixes its row, and the sources that carry version ranges rarely
+ * arrive first. Ranges go in per source, so one source never overwrites another.
+ * A failure here costs precision, not the cycle.
+ */
+async function storeRanges(vuln) {
+    const bySource = new Map();
+    for (const pkg of vuln.affectedPackages || []) {
+        bySource.set(pkg.source, [...(bySource.get(pkg.source) ?? []), pkg]);
+    }
+
+    for (const [source, packages] of bySource) {
+        try {
+            await replaceAdvisoryPackages(vuln.cveId, source, packages);
+        } catch (err) {
+            logger.warn({ cveId: vuln.cveId, source, err }, 'Could not store advisory version ranges');
+        }
+    }
+}
+
+/**
  * Merge multiple vulnerabilities with the same CVE ID.
  * Rules:
  *   - severity, description, source, link: from highest-priority source
@@ -122,6 +146,8 @@ function mergeVulnerabilities(vulnsWithSameCve) {
         affectedTechnologies: [
             ...new Set(vulnsWithSameCve.flatMap(v => v.affectedTechnologies || [])),
         ],
+        // Ranges are per source and replaced per source, so none is dropped here.
+        affectedPackages: vulnsWithSameCve.flatMap(v => v.affectedPackages || []),
     });
 }
 
@@ -348,7 +374,10 @@ async function monitorVulns() {
         const newVulns = [];
         for (const vuln of fresh) {
             if (!vuln.cveId) continue;
-            if (await has(vuln.cveId)) continue;
+            if (await has(vuln.cveId)) {
+                await storeRanges(vuln);
+                continue;
+            }
             newVulns.push(vuln);
         }
 
@@ -395,6 +424,15 @@ async function monitorVulns() {
                 logger.warn({ cveId: vuln.cveId, err }, 'LLM explanation failed, using raw description');
             }
 
+            // Stored before anything is sent. A worker killed halfway through
+            // a batch used to leave every unstored finding looking new, and the
+            // next cycle announced the lot a second time. The opposite mistake
+            // — stored, never announced — is the one that leaves a trace:
+            // notified_at stays null. Before the correlation too, which reads the
+            // version ranges stored with the CVE to tell who it really reaches.
+            await add(vuln);
+            await storeRanges(vuln);
+
             // Correlate with repositories and owners
             let correlation = { affectedRepositories: [], owners: [] };
             try {
@@ -402,13 +440,6 @@ async function monitorVulns() {
             } catch (err) {
                 logger.warn({ cveId: vuln.cveId, err }, 'Vulnerability correlation failed');
             }
-
-            // Stored before anything is sent. A worker killed halfway through
-            // a batch used to leave every unstored finding looking new, and the
-            // next cycle announced the lot a second time. The opposite mistake
-            // — stored, never announced — is the one that leaves a trace:
-            // notified_at stays null.
-            await add(vuln);
 
             const highlight = vuln.isCritical() || vuln.isExploited();
             // Every channel, each deciding for itself whether it is configured.
@@ -436,6 +467,7 @@ async function monitorVulns() {
         // was dropped, not the record.
         for (const vuln of recordOnly) {
             await add(vuln);
+            await storeRanges(vuln);
         }
 
         logger.info('Monitoring cycle completed');

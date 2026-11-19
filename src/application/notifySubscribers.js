@@ -3,9 +3,9 @@ import { generateWeeklyReport } from './generateWeeklyReport.js';
 import {
     listOwners,
     getAssignmentsByOwner,
-    vulnerabilityRepositoryLinks,
     dependenciesWithLatest,
 } from '../infrastructure/cache/repositoryStore.js';
+import { repositoryLinks } from './exposure.js';
 import { sendWeeklyEmail, sendRepositoryAlert } from '../infrastructure/notifiers/emailNotifier.js';
 import { sendTelegramDigestTo } from '../infrastructure/notifiers/telegramDigest.js';
 
@@ -108,7 +108,7 @@ export async function sendSubscriberDigests(cache) {
 
     const [vulnerabilities, links, dependencies] = await Promise.all([
         cache.getAll(),
-        vulnerabilityRepositoryLinks(),
+        repositoryLinks(),
         dependenciesWithLatest(),
     ]);
 

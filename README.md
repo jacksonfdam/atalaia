@@ -54,7 +54,7 @@ So the useful question is not whether a model typed the code. It is what stops t
 
 **I read all of it,** slowly, and more than once for anything in the correlation path. Any mistakes left in the codebase are mine.
 
-That is the honest list, and it is shorter than I would like. Correlation currently matches CVEs to repositories by package name rather than by advisory version range; most parsers are untested. Both are written up, with the rest of what I do not claim, in **[docs/correctness.md](docs/correctness.md)** — along with the commands to check any of it yourself.
+That is the honest list, and it is shorter than I would like. Correlation checks advisory version ranges only where GitHub publishes them, and says `unverified` everywhere else; most parsers are untested. Both are written up, with the rest of what I do not claim, in **[docs/correctness.md](docs/correctness.md)** — along with the commands to check any of it yourself.
 
 ## Run it
 

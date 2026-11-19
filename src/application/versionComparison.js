@@ -80,6 +80,16 @@ function toRange(ecosystem, declared) {
     }
 }
 
+/**
+ * A manifest constraint as a semver range, for callers that ask something other
+ * than "is it behind" of it — advisory matching asks which versions it allows.
+ *
+ * @returns {string|null} null when the constraint cannot be translated
+ */
+export function constraintToRange(ecosystem, declared) {
+    return toRange(ecosystem, declared);
+}
+
 /** npm-style ranges pass through; bare versions become exact pins. */
 function normalizeSimple(raw) {
     const value = clean(raw);

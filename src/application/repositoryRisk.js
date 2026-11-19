@@ -1,8 +1,5 @@
-import {
-    getRepository,
-    findVulnerabilitiesForRepository,
-    summarizeRepositoryExposure,
-} from '../infrastructure/cache/repositoryStore.js';
+import { getRepository } from '../infrastructure/cache/repositoryStore.js';
+import { vulnerabilitiesForRepository, repositoryExposure } from './exposure.js';
 
 /**
  * What a repository is exposed to.
@@ -41,7 +38,7 @@ export async function getRepositoryVulnerabilities(repositoryId, options = {}) {
     const repo = await getRepository(repositoryId);
     if (!repo) return null;
 
-    const rows = await findVulnerabilitiesForRepository(repositoryId, options);
+    const rows = await vulnerabilitiesForRepository(repositoryId, options);
 
     // One row per (CVE, matching dependency): the same CVE can arrive through
     // two packages, and knowing which manifest to open is the point.
@@ -51,16 +48,25 @@ export async function getRepositoryVulnerabilities(repositoryId, options = {}) {
         const entry = byCve.get(row.cve_id) ?? { ...hydrate(row), matches: [] };
 
         entry.matches.push({
-            dependency: row.matched_dependency,
-            ecosystem: row.matched_ecosystem,
-            version: row.matched_version,
-            manifestFile: row.matched_manifest,
+            dependency: row.dependency,
+            ecosystem: row.ecosystem,
+            version: row.version,
+            manifestFile: row.manifest_file,
+            // Whether the advisory is proven to reach this version, or could not
+            // be checked (and why), and what first fixes it.
+            verdict: row.verdict,
+            reason: row.reason,
+            patchedIn: row.patchedIn,
         });
 
         byCve.set(row.cve_id, entry);
     }
 
     const vulnerabilities = [...byCve.values()];
+    for (const vuln of vulnerabilities) {
+        vuln.verdict = vuln.matches.some(match => match.verdict === 'affected') ? 'affected' : 'unverified';
+    }
+
     const bySeverity = {};
     for (const vuln of vulnerabilities) {
         bySeverity[vuln.severity] = (bySeverity[vuln.severity] ?? 0) + 1;
@@ -69,6 +75,8 @@ export async function getRepositoryVulnerabilities(repositoryId, options = {}) {
     return {
         repository: { id: repo.id, name: repo.name, url: repo.url, enabled: repo.enabled },
         count: vulnerabilities.length,
+        confirmed: vulnerabilities.filter(vuln => vuln.verdict === 'affected').length,
+        unverified: vulnerabilities.filter(vuln => vuln.verdict === 'unverified').length,
         exploited: vulnerabilities.filter(vuln => vuln.exploited).length,
         bySeverity,
         worst: worstSeverity(bySeverity),
@@ -81,7 +89,7 @@ export async function getRepositoryVulnerabilities(repositoryId, options = {}) {
  * @returns {Map<number, { total: number, bySeverity: Record<string, number>, exploited: number, worst: string|null }>}
  */
 export async function summarizeFleetRisk() {
-    const summary = await summarizeRepositoryExposure();
+    const summary = await repositoryExposure();
 
     for (const [, entry] of summary) {
         entry.worst = worstSeverity(entry.bySeverity);

@@ -65,3 +65,24 @@ export function lowerVersion(kept, candidate) {
 
     return compareVersions(candidate, kept) < 0 ? candidate : kept;
 }
+
+/**
+ * Fold another copy of a package into the row already kept for it.
+ *
+ * `version` stays the lowest, as before — that is the one "how far behind"
+ * should read. But a lockfile can hold 4.17.21 beside a vulnerable 5.0.0, and
+ * "is any copy vulnerable" has to see both, so every distinct version is kept
+ * in `versions` (set only once there is more than one).
+ *
+ * @param {{ version: string|null, versions?: string[] }} existing  Mutated
+ * @param {string|null} candidate
+ */
+export function keepCopies(existing, candidate) {
+    const before = existing.version;
+    existing.version = lowerVersion(before, candidate);
+
+    const all = new Set(existing.versions ?? (before ? [before] : []));
+    if (candidate) all.add(candidate);
+
+    if (all.size > 1) existing.versions = [...all];
+}

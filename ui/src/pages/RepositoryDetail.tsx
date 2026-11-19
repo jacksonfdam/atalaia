@@ -337,14 +337,28 @@ function ExposureTab({ report, loading }: { report: RepositoryRiskReport | null;
   return (
     <Window
       title="EXPOSURE.LST"
-      note={report ? `${report.count} open` : undefined}
+      note={
+        report
+          ? `${report.count} open${report.unverified > 0 ? ` · ${report.unverified} unverified` : ''}`
+          : undefined
+      }
       accent="var(--severity-critical)"
     >
       <Body>
         {loading && !report ? <Loading what="exposure" /> : null}
 
         {report && report.count === 0 ? (
-          <Empty>No known vulnerability reaches this repository's dependencies.</Empty>
+          <Empty>
+            No known vulnerability reaches the versions this repository's dependencies declare.
+          </Empty>
+        ) : null}
+
+        {report && report.unverified > 0 ? (
+          <p className="muted" style={{ marginBottom: '0.5rem' }}>
+            {report.unverified} of these could not be checked against a version range, so they stay
+            listed rather than read as clean. Hover <span className="badge">unverified</span> for the
+            reason.
+          </p>
         ) : null}
 
         {report && report.count > 0 ? (
@@ -375,6 +389,12 @@ function ExposureTab({ report, loading }: { report: RepositoryRiskReport | null;
                         <div key={`${match.dependency}-${match.manifestFile}`}>
                           {match.dependency}
                           {match.version ? `@${match.version}` : ''} · {match.manifestFile ?? '—'}
+                          {match.verdict === 'unverified' ? (
+                            <span className="badge" title={match.reason ?? undefined}>
+                              unverified
+                            </span>
+                          ) : null}
+                          {match.patchedIn ? <span className="muted"> · fixed in {match.patchedIn}</span> : null}
                         </div>
                       ))}
                     </td>

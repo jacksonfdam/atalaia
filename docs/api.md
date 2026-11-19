@@ -58,7 +58,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `POST` | `/api/v1/repositories/:idOrUrl/restore` | Undo a soft delete. |
 | `GET` | `/api/v1/repositories/:idOrUrl/dependencies` | Parsed dependencies, with the latest published version of each. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/versions` | Progress of the freshness check / queue one (`202`, or `409` if that repository is already being checked). |
-| `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. |
+| `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. Each match carries `verdict` (`affected`: the advisory's range reaches the declared version; `unverified`: it could not be checked, with `reason`) and `patchedIn` when the advisory names a fixed version. The response counts `confirmed` and `unverified` apart. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/scan` | Queue a scan of one repository (`202` with a `jobId`) / its progress. The result arrives later: when `running` is false and `lastRun.jobId` is yours, `lastRun.output` holds `repoName` and `dependencyCount`. |
 | `GET` `POST` `DELETE` | `/api/v1/repositories/scan-all` | Progress of the fleet scan / queue one (`202`, or `409` while one runs; `{"concurrency": N}` overrides how many at a time) / cancel it. |

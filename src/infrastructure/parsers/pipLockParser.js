@@ -1,5 +1,6 @@
 import Dependency from '../../domain/entities/Dependency.js';
 import { normalizePythonName } from './pythonNames.js';
+import { keepCopies } from './pickVersion.js';
 
 /**
  * Parse the four Python lockfiles.
@@ -47,7 +48,15 @@ function collector(manifestFileName) {
         add(name, version) {
             if (!name) return;
             const key = normalizePythonName(name);
-            if (byName.has(key)) return;
+            if (byName.has(key)) {
+                // First version seen stays the row's version; the others are only
+                // remembered, so a vulnerable copy is not hidden behind a patched one.
+                const kept = byName.get(key);
+                const first = kept.version;
+                keepCopies(kept, version || null);
+                kept.version = first;
+                return;
+            }
 
             byName.set(
                 key,

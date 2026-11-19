@@ -28,6 +28,8 @@ export const QUEUES = {
     VULN_EXPLAIN: 'vuln.explain',
     /** The Monday digest. */
     REPORT_WEEKLY: 'report.weekly',
+    /** Ask GitHub for the version ranges of CVEs that name something the fleet runs. */
+    ADVISORY_ENRICH: 'advisory.enrich',
     /** Delete spent challenges and long-dead sessions. */
     AUTH_SWEEP: 'auth.sweep',
 };
@@ -106,6 +108,14 @@ export const QUEUE_DEFINITIONS = [
         why: 'One digest per run. Retries are generous because SMTP fails transiently and a missed digest is a week late.',
     },
     {
+        name: QUEUES.ADVISORY_ENRICH,
+        policy: 'exclusive',
+        retryLimit: 1,
+        retryDelay: 600,
+        expireInSeconds: 900,
+        why: 'One pass at a time: two would ask GitHub about the same CVEs and spend the rate limit twice. Retried once, late, because the usual failure is that rate limit.',
+    },
+    {
         name: QUEUES.AUTH_SWEEP,
         policy: 'exclusive',
         retryLimit: 0,
@@ -126,5 +136,6 @@ export const SCHEDULES = [
     { queue: QUEUES.MONITOR_CYCLE, setting: 'cronSchedule', fallback: '0 * * * *' },
     { queue: QUEUES.REPO_SCAN_ALL, setting: 'repositories.scanCron', fallback: '0 3 * * *', enabledSetting: 'repositories.autoScan' },
     { queue: QUEUES.REPORT_WEEKLY, env: 'WEEKLY_REPORT_CRON', fallback: '0 9 * * 1' },
+    { queue: QUEUES.ADVISORY_ENRICH, env: 'ADVISORY_ENRICH_CRON', fallback: '30 4 * * *' },
     { queue: QUEUES.AUTH_SWEEP, env: 'AUTH_SWEEP_CRON', fallback: '17 * * * *' },
 ];
