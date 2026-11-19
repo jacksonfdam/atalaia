@@ -34,6 +34,42 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'technologies', label: 'Technologies' },
 ];
 
+interface ScanResult {
+  repoName: string;
+  dependencyCount: number;
+}
+
+interface ScanState {
+  running: boolean;
+  lastRun: { jobId: string; ok: boolean; error: string | null; output: ScanResult | null } | null;
+}
+
+const SCAN_POLL_MS = 1500;
+const SCAN_GIVE_UP_MS = 10 * 60 * 1000;
+
+/** Queue a scan of one repository and resolve with its result once the worker is done. */
+async function scanAndWait(repositoryId: string): Promise<ScanResult> {
+  const { jobId } = await api.post<{ accepted: boolean; jobId: string }>(
+    `/repositories/${repositoryId}/scan`
+  );
+
+  const deadline = Date.now() + SCAN_GIVE_UP_MS;
+
+  while (Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, SCAN_POLL_MS));
+
+    const state = await api.get<ScanState>(`/repositories/${repositoryId}/scan`);
+    const last = state.lastRun;
+
+    if (state.running || last?.jobId !== jobId) continue;
+
+    if (!last.ok || !last.output) throw new Error(last.error ?? 'The scan failed');
+    return last.output;
+  }
+
+  throw new Error('The scan is still running. Reload this page in a minute to see its result.');
+}
+
 /**
  * One repository, in full.
  *
@@ -83,13 +119,16 @@ export function RepositoryDetail({ onAuthLost }: { onAuthLost: () => void }) {
               disabled={busy}
               onClick={() =>
                 run(async () => {
-                  const res = await api.post<{ dependencyCount: number }>(
-                    `/repositories/${id}/scan`
-                  );
+                  // The scan is a queued job: the POST only says it was accepted.
+                  // Reload after it finishes, not before, or the page re-reads the
+                  // dependencies the scan has not yet replaced.
+                  const result = await scanAndWait(String(id));
                   deps.reload();
                   techs.reload();
                   risk.reload();
-                  return `Scanned: ${res.dependencyCount} dependencies`;
+                  summary.reload();
+                  repo.reload();
+                  return `Scanned ${result.repoName}: ${result.dependencyCount} dependencies`;
                 })
               }
             >

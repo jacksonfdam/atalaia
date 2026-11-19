@@ -60,7 +60,7 @@ curl -X PATCH -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/versions` | Progress of the freshness check / queue one (`202`, or `409` if that repository is already being checked). |
 | `GET` | `/api/v1/repositories/:idOrUrl/vulnerabilities` | Which CVEs reach this repository, and through which dependency. |
 | `GET` `POST` | `/api/v1/repositories/:idOrUrl/technologies` | Languages, topics and ecosystems / re-read languages from the provider. |
-| `POST` | `/api/v1/repositories/:idOrUrl/scan` | Queue a scan of one repository (`202`). |
+| `GET` `POST` | `/api/v1/repositories/:idOrUrl/scan` | Queue a scan of one repository (`202` with a `jobId`) / its progress. The result arrives later: when `running` is false and `lastRun.jobId` is yours, `lastRun.output` holds `repoName` and `dependencyCount`. |
 | `GET` `POST` `DELETE` | `/api/v1/repositories/scan-all` | Progress of the fleet scan / queue one (`202`, or `409` while one runs; `{"concurrency": N}` overrides how many at a time) / cancel it. |
 | `GET` `POST` | `/api/v1/owners` | List / create owners. |
 | `GET` `PATCH` `DELETE` | `/api/v1/owners/:id` | Manage one owner. |
