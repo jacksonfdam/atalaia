@@ -216,7 +216,7 @@ function groupDependenciesBehind(rows) {
 /**
  * @param {Array} vulnerabilities Everything stored
  * @param {object} [options]
- * @param {Array} [options.links] Rows from vulnerabilityRepositoryLinks()
+ * @param {Array} [options.links] Rows from repositoryLinks() in exposure.js
  * @param {Array} [options.dependencies] Rows from dependenciesWithLatest()
  * @param {number[]} [options.repositoryIds] Scope to these repositories, for a
  *   per-owner digest. Omit for the whole fleet.

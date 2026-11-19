@@ -74,14 +74,13 @@ export class RepositoryStorePort {
     }
 
     /**
-     * Find repositories that use a specific vendor/product combination.
-     * Only returns non-deleted repos with non-deleted dependencies.
-     * @param {string} vendor - OpenCVE vendor
-     * @param {string} product - OpenCVE product
-     * @returns {object[]} Repositories with matching dependencies
+     * Every (vulnerability, dependency) pair that shares a name, before the
+     * dependency's version has been checked against the advisory.
+     * @param {{ repositoryId?: number, cveId?: string, enabledOnly?: boolean, includeResolved?: boolean, since?: string }} [options]
+     * @returns {object[]}
      */
-    findAffectedRepositories(vendor, product) {
-        throw new Error('RepositoryStorePort.findAffectedRepositories() not implemented');
+    candidateLinks(options) {
+        throw new Error('RepositoryStorePort.candidateLinks() not implemented');
     }
 
     // ── System Owners ──

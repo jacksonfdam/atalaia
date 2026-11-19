@@ -11,9 +11,9 @@ import logger from '../logger.js';
  * that took the best part of a minute. Unrolling once and hash-joining is the
  * same answer in a fraction of the time.
  *
- * Written here and in postgresCache.js, where the same question drives the
- * relevance counters: the two must agree, and hiding it behind a shared fragment
- * would make it easy to change one and not the other.
+ * The only definition of the join. The relevance counters, the exposure list,
+ * the reports and the alerts all read it through `candidateLinks()`, and what
+ * the version check then clears is decided once, in application/exposure.js.
  */
 const TECHNOLOGY_ROWS = `
     SELECT v.id, v.cve_id, lower(element) AS name
@@ -26,13 +26,13 @@ const TECHNOLOGY_ROWS = `
  * the dependency itself or the vendor's product name for it, so both are here.
  */
 const FLEET_ROWS = `
-    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version,
-           d.manifest_file, lower(d.name) AS match_name
+    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version, d.versions,
+           d.manifest_file, lower(d.name) AS match_name, 'name' AS match_kind
     FROM repository_dependencies d
     WHERE d.deleted_at IS NULL
     UNION ALL
-    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version,
-           d.manifest_file, lower(d.opencve_product) AS match_name
+    SELECT d.id AS dependency_id, d.repository_id, d.ecosystem, d.name, d.version, d.versions,
+           d.manifest_file, lower(d.opencve_product) AS match_name, 'vendor_product' AS match_kind
     FROM repository_dependencies d
     WHERE d.deleted_at IS NULL AND d.opencve_product IS NOT NULL
 `;
@@ -233,36 +233,6 @@ export async function getDependenciesByRepo(repoId, { includeDeleted = false } =
     );
 }
 
-export async function findAffectedRepositories(vendor, product) {
-    return queryAll(
-        `SELECT DISTINCT r.*
-         FROM repositories r
-         JOIN repository_dependencies d ON d.repository_id = r.id
-         WHERE d.opencve_vendor = @vendor AND d.opencve_product = @product
-           AND d.deleted_at IS NULL
-           AND r.deleted_at IS NULL
-           AND r.enabled`,
-        { vendor, product }
-    );
-}
-
-/**
- * Affected repositories by dependency name, for when there is no vendor/product
- * mapping but there is a technology name.
- */
-export async function findAffectedRepositoriesByDepName(depName) {
-    return queryAll(
-        `SELECT DISTINCT r.*
-         FROM repositories r
-         JOIN repository_dependencies d ON d.repository_id = r.id
-         WHERE lower(d.name) = lower(@depName)
-           AND d.deleted_at IS NULL
-           AND r.deleted_at IS NULL
-           AND r.enabled`,
-        { depName }
-    );
-}
-
 // ── System owners ──
 
 export async function addOwner({ name, email, slackUserId = null, telegramChatId = null }) {
@@ -452,55 +422,39 @@ export async function seedVendorProductMappings(mappings) {
 // ── Repository exposure ──
 
 /**
- * Vulnerabilities that touch a repository, by way of its dependencies.
+ * Every (vulnerability, dependency) pair that shares a name — the candidates,
+ * before anything has asked whether the dependency's *version* is affected.
  *
  * The link is computed rather than stored: a dependency list changes with every
  * scan and a vulnerability's technologies can be enriched after the fact, so a
- * stored join would go stale silently. One row per (CVE, matching dependency) —
- * the caller groups them.
+ * stored join would go stale silently. One row per (CVE, dependency, how it
+ * matched); application/exposure.js decides which of them are real.
  *
- * @param {number} repoId
- * @param {{ includeResolved?: boolean }} [options]
+ * @param {object} [options]
+ * @param {number} [options.repositoryId]  One repository
+ * @param {string} [options.cveId]         One vulnerability
+ * @param {boolean} [options.enabledOnly]  Skip repositories switched off
+ * @param {boolean} [options.includeResolved]
+ * @param {string} [options.since]         first_seen_at lower bound, which is what makes a report weekly
  */
-export async function findVulnerabilitiesForRepository(repoId, { includeResolved = false } = {}) {
-    const statusClause = includeResolved ? '' : "AND v.status <> 'RESOLVED'";
-
-    return queryAll(
-        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
-         SELECT v.*,
-                fleet.name AS matched_dependency,
-                fleet.ecosystem AS matched_ecosystem,
-                fleet.version AS matched_version,
-                fleet.manifest_file AS matched_manifest
-         FROM fleet
-         JOIN tech ON tech.name = fleet.match_name
-         JOIN vulnerabilities v ON v.id = tech.id
-         WHERE fleet.repository_id = @repoId
-           ${statusClause}
-         ORDER BY v.cvss_score DESC NULLS LAST, v.cve_id`,
-        { repoId }
-    );
-}
-
-/**
- * Which CVE reaches which repository, and through which dependency.
- *
- * The report's job: one row per (vulnerability, repository, dependency), so the
- * caller can group by whichever of the three it wants. Same join as the exposure
- * summary — the matching rule lives in one pair of fragments, not in three
- * hand-written copies that would drift.
- *
- * @param {{ since?: string, includeResolved?: boolean }} [options]
- *   `since` filters on first_seen_at, which is what makes a report weekly.
- */
-export async function vulnerabilityRepositoryLinks({ since = null, includeResolved = false } = {}) {
-    const clauses = ["r.enabled", 'r.deleted_at IS NULL'];
+export async function candidateLinks({
+    repositoryId = null,
+    cveId = null,
+    enabledOnly = false,
+    includeResolved = false,
+    since = null,
+} = {}) {
+    const clauses = ['r.deleted_at IS NULL'];
+    if (repositoryId !== null) clauses.push('fleet.repository_id = @repositoryId');
+    if (cveId !== null) clauses.push('v.cve_id = @cveId');
+    if (enabledOnly) clauses.push('r.enabled');
     if (!includeResolved) clauses.push("v.status <> 'RESOLVED'");
     if (since) clauses.push('v.first_seen_at >= @since');
 
     return queryAll(
         `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
-         SELECT v.cve_id,
+         SELECT v.id AS vulnerability_id,
+                v.cve_id,
                 v.title,
                 v.severity,
                 v.cvss_score,
@@ -514,16 +468,66 @@ export async function vulnerabilityRepositoryLinks({ since = null, includeResolv
                 r.id   AS repository_id,
                 r.name AS repository_name,
                 r.url  AS repository_url,
+                fleet.dependency_id,
                 fleet.name AS dependency,
                 fleet.ecosystem AS ecosystem,
-                fleet.manifest_file AS manifest_file
+                fleet.version AS version,
+                fleet.versions AS versions,
+                fleet.manifest_file AS manifest_file,
+                fleet.match_kind AS match_kind
          FROM fleet
          JOIN repositories r ON r.id = fleet.repository_id
          JOIN tech ON tech.name = fleet.match_name
          JOIN vulnerabilities v ON v.id = tech.id
          WHERE ${clauses.join(' AND ')}
          ORDER BY r.name, v.cvss_score DESC NULLS LAST, v.cve_id`,
-        { since }
+        { repositoryId, cveId, since }
+    );
+}
+
+/**
+ * What advisories say about the packages of these vulnerabilities.
+ *
+ * @param {number[]} vulnerabilityIds
+ * @returns {Promise<Map<number, { ecosystem: string, name: string, vulnerableRange: string, firstPatched: string|null }[]>>}
+ */
+export async function advisoryPackagesFor(vulnerabilityIds) {
+    const byVulnerability = new Map();
+    if (vulnerabilityIds.length === 0) return byVulnerability;
+
+    const rows = await queryAll(
+        `SELECT vulnerability_id, ecosystem, package_name, vulnerable_range, first_patched
+         FROM advisory_packages
+         WHERE vulnerability_id = ANY(@ids::bigint[])`,
+        { ids: vulnerabilityIds }
+    );
+
+    for (const row of rows) {
+        const list = byVulnerability.get(row.vulnerability_id) ?? [];
+        list.push({
+            ecosystem: row.ecosystem,
+            name: row.package_name,
+            vulnerableRange: row.vulnerable_range,
+            firstPatched: row.first_patched,
+        });
+        byVulnerability.set(row.vulnerability_id, list);
+    }
+
+    return byVulnerability;
+}
+
+/**
+ * @param {number[]} ids
+ * @returns {Promise<object[]>} repository rows, not deleted and enabled
+ */
+export async function getRepositoriesByIds(ids) {
+    if (ids.length === 0) return [];
+
+    return queryAll(
+        `SELECT * FROM repositories
+         WHERE id = ANY(@ids::bigint[]) AND deleted_at IS NULL AND enabled
+         ORDER BY name`,
+        { ids }
     );
 }
 
@@ -598,40 +602,6 @@ export async function repositoryInventory({ repositoryId = null } = {}) {
          ORDER BY name`,
         { repositoryId }
     );
-}
-
-/**
- * How exposed every tracked repository is, in one pass.
- * Used for the list view, where running the per-repository query N times would
- * mean N round trips for a column.
- *
- * @returns {Promise<Map<number, { total: number, bySeverity: Record<string, number>, exploited: boolean }>>}
- */
-export async function summarizeRepositoryExposure() {
-    const rows = await queryAll(
-        `WITH tech AS (${TECHNOLOGY_ROWS}), fleet AS (${FLEET_ROWS})
-         SELECT fleet.repository_id AS "repositoryId",
-                v.severity AS severity,
-                bool_or(v.exploited) AS exploited,
-                COUNT(DISTINCT v.cve_id) AS total
-         FROM fleet
-         JOIN repositories r ON r.id = fleet.repository_id AND r.deleted_at IS NULL
-         JOIN tech ON tech.name = fleet.match_name
-         JOIN vulnerabilities v ON v.id = tech.id AND v.status <> 'RESOLVED'
-         GROUP BY fleet.repository_id, v.severity`
-    );
-
-    const byRepo = new Map();
-
-    for (const row of rows) {
-        const entry = byRepo.get(row.repositoryId) ?? { total: 0, bySeverity: {}, exploited: false };
-        entry.bySeverity[row.severity ?? 'UNKNOWN'] = row.total;
-        entry.total += row.total;
-        entry.exploited = entry.exploited || Boolean(row.exploited);
-        byRepo.set(row.repositoryId, entry);
-    }
-
-    return byRepo;
 }
 
 // Whitelist: the sort column is interpolated into SQL, so it can never come

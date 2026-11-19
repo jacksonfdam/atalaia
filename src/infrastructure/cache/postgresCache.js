@@ -130,50 +130,6 @@ const SORTABLE_COLUMNS = new Set([
     'published_date',
 ]);
 
-/**
- * "Names something this fleet actually uses."
- *
- * One definition, shared by the filter and by the counters, so the number in
- * the header can never disagree with the rows under it. Container images and CI
- * actions are dependencies like any other — `infrastructure` is the same
- * question asked of just those ecosystems.
- *
- * Written as a set to join against rather than as a correlated EXISTS. The
- * EXISTS version re-unrolled every vulnerability's jsonb array once per
- * candidate dependency: with 2200 CVEs and 5800 dependencies that is thirteen
- * million comparisons and a 50-second request. Unrolling each side once lets
- * Postgres hash-join them.
- */
-function relevantVulnerabilityIds(kind) {
-    const ecosystemClause =
-        kind === 'infrastructure'
-            ? "AND d.ecosystem IN ('DOCKER', 'GITHUB_ACTIONS', 'TERRAFORM', 'HELM')"
-            : '';
-
-    // A CVE can name the dependency itself or the vendor's product name for it,
-    // so both are in the set of things this fleet ships.
-    return `SELECT DISTINCT tech.vuln_id
-        FROM (
-            SELECT v2.id AS vuln_id, lower(element) AS name
-            FROM vulnerabilities v2,
-                 jsonb_array_elements_text(v2.affected_technologies) AS element
-        ) AS tech
-        JOIN (
-            SELECT lower(d.name) AS name
-            FROM repository_dependencies d
-            JOIN repositories r ON r.id = d.repository_id
-            WHERE d.deleted_at IS NULL AND r.deleted_at IS NULL AND r.enabled
-              ${ecosystemClause}
-            UNION
-            SELECT lower(d.opencve_product) AS name
-            FROM repository_dependencies d
-            JOIN repositories r ON r.id = d.repository_id
-            WHERE d.deleted_at IS NULL AND r.deleted_at IS NULL AND r.enabled
-              AND d.opencve_product IS NOT NULL
-              ${ecosystemClause}
-        ) AS fleet ON fleet.name = tech.name`;
-}
-
 export const QUERY_LIMIT_MAX = 200;
 export const QUERY_LIMIT_DEFAULT = 50;
 
@@ -190,7 +146,7 @@ export const QUERY_LIMIT_DEFAULT = 50;
  * @param {string} [filters.tech]      Matches one entry of affected_technologies
  * @param {string} [filters.search]    Substring of cve_id or title
  * @param {boolean} [filters.exploited]
- * @param {'affecting'|'infrastructure'} [filters.relevance]
+ * @param {number[]} [filters.relevantIds]  Restrict to these vulnerability ids (see application/exposure.js)
  * @param {number} [filters.limit]
  * @param {number} [filters.offset]
  * @param {string} [filters.sort]      Column from SORTABLE_COLUMNS
@@ -235,8 +191,9 @@ export async function query(filters = {}) {
     // link is the dependency table, which is also where container images and CI
     // actions live, so "affects a Docker image or a workflow" is the same
     // question asked of a narrower set of ecosystems.
-    if (filters.relevance === 'affecting' || filters.relevance === 'infrastructure') {
-        clauses.push(`id IN (${relevantVulnerabilityIds(filters.relevance)})`);
+    if (Array.isArray(filters.relevantIds)) {
+        clauses.push('id = ANY(@relevantIds::bigint[])');
+        params.relevantIds = filters.relevantIds;
     }
 
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -265,28 +222,10 @@ export async function query(filters = {}) {
     return { total, limit, offset, vulnerabilities: rows.map(hydrate) };
 }
 
-/**
- * How much of the database is actually about this fleet.
- *
- * The feeds publish tens of thousands of CVEs a year and almost none of them
- * name something you run — so the console leads with the ones that do, and
- * these are the numbers behind that.
- */
-export async function relevanceSummary() {
-    const openClause = "status <> 'RESOLVED'";
-
-    const count = async where => {
-        const row = await queryOne(`SELECT COUNT(*) AS total FROM vulnerabilities WHERE ${where}`);
-        return row.total;
-    };
-
-    const [total, affecting, infrastructure] = await Promise.all([
-        count(openClause),
-        count(`${openClause} AND id IN (${relevantVulnerabilityIds('affecting')})`),
-        count(`${openClause} AND id IN (${relevantVulnerabilityIds('infrastructure')})`),
-    ]);
-
-    return { total, affecting, infrastructure };
+/** Vulnerabilities not yet resolved. */
+export async function openCount() {
+    const row = await queryOne("SELECT COUNT(*) AS total FROM vulnerabilities WHERE status <> 'RESOLVED'");
+    return row.total;
 }
 
 /**
