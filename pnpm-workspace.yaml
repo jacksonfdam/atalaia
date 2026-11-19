@@ -19,7 +19,9 @@ overrides:
   'form-data@4': ^4.0.6
   'js-yaml@3': ^3.15.1
   'qs@6': ^6.15.3
-  'undici@7': ^7.29.0
+  # CVE-2026-109869 (GHSA-xjj6-f33q-929c): fixed in 7.30.1. cheerio@1.2.0 only asks for
+  # ^7.19.0; remove once cheerio's own range excludes < 7.30.1.
+  'undici@7': ^7.30.2
   'uuid@11': ^11.1.1
   'ws@8': ^8.21.3
   # 8.9.2 is newer than the minimumReleaseAge cutoff; unpin once it ages in.
