@@ -1,5 +1,5 @@
 import Dependency from '../../domain/entities/Dependency.js';
-import { lowerVersion } from './pickVersion.js';
+import { keepCopies } from './pickVersion.js';
 
 /**
  * Parse a Cargo.lock.
@@ -38,7 +38,7 @@ export function parse(fileContent, manifestFileName) {
                 // A crate at two versions is ordinary in Rust — 23 of them in
                 // cargo's own lockfile. See pickVersion.js for why the lower
                 // one is the row worth keeping.
-                existing.version = lowerVersion(existing.version, version);
+                keepCopies(existing, version);
             } else {
                 byName.set(
                     current.name,

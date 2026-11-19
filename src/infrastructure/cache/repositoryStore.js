@@ -195,10 +195,11 @@ export async function replaceDependencies(repoId, deps) {
         for (const dep of deps) {
             await query(
                 `INSERT INTO repository_dependencies
-                     (repository_id, ecosystem, name, version, manifest_file, opencve_vendor, opencve_product)
-                 VALUES (@repositoryId, @ecosystem, @name, @version, @manifestFile, @opencveVendor, @opencveProduct)
+                     (repository_id, ecosystem, name, version, versions, manifest_file, opencve_vendor, opencve_product)
+                 VALUES (@repositoryId, @ecosystem, @name, @version, @versions::jsonb, @manifestFile, @opencveVendor, @opencveProduct)
                  ON CONFLICT (repository_id, ecosystem, name, manifest_file) DO UPDATE SET
                      version = excluded.version,
+                     versions = excluded.versions,
                      opencve_vendor = excluded.opencve_vendor,
                      opencve_product = excluded.opencve_product,
                      updated_at = now(),
@@ -208,6 +209,7 @@ export async function replaceDependencies(repoId, deps) {
                     ecosystem: dep.ecosystem,
                     name: dep.name,
                     version: dep.version || null,
+                    versions: Array.isArray(dep.versions) ? JSON.stringify(dep.versions) : null,
                     manifestFile: dep.manifestFile || null,
                     opencveVendor: dep.opencveVendor || null,
                     opencveProduct: dep.opencveProduct || null,

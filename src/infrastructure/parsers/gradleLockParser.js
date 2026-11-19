@@ -1,5 +1,5 @@
 import Dependency from '../../domain/entities/Dependency.js';
-import { lowerVersion } from './pickVersion.js';
+import { keepCopies } from './pickVersion.js';
 
 /**
  * Parse a gradle.lockfile.
@@ -42,7 +42,7 @@ export function parse(fileContent, manifestFileName) {
         const existing = byName.get(name);
 
         if (existing) {
-            existing.version = lowerVersion(existing.version, module[3]);
+            keepCopies(existing, module[3]);
             continue;
         }
 

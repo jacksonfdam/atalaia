@@ -1,5 +1,5 @@
 import Dependency from '../../domain/entities/Dependency.js';
-import { lowerVersion } from './pickVersion.js';
+import { keepCopies } from './pickVersion.js';
 
 /**
  * Parse a go.sum.
@@ -38,7 +38,7 @@ export function parse(fileContent, manifestFileName) {
         if (existing) {
             // The same module appears once per version in the graph. See
             // pickVersion.js for why the lower one is the row worth keeping.
-            existing.version = lowerVersion(existing.version, version);
+            keepCopies(existing, version);
             continue;
         }
 

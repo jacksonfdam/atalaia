@@ -1,5 +1,5 @@
 import Dependency from '../../domain/entities/Dependency.js';
-import { lowerVersion } from './pickVersion.js';
+import { keepCopies } from './pickVersion.js';
 
 /**
  * Parse what .NET actually restores.
@@ -37,7 +37,7 @@ function collector(manifestFileName) {
 
             const existing = byName.get(name);
             if (existing) {
-                existing.version = lowerVersion(existing.version, version);
+                keepCopies(existing, version);
                 return;
             }
 

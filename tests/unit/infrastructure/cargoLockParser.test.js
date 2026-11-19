@@ -2,7 +2,7 @@ import { describe, test, expect } from '@jest/globals';
 
 const parser = await import('#app/infrastructure/parsers/cargoLockParser.js');
 const { findParsersForFile } = await import('#app/infrastructure/parsers/parserRegistry.js');
-const { compareVersions, lowerVersion } = await import('#app/infrastructure/parsers/pickVersion.js');
+const { compareVersions, lowerVersion, keepCopies } = await import('#app/infrastructure/parsers/pickVersion.js');
 
 // Trimmed from rust-lang/cargo's own lockfile, which has 550 [[package]]
 // blocks: 523 from a registry, 27 workspace members with no source at all, and
@@ -118,6 +118,20 @@ describe('Cargo.lock', () => {
         expect(deps['bitflags']).toBe('1.3.2');
     });
 
+    // The lower copy is what "how far behind" reads, but "is any copy
+    // vulnerable" has to see the other one too.
+    test('every copy of a crate is kept alongside the lower one', () => {
+        const bitflags = parser.parse(CARGO_LOCK, 'Cargo.lock').find(d => d.name === 'bitflags');
+
+        expect(bitflags.version).toBe('1.3.2');
+        expect([...bitflags.versions].sort()).toEqual(['1.3.2', '2.13.0']);
+    });
+
+    test('a crate at one version records no extra copies', () => {
+        const adler = parser.parse(CARGO_LOCK, 'Cargo.lock').find(d => d.name === 'adler2');
+        expect(adler.versions).toBeNull();
+    });
+
     test('the file version key at the top is not a package', () => {
         expect(deps).not.toHaveProperty('version');
     });
@@ -166,5 +180,34 @@ describe('what must not throw', () => {
         const deps = read('[[package]]\nname = "x"\nsource = "registry+https://x"\n');
 
         expect(deps).toEqual({ x: null });
+    });
+});
+
+describe('keeping every copy', () => {
+    test('records the lowest as the version and all of them as versions', () => {
+        const row = { version: '5.0.0' };
+
+        keepCopies(row, '4.17.21');
+        keepCopies(row, '5.0.0');
+
+        expect(row.version).toBe('4.17.21');
+        expect([...row.versions].sort()).toEqual(['4.17.21', '5.0.0']);
+    });
+
+    test('the same version twice is still one copy', () => {
+        const row = { version: '1.0.0' };
+
+        keepCopies(row, '1.0.0');
+
+        expect(row.versions).toBeUndefined();
+    });
+
+    test('an unknown version adds no copy', () => {
+        const row = { version: '1.0.0' };
+
+        keepCopies(row, null);
+
+        expect(row.version).toBe('1.0.0');
+        expect(row.versions).toBeUndefined();
     });
 });
