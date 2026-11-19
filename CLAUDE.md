@@ -66,7 +66,7 @@ Clean Architecture with strict layer boundaries — **`src/domain/` has zero ext
 - **Long work runs detached.** Fleet scans, version checks and monitoring cycles answer `202`, refuse a concurrent run with `409`, and report progress on `GET` at the same path.
 - **Soft deletes.** Repositories, organizations, owners and dependencies are marked deleted; imports never resurrect them, and never flip the operator's `enabled` switch.
 - **A lockfile supersedes the manifest beside it.** A parser that reads resolved versions says so with `export const resolvesVersions = true`, and `reconcileDependencies.js` drops the constraint row for the same package in the same directory tree. Never a list of lockfile names in the scanner.
-- **Counts and filters share one SQL definition**, so a header can never disagree with its rows.
+- **Counts and filters share one definition**, so a header can never disagree with its rows: `application/exposure.js` is the only place that decides which CVE reaches which repository (name match from `repositoryStore.candidateLinks()`, then the advisory version check in `advisoryMatch.js`). A finding is cleared only on a proven `unaffected`; anything uncheckable stays as `unverified` with a reason.
 - **Nothing unverified is claimed.** A feed returning zero items is `EMPTY`, not healthy; an uncomparable version is `unknown` with a reason; an unscanned repository says so rather than reading as clean.
 - Vulnerability identity is `cve_id`; status lifecycle is `OPEN → ACKNOWLEDGED → RESOLVED`.
 - `affected_technologies`, `languages` and `topics` are **jsonb**: they come back parsed, so nothing calls `JSON.parse` on them, and "does this array contain that name" is element equality rather than a substring hunt.

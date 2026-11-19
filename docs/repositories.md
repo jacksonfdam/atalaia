@@ -62,6 +62,8 @@ So the console leads with the ones that land: **Vulnerabilities** defaults to *A
 
 One definition backs both the filter and the counters, so the number in the header can never disagree with the rows beneath it. It depends on scans: a repository nobody scanned has no dependencies, and a CVE cannot be matched to it.
 
+**Fixing a dependency clears the finding.** A name match is only the first step. The advisory's affected version range is then checked against the version the repository declares (the resolved one from a lockfile, or the constraint's allowed versions from a manifest), and a finding is dropped only when that proves the version is not affected. `pillow ==13.0.0` against *affected `< 12.2.0`* is cleared; `pillow ==11.1.0` stays, with *fixed in 12.2.0*. A package that merely shares a word with an advisory — `pip` matching every Python advisory because GitHub lists the ecosystem's name as a technology — is cleared too, when the advisory names its own packages. What cannot be checked stays listed with an **unverified** badge and the reason on hover, and the exposure header counts the two apart. Rescan after fixing: **Scan now** waits for the scan, then shows the result. See [correctness](correctness.md) for what is and is not checked.
+
 ## When a vulnerability reaches a repository
 
 A CVE only matters here if it lands in something you ship, so Atalaia answers that in both directions:
