@@ -147,7 +147,12 @@ function groupByRepository(links, presented) {
             entry.via.push({
                 dependency: link.dependency,
                 ecosystem: link.ecosystem,
+                version: link.version ?? null,
                 manifestFile: link.manifest_file,
+                // `affected` when the advisory's range reaches this version,
+                // `unverified` when it could not be checked.
+                verdict: link.verdict ?? 'unverified',
+                patchedIn: link.patchedIn ?? null,
             });
         }
     }

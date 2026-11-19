@@ -18,7 +18,7 @@ import { summarizeFleetRisk, worstSeverity } from './repositoryRisk.js';
 
 const SEVERITY_RANK = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, UNKNOWN: 0 };
 
-const EMPTY_RISK = { total: 0, bySeverity: {}, exploited: false, worst: null };
+const EMPTY_RISK = { total: 0, confirmed: 0, unverified: 0, bySeverity: {}, exploited: false, worst: null };
 
 function clampLimit(raw) {
     const parsed = parseInt(raw, 10);

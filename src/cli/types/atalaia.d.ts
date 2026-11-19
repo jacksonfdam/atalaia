@@ -134,8 +134,6 @@ declare module '#app/infrastructure/cache/repositoryStore.js' {
     repoId: number,
     options?: { includeDeleted?: boolean }
   ): any[];
-  export function findAffectedRepositories(vendor: string, product: string): any[];
-  export function findAffectedRepositoriesByDepName(depName: string): any[];
   export function listRepositories(options?: { includeDeleted?: boolean }): any[];
   export function listOwners(options?: { includeDeleted?: boolean }): any[];
   export function getAllUniqueDependencies(): any[];
